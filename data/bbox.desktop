@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=bbox
+Comment=A lightweight stacking window manager
+Exec=bbox
+Type=Application
+DesktopNames=BBOX
+Keywords=window manager;
