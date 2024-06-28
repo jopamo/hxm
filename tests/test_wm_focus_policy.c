@@ -30,7 +30,7 @@ void test_focus_on_finish_manage() {
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
     // 1. Manage first normal window -> should get focus
-    void *h1_hot_ptr, *h1_cold_ptr;
+    void *h1_hot_ptr = NULL, *h1_cold_ptr = NULL;
     handle_t h1 = slotmap_alloc(&s.clients, &h1_hot_ptr, &h1_cold_ptr);
     client_hot_t* h1_hot = (client_hot_t*)h1_hot_ptr;
     h1_hot->self = h1;
@@ -53,7 +53,7 @@ void test_focus_on_finish_manage() {
     assert(stub_grab_button_count == 3);  // Grabbed buttons 1, 2, 3
 
     // 2. Manage second normal window -> should NOT get focus (prevention of stealing)
-    void *h2_hot_ptr, *h2_cold_ptr;
+    void *h2_hot_ptr = NULL, *h2_cold_ptr = NULL;
     handle_t h2 = slotmap_alloc(&s.clients, &h2_hot_ptr, &h2_cold_ptr);
     client_hot_t* h2_hot = (client_hot_t*)h2_hot_ptr;
     h2_hot->self = h2;
@@ -72,7 +72,7 @@ void test_focus_on_finish_manage() {
     assert(s.focused_client == h1);  // Focus stayed on h1
 
     // 3. Manage a dialog -> should get focus (allowed stealing)
-    void *h3_hot_ptr, *h3_cold_ptr;
+    void *h3_hot_ptr = NULL, *h3_cold_ptr = NULL;
     handle_t h3 = slotmap_alloc(&s.clients, &h3_hot_ptr, &h3_cold_ptr);
     client_hot_t* h3_hot = (client_hot_t*)h3_hot_ptr;
     h3_hot->self = h3;
@@ -125,7 +125,7 @@ void test_mru_cycling() {
     // Create 3 windows
     handle_t h[3];
     for (int i = 0; i < 3; i++) {
-        void *hot_ptr, *cold_ptr;
+        void *hot_ptr = NULL, *cold_ptr = NULL;
         h[i] = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
         client_hot_t* hot = (client_hot_t*)hot_ptr;
         hot->self = h[i];
@@ -206,11 +206,9 @@ void test_move_interaction() {
     s.focused_client = HANDLE_INVALID;
     hash_map_init(&s.window_to_client);
     hash_map_init(&s.frame_to_client);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
-
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->self = h;
@@ -283,7 +281,7 @@ void test_title_update() {
     hash_map_init(&s.frame_to_client);
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;

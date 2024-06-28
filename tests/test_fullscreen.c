@@ -31,9 +31,9 @@ void test_fullscreen_decorations() {
     s.config.fullscreen_use_workarea = false;
 
     // Workarea/Screen setup
-    xcb_screen_t screen;
-    screen.width_in_pixels = 1920;
-    screen.height_in_pixels = 1080;
+    // xcb_screen_t screen;
+    // screen.width_in_pixels = 1920;
+    // screen.height_in_pixels = 1080;
     // We can't easily mock xcb_setup_roots_iterator output without complex stubs.
     // However, wm_client_update_state calls xcb_setup_roots_iterator...
     // The stub for xcb_setup_roots_iterator returns a static screen.

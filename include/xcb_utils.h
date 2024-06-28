@@ -49,6 +49,7 @@ struct atoms {
     xcb_atom_t _NET_DESKTOP_NAMES;
     xcb_atom_t _NET_WM_DESKTOP;
     xcb_atom_t _NET_WM_ICON;
+    xcb_atom_t _NET_CLOSE_WINDOW;
 
     xcb_atom_t UTF8_STRING;
     xcb_atom_t COMPOUND_TEXT;

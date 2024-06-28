@@ -1086,6 +1086,15 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         }
         return;
     }
+
+    if (ev->type == atoms._NET_CLOSE_WINDOW) {
+        handle_t h = server_get_client_by_window(s, ev->window);
+        if (h != HANDLE_INVALID) {
+            LOG_INFO("Client requested close via _NET_CLOSE_WINDOW");
+            client_close(s, h);
+        }
+        return;
+    }
 }
 
 // Placement / workspaces

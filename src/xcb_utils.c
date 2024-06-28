@@ -50,6 +50,7 @@ static const char* atom_names[] = {
     "_NET_DESKTOP_NAMES",
     "_NET_WM_DESKTOP",
     "_NET_WM_ICON",
+    "_NET_CLOSE_WINDOW",
     "UTF8_STRING",
     "COMPOUND_TEXT",
     "WM_S0",

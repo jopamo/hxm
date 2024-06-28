@@ -31,7 +31,7 @@ void test_transient_stacking() {
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
     // Allocate Parent
-    void *p_hot_ptr, *p_cold_ptr;
+    void *p_hot_ptr = NULL, *p_cold_ptr = NULL;
     handle_t hp = slotmap_alloc(&s.clients, &p_hot_ptr, &p_cold_ptr);
     client_hot_t* hp_hot = (client_hot_t*)p_hot_ptr;
     hp_hot->self = hp;
@@ -44,7 +44,7 @@ void test_transient_stacking() {
     stack_raise(&s, hp);
 
     // Allocate Transient
-    void *t_hot_ptr, *t_cold_ptr;
+    void *t_hot_ptr = NULL, *t_cold_ptr = NULL;
     handle_t ht = slotmap_alloc(&s.clients, &t_hot_ptr, &t_cold_ptr);
     client_hot_t* ht_hot = (client_hot_t*)t_hot_ptr;
     ht_hot->self = ht;
@@ -100,7 +100,7 @@ void test_transient_focus_return() {
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
     // Parent
-    void *p_hot_ptr, *p_cold_ptr;
+    void *p_hot_ptr = NULL, *p_cold_ptr = NULL;
     handle_t hp = slotmap_alloc(&s.clients, &p_hot_ptr, &p_cold_ptr);
     client_hot_t* hp_hot = (client_hot_t*)p_hot_ptr;
     hp_hot->self = hp;
@@ -111,7 +111,7 @@ void test_transient_focus_return() {
     list_init(&hp_hot->transients_head);
 
     // Transient
-    void *t_hot_ptr, *t_cold_ptr;
+    void *t_hot_ptr = NULL, *t_cold_ptr = NULL;
     handle_t ht = slotmap_alloc(&s.clients, &t_hot_ptr, &t_cold_ptr);
     client_hot_t* ht_hot = (client_hot_t*)t_hot_ptr;
     ht_hot->self = ht;

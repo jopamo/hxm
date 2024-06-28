@@ -120,6 +120,13 @@ test_icccm = executable('test_icccm',
 )
 test('icccm', test_icccm)
 
+test_net_close = executable('test_net_close',
+  ['tests/test_net_close.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('net_close', test_net_close)
+
 test_wm_class = executable('test_wm_class',
   ['tests/test_wm_class.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
