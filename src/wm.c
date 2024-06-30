@@ -106,6 +106,7 @@ void wm_become(server_t* s) {
         atoms._NET_WM_STATE_BELOW,
         atoms._NET_WM_STATE_STICKY,
         atoms._NET_WM_STATE_DEMANDS_ATTENTION,
+        atoms._NET_WM_STATE_HIDDEN,
         atoms._NET_WM_WINDOW_TYPE,
         atoms._NET_WM_WINDOW_TYPE_DOCK,
         atoms._NET_WM_WINDOW_TYPE_DIALOG,
@@ -123,6 +124,23 @@ void wm_become(server_t* s) {
         atoms._NET_WORKAREA,
         atoms._NET_DESKTOP_NAMES,
         atoms._NET_DESKTOP_VIEWPORT,
+        atoms._NET_CLOSE_WINDOW,
+        atoms._NET_WM_PID,
+        atoms._NET_DESKTOP_GEOMETRY,
+        atoms._NET_FRAME_EXTENTS,
+        atoms._NET_WM_ALLOWED_ACTIONS,
+        atoms._NET_WM_ACTION_MOVE,
+        atoms._NET_WM_ACTION_RESIZE,
+        atoms._NET_WM_ACTION_MINIMIZE,
+        atoms._NET_WM_ACTION_SHADE,
+        atoms._NET_WM_ACTION_STICK,
+        atoms._NET_WM_ACTION_MAXIMIZE_HORZ,
+        atoms._NET_WM_ACTION_MAXIMIZE_VERT,
+        atoms._NET_WM_ACTION_FULLSCREEN,
+        atoms._NET_WM_ACTION_CHANGE_DESKTOP,
+        atoms._NET_WM_ACTION_CLOSE,
+        atoms._NET_WM_ACTION_ABOVE,
+        atoms._NET_WM_ACTION_BELOW,
     };
 
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_SUPPORTED, XCB_ATOM_ATOM, 32,
@@ -168,6 +186,14 @@ void wm_become(server_t* s) {
     uint32_t pid = (uint32_t)getpid();
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, s->supporting_wm_check, atoms._NET_WM_PID, XCB_ATOM_CARDINAL, 32,
                         1, &pid);
+    // Also set on root for completeness (some pagers check root)
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_WM_PID, XCB_ATOM_CARDINAL, 32, 1, &pid);
+
+    // _NET_DESKTOP_GEOMETRY
+    xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
+    uint32_t geometry[] = {screen->width_in_pixels, screen->height_in_pixels};
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32, 2,
+                        geometry);
 
     // _NET_NUMBER_OF_DESKTOPS / _NET_CURRENT_DESKTOP
     s->desktop_count = s->config.desktop_count ? s->config.desktop_count : 1;
@@ -310,7 +336,7 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     if (ev->atom == atoms.WM_NAME || ev->atom == atoms._NET_WM_NAME) {
         hot->dirty |= DIRTY_TITLE;
     } else if (ev->atom == atoms.WM_NORMAL_HINTS) {
-        hot->dirty |= DIRTY_HINTS;
+        hot->dirty |= DIRTY_HINTS | DIRTY_STATE;
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
         s->root_dirty |= ROOT_DIRTY_WORKAREA;
@@ -355,6 +381,11 @@ void wm_flush_dirty(server_t* s) {
                 s->conn, hot->xid,
                 XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
                 client_values);
+
+            // Set _NET_FRAME_EXTENTS
+            uint32_t extents[4] = {bw, bw, th + bw, bw};
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL,
+                                32, 4, extents);
 
             // Update server state immediately to ensure redraw uses correct geometry
             hot->server = hot->desired;
@@ -424,6 +455,31 @@ void wm_flush_dirty(server_t* s) {
 
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_STATE, XCB_ATOM_ATOM, 32, count,
                                 state_atoms);
+
+            // Set _NET_WM_ALLOWED_ACTIONS
+            xcb_atom_t actions[16];
+            uint32_t num_actions = 0;
+            actions[num_actions++] = atoms._NET_WM_ACTION_MOVE;
+            actions[num_actions++] = atoms._NET_WM_ACTION_MINIMIZE;
+            actions[num_actions++] = atoms._NET_WM_ACTION_SHADE;
+            actions[num_actions++] = atoms._NET_WM_ACTION_STICK;
+            actions[num_actions++] = atoms._NET_WM_ACTION_CHANGE_DESKTOP;
+            actions[num_actions++] = atoms._NET_WM_ACTION_CLOSE;
+            actions[num_actions++] = atoms._NET_WM_ACTION_ABOVE;
+            actions[num_actions++] = atoms._NET_WM_ACTION_BELOW;
+
+            bool fixed = (hot->hints.max_w > 0 && hot->hints.min_w == hot->hints.max_w && hot->hints.max_h > 0 &&
+                          hot->hints.min_h == hot->hints.max_h);
+
+            if (!fixed) {
+                actions[num_actions++] = atoms._NET_WM_ACTION_RESIZE;
+                actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_HORZ;
+                actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_VERT;
+                actions[num_actions++] = atoms._NET_WM_ACTION_FULLSCREEN;
+            }
+
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_ALLOWED_ACTIONS, XCB_ATOM_ATOM,
+                                32, num_actions, actions);
 
             hot->dirty &= ~DIRTY_STATE;
         }

@@ -206,6 +206,36 @@ void client_finish_manage(server_t* s, handle_t h) {
     // 3. Reparent
     xcb_reparent_window(s->conn, hot->xid, hot->frame, bw, th);
 
+    // Set _NET_FRAME_EXTENTS (before mapping)
+    uint32_t extents[4] = {bw, bw, th + bw, bw};
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4,
+                        extents);
+
+    // Set _NET_WM_ALLOWED_ACTIONS (before mapping)
+    xcb_atom_t actions[16];
+    uint32_t num_actions = 0;
+    actions[num_actions++] = atoms._NET_WM_ACTION_MOVE;
+    actions[num_actions++] = atoms._NET_WM_ACTION_MINIMIZE;
+    actions[num_actions++] = atoms._NET_WM_ACTION_SHADE;
+    actions[num_actions++] = atoms._NET_WM_ACTION_STICK;
+    actions[num_actions++] = atoms._NET_WM_ACTION_CHANGE_DESKTOP;
+    actions[num_actions++] = atoms._NET_WM_ACTION_CLOSE;
+    actions[num_actions++] = atoms._NET_WM_ACTION_ABOVE;
+    actions[num_actions++] = atoms._NET_WM_ACTION_BELOW;
+
+    bool fixed = (hot->hints.max_w > 0 && hot->hints.min_w == hot->hints.max_w && hot->hints.max_h > 0 &&
+                  hot->hints.min_h == hot->hints.max_h);
+
+    if (!fixed) {
+        actions[num_actions++] = atoms._NET_WM_ACTION_RESIZE;
+        actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_HORZ;
+        actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_VERT;
+        actions[num_actions++] = atoms._NET_WM_ACTION_FULLSCREEN;
+    }
+
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_ALLOWED_ACTIONS, XCB_ATOM_ATOM, 32,
+                        num_actions, actions);
+
     // 4. Map if visible on current desktop
     bool visible = hot->sticky || (hot->desktop == (int32_t)s->current_desktop);
     if (visible) {

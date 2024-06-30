@@ -127,6 +127,13 @@ test_net_close = executable('test_net_close',
 )
 test('net_close', test_net_close)
 
+test_ewmh_ext = executable('test_ewmh_ext',
+  ['tests/test_ewmh_ext.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('ewmh_ext', test_ewmh_ext)
+
 test_wm_class = executable('test_wm_class',
   ['tests/test_wm_class.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,

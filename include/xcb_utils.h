@@ -50,6 +50,21 @@ struct atoms {
     xcb_atom_t _NET_WM_DESKTOP;
     xcb_atom_t _NET_WM_ICON;
     xcb_atom_t _NET_CLOSE_WINDOW;
+    xcb_atom_t _NET_DESKTOP_GEOMETRY;
+    xcb_atom_t _NET_FRAME_EXTENTS;
+    xcb_atom_t _NET_WM_ALLOWED_ACTIONS;
+    xcb_atom_t _NET_WM_ACTION_MOVE;
+    xcb_atom_t _NET_WM_ACTION_RESIZE;
+    xcb_atom_t _NET_WM_ACTION_MINIMIZE;
+    xcb_atom_t _NET_WM_ACTION_SHADE;
+    xcb_atom_t _NET_WM_ACTION_STICK;
+    xcb_atom_t _NET_WM_ACTION_MAXIMIZE_HORZ;
+    xcb_atom_t _NET_WM_ACTION_MAXIMIZE_VERT;
+    xcb_atom_t _NET_WM_ACTION_FULLSCREEN;
+    xcb_atom_t _NET_WM_ACTION_CHANGE_DESKTOP;
+    xcb_atom_t _NET_WM_ACTION_CLOSE;
+    xcb_atom_t _NET_WM_ACTION_ABOVE;
+    xcb_atom_t _NET_WM_ACTION_BELOW;
 
     xcb_atom_t UTF8_STRING;
     xcb_atom_t COMPOUND_TEXT;

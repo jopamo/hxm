@@ -64,16 +64,35 @@ xcb_void_cookie_t xcb_change_window_attributes(xcb_connection_t* c, xcb_window_t
     return (xcb_void_cookie_t){0};
 }
 
+// Global variables for property testing
+xcb_window_t stub_last_prop_window = 0;
+xcb_atom_t stub_last_prop_atom = 0;
+xcb_atom_t stub_last_prop_type = 0;
+uint32_t stub_last_prop_len = 0;
+uint8_t stub_last_prop_data[1024];
+
 xcb_void_cookie_t xcb_change_property(xcb_connection_t* c, uint8_t mode, xcb_window_t window, xcb_atom_t property,
                                       xcb_atom_t type, uint8_t format, uint32_t data_len, const void* data) {
     (void)c;
     (void)mode;
-    (void)window;
-    (void)property;
-    (void)type;
     (void)format;
-    (void)data_len;
-    (void)data;
+
+    stub_last_prop_window = window;
+    stub_last_prop_atom = property;
+    stub_last_prop_type = type;
+    stub_last_prop_len = data_len;
+
+    uint32_t byte_len = 0;
+    if (format == 8)
+        byte_len = data_len;
+    else if (format == 16)
+        byte_len = data_len * 2;
+    else if (format == 32)
+        byte_len = data_len * 4;
+
+    if (byte_len > sizeof(stub_last_prop_data)) byte_len = sizeof(stub_last_prop_data);
+    memcpy(stub_last_prop_data, data, byte_len);
+
     return (xcb_void_cookie_t){0};
 }
 

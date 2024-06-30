@@ -33,6 +33,9 @@ void test_focus_on_finish_manage() {
     void *h1_hot_ptr = NULL, *h1_cold_ptr = NULL;
     handle_t h1 = slotmap_alloc(&s.clients, &h1_hot_ptr, &h1_cold_ptr);
     client_hot_t* h1_hot = (client_hot_t*)h1_hot_ptr;
+    memset(h1_hot, 0, sizeof(client_hot_t));
+    memset(h1_cold_ptr, 0, sizeof(client_cold_t));
+    render_init(&h1_hot->render_ctx);
     h1_hot->self = h1;
     h1_hot->xid = 101;
     h1_hot->type = WINDOW_TYPE_NORMAL;
@@ -56,6 +59,8 @@ void test_focus_on_finish_manage() {
     void *h2_hot_ptr = NULL, *h2_cold_ptr = NULL;
     handle_t h2 = slotmap_alloc(&s.clients, &h2_hot_ptr, &h2_cold_ptr);
     client_hot_t* h2_hot = (client_hot_t*)h2_hot_ptr;
+    memset(h2_hot, 0, sizeof(client_hot_t));
+    render_init(&h2_hot->render_ctx);
     h2_hot->self = h2;
     h2_hot->xid = 102;
     h2_hot->type = WINDOW_TYPE_NORMAL;
@@ -75,6 +80,8 @@ void test_focus_on_finish_manage() {
     void *h3_hot_ptr = NULL, *h3_cold_ptr = NULL;
     handle_t h3 = slotmap_alloc(&s.clients, &h3_hot_ptr, &h3_cold_ptr);
     client_hot_t* h3_hot = (client_hot_t*)h3_hot_ptr;
+    memset(h3_hot, 0, sizeof(client_hot_t));
+    render_init(&h3_hot->render_ctx);
     h3_hot->self = h3;
     h3_hot->xid = 103;
     h3_hot->type = WINDOW_TYPE_DIALOG;
@@ -128,6 +135,8 @@ void test_mru_cycling() {
         void *hot_ptr = NULL, *cold_ptr = NULL;
         h[i] = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
         client_hot_t* hot = (client_hot_t*)hot_ptr;
+        memset(hot, 0, sizeof(client_hot_t));
+        render_init(&hot->render_ctx);
         hot->self = h[i];
         hot->xid = 100 + i;
         hot->type = WINDOW_TYPE_NORMAL;
@@ -211,6 +220,7 @@ void test_move_interaction() {
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
+    memset(hot, 0, sizeof(client_hot_t));
     hot->self = h;
     hot->xid = 100;
     hot->frame = 200;
@@ -284,6 +294,7 @@ void test_title_update() {
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
+    memset(hot, 0, sizeof(client_hot_t));
     client_cold_t* cold = (client_cold_t*)cold_ptr;
     hot->self = h;
     hot->xid = 100;

@@ -1,0 +1,212 @@
+#include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "client.h"
+#include "event.h"
+#include "wm.h"
+#include "xcb_utils.h"
+
+// External stubs counters/variables
+extern xcb_window_t stub_last_prop_window;
+extern xcb_atom_t stub_last_prop_atom;
+extern xcb_atom_t stub_last_prop_type;
+extern uint32_t stub_last_prop_len;
+extern uint8_t stub_last_prop_data[1024];
+
+volatile sig_atomic_t g_reload_pending = 0;
+
+void test_frame_extents() {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+    s.is_test = true;
+    s.root_depth = 24;
+    s.root_visual_type = xcb_get_visualtype(NULL, 0);
+    s.conn = (xcb_connection_t*)malloc(1);
+
+    // Init config
+    config_init_defaults(&s.config);
+    s.config.theme.border_width = 5;
+    s.config.theme.title_height = 20;
+
+    // Init atoms
+    atoms._NET_FRAME_EXTENTS = 200;
+
+    if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+
+    // Manually setup a client to simulate what client_finish_manage does,
+    // but calling wm_flush_dirty is hard because it relies on the loop and hash maps.
+    // Instead, I'll invoke client_finish_manage logic partially or simulate the property set.
+    // Actually, I modified client_finish_manage to call xcb_change_property.
+    // So I can just call client_finish_manage if I setup enough context (hash maps).
+
+    hash_map_init(&s.window_to_client);
+    hash_map_init(&s.frame_to_client);
+    list_init(&s.focus_history);
+    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    hot->self = h;
+    hot->xid = 123;
+    hot->state = STATE_NEW;
+    hot->desired.x = 0;
+    hot->desired.y = 0;
+    hot->desired.w = 100;
+    hot->desired.h = 100;
+    list_init(&hot->stacking_node);
+    list_init(&hot->transient_sibling);
+    list_init(&hot->transients_head);
+    list_init(&hot->focus_node);
+    hot->visual_id = 0;
+
+    // We want to capture the property change for _NET_FRAME_EXTENTS
+    // Reset stub variables
+    stub_last_prop_atom = 0;
+
+    // Call client_finish_manage
+    // Note: this will do many things including setting properties.
+    // We hope _NET_FRAME_EXTENTS is set.
+    // The order matters. It sets _NET_FRAME_EXTENTS then _NET_WM_ALLOWED_ACTIONS then _NET_WM_DESKTOP...
+    // But since xcb_change_property overwrites the stub variables, we might miss it if subsequent calls happen.
+    // Wait, client_finish_manage sets many properties.
+    // The stub only stores the LAST one.
+    // _NET_WM_DESKTOP is set near the end.
+
+    // To verify _NET_FRAME_EXTENTS, I should probably call wm_flush_dirty with DIRTY_GEOM,
+    // because that sets _NET_FRAME_EXTENTS and returns.
+    // But wm_flush_dirty checks for dirty flags.
+
+    hot->state = STATE_MAPPED;
+    hot->frame = 456;
+    hot->dirty = DIRTY_GEOM;
+
+    // Clear last prop
+    stub_last_prop_atom = 0;
+
+    wm_flush_dirty(&s);
+
+    // Now check if _NET_FRAME_EXTENTS was set
+    // It is set inside the DIRTY_GEOM block.
+    // But wait, xcb_configure_window is also called.
+    // And DIRTY_GEOM does NOT trigger other property changes in the same block usually.
+    // So if I only set DIRTY_GEOM, it should be the last property change in that block?
+    // Actually xcb_configure_window is not a property change.
+    // So _NET_FRAME_EXTENTS should be the last property change if I only set DIRTY_GEOM.
+
+    if (stub_last_prop_atom == atoms._NET_FRAME_EXTENTS) {
+        assert(stub_last_prop_window == 123);
+        assert(stub_last_prop_type == XCB_ATOM_CARDINAL);
+        assert(stub_last_prop_len == 4);
+        uint32_t* extents = (uint32_t*)stub_last_prop_data;
+        // bw=5, th=20 -> {5, 5, 25, 5}
+        assert(extents[0] == 5);   // left
+        assert(extents[1] == 5);   // right
+        assert(extents[2] == 25);  // top
+        assert(extents[3] == 5);   // bottom
+        printf("test_frame_extents passed\n");
+    } else {
+        printf("test_frame_extents failed: Expected atom %u, got %u\n", atoms._NET_FRAME_EXTENTS, stub_last_prop_atom);
+        assert(0);
+    }
+
+    // Cleanup
+    render_free(&hot->render_ctx);
+    if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
+void test_allowed_actions() {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+    s.is_test = true;
+    s.root_depth = 24;
+    s.root_visual_type = xcb_get_visualtype(NULL, 0);
+    s.conn = (xcb_connection_t*)malloc(1);
+
+    atoms._NET_WM_ALLOWED_ACTIONS = 300;
+    atoms._NET_WM_ACTION_MOVE = 301;
+    atoms._NET_WM_ACTION_RESIZE = 302;
+    atoms._NET_WM_STATE = 400;
+
+    if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+
+    hash_map_init(&s.window_to_client);
+    hash_map_init(&s.frame_to_client);
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    hot->self = h;
+    hot->xid = 123;
+    hot->state = STATE_MAPPED;
+    hot->frame = 456;
+
+    // Case 1: Resizable window
+    hot->hints.min_w = 0;
+    hot->hints.max_w = 0;  // unlimited
+    hot->dirty = DIRTY_STATE;
+
+    // wm_flush_dirty will set WM_STATE and ALLOWED_ACTIONS.
+    // ALLOWED_ACTIONS is set LAST in the block.
+
+    stub_last_prop_atom = 0;
+    wm_flush_dirty(&s);
+
+    assert(stub_last_prop_atom == atoms._NET_WM_ALLOWED_ACTIONS);
+    assert(stub_last_prop_window == 123);
+
+    // Verify atoms presence
+    // We can't easily iterate the raw data without casting, but we know it's atoms (uint32_t)
+    uint32_t* acts = (uint32_t*)stub_last_prop_data;
+    bool has_move = false;
+    bool has_resize = false;
+    for (uint32_t i = 0; i < stub_last_prop_len; i++) {
+        if (acts[i] == atoms._NET_WM_ACTION_MOVE) has_move = true;
+        if (acts[i] == atoms._NET_WM_ACTION_RESIZE) has_resize = true;
+    }
+    assert(has_move);
+    assert(has_resize);
+
+    // Case 2: Fixed size window
+    hot->hints.min_w = 100;
+    hot->hints.max_w = 100;
+    hot->hints.min_h = 100;
+    hot->hints.max_h = 100;
+    hot->dirty = DIRTY_STATE;
+
+    stub_last_prop_atom = 0;
+    wm_flush_dirty(&s);
+
+    assert(stub_last_prop_atom == atoms._NET_WM_ALLOWED_ACTIONS);
+
+    acts = (uint32_t*)stub_last_prop_data;
+    has_move = false;
+    has_resize = false;
+    for (uint32_t i = 0; i < stub_last_prop_len; i++) {
+        if (acts[i] == atoms._NET_WM_ACTION_MOVE) has_move = true;
+        if (acts[i] == atoms._NET_WM_ACTION_RESIZE) has_resize = true;
+    }
+    assert(has_move);
+    assert(!has_resize);  // Should NOT have resize
+
+    printf("test_allowed_actions passed\n");
+
+    render_free(&hot->render_ctx);
+    if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
+int main() {
+    test_frame_extents();
+    test_allowed_actions();
+    return 0;
+}
