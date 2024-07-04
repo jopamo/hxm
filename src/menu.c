@@ -490,15 +490,7 @@ static void menu_do_restore(server_t* s, handle_t client) {
     if (!hot) return;
 
     if (hot->state == STATE_UNMAPPED) {
-        hot->state = STATE_MAPPED;
-        xcb_map_window(s->conn, hot->frame);
-        xcb_map_window(s->conn, hot->xid);
-
-        uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
-        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
-                            state_vals);
-
-        wm_client_update_state(s, client, 0, atoms._NET_WM_STATE_HIDDEN);
+        wm_client_restore(s, client);
     }
 
     wm_set_focus(s, client);

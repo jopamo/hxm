@@ -67,6 +67,96 @@ static bool should_raise_on_click(client_hot_t* c, xcb_button_t button) {
     return (button == 1 || button == 3);
 }
 
+void wm_publish_desktop_props(server_t* s) {
+    xcb_connection_t* conn = s->conn;
+    xcb_window_t root = s->root;
+
+    // Single-desktop mode for now.
+    s->desktop_count = 1;
+    s->current_desktop = 0;
+
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_NUMBER_OF_DESKTOPS, XCB_ATOM_CARDINAL, 32, 1,
+                        &s->desktop_count);
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
+                        &s->current_desktop);
+
+    const char* name = NULL;
+    if (s->config.desktop_names && s->config.desktop_names_count > 0) {
+        name = s->config.desktop_names[0];
+    }
+    if (!name || name[0] == '\0') name = "1";
+
+    size_t name_len = strlen(name) + 1;
+    char* buf = malloc(name_len);
+    if (buf) {
+        memcpy(buf, name, name_len);
+        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 8,
+                            (uint32_t)name_len, buf);
+        free(buf);
+    }
+
+    uint32_t viewport[2] = {0, 0};
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_VIEWPORT, XCB_ATOM_CARDINAL, 32, 2,
+                        viewport);
+}
+
+static void wm_client_apply_maximize(server_t* s, client_hot_t* hot) {
+    uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
+    uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+
+    if (hot->maximized_horz) {
+        int32_t w = (int32_t)s->workarea.w - 2 * (int32_t)bw;
+        hot->desired.x = s->workarea.x;
+        hot->desired.w = (uint16_t)((w > 0) ? w : 0);
+    }
+
+    if (hot->maximized_vert) {
+        int32_t h = (int32_t)s->workarea.h - (int32_t)th - (int32_t)bw;
+        hot->desired.y = s->workarea.y;
+        hot->desired.h = (uint16_t)((h > 0) ? h : 0);
+    }
+}
+
+static void wm_client_set_maximize(server_t* s, client_hot_t* hot, bool max_horz, bool max_vert) {
+    if (!hot) return;
+    if (hot->layer == LAYER_FULLSCREEN) return;
+
+    bool had_any = hot->maximized_horz || hot->maximized_vert;
+    bool want_any = max_horz || max_vert;
+
+    if (want_any && !had_any) {
+        hot->saved_maximize_geom = hot->server;
+        hot->saved_maximize_valid = true;
+    }
+
+    hot->maximized_horz = max_horz;
+    hot->maximized_vert = max_vert;
+
+    if (!want_any) {
+        if (hot->saved_maximize_valid) {
+            hot->desired = hot->saved_maximize_geom;
+            hot->saved_maximize_valid = false;
+        } else {
+            hot->desired = hot->server;
+        }
+    } else {
+        hot->desired = hot->server;
+        if (hot->saved_maximize_valid) {
+            if (!max_horz) {
+                hot->desired.x = hot->saved_maximize_geom.x;
+                hot->desired.w = hot->saved_maximize_geom.w;
+            }
+            if (!max_vert) {
+                hot->desired.y = hot->saved_maximize_geom.y;
+                hot->desired.h = hot->saved_maximize_geom.h;
+            }
+        }
+        wm_client_apply_maximize(s, hot);
+    }
+
+    hot->dirty |= DIRTY_GEOM | DIRTY_STATE;
+}
+
 void wm_become(server_t* s) {
     xcb_connection_t* conn = s->conn;
     xcb_window_t root = s->root;
@@ -107,6 +197,9 @@ void wm_become(server_t* s) {
         atoms._NET_WM_STATE_STICKY,
         atoms._NET_WM_STATE_DEMANDS_ATTENTION,
         atoms._NET_WM_STATE_HIDDEN,
+        atoms._NET_WM_STATE_MAXIMIZED_HORZ,
+        atoms._NET_WM_STATE_MAXIMIZED_VERT,
+        atoms._NET_WM_STATE_FOCUSED,
         atoms._NET_WM_WINDOW_TYPE,
         atoms._NET_WM_WINDOW_TYPE_DOCK,
         atoms._NET_WM_WINDOW_TYPE_DIALOG,
@@ -116,6 +209,10 @@ void wm_become(server_t* s) {
         atoms._NET_WM_WINDOW_TYPE_SPLASH,
         atoms._NET_WM_WINDOW_TYPE_TOOLBAR,
         atoms._NET_WM_WINDOW_TYPE_UTILITY,
+        atoms._NET_WM_WINDOW_TYPE_MENU,
+        atoms._NET_WM_WINDOW_TYPE_DROPDOWN_MENU,
+        atoms._NET_WM_WINDOW_TYPE_POPUP_MENU,
+        atoms._NET_WM_WINDOW_TYPE_TOOLTIP,
         atoms._NET_WM_STRUT,
         atoms._NET_WM_STRUT_PARTIAL,
         atoms._NET_NUMBER_OF_DESKTOPS,
@@ -124,6 +221,7 @@ void wm_become(server_t* s) {
         atoms._NET_WORKAREA,
         atoms._NET_DESKTOP_NAMES,
         atoms._NET_DESKTOP_VIEWPORT,
+        atoms._NET_WM_ICON,
         atoms._NET_CLOSE_WINDOW,
         atoms._NET_WM_PID,
         atoms._NET_DESKTOP_GEOMETRY,
@@ -132,7 +230,6 @@ void wm_become(server_t* s) {
         atoms._NET_WM_ACTION_MOVE,
         atoms._NET_WM_ACTION_RESIZE,
         atoms._NET_WM_ACTION_MINIMIZE,
-        atoms._NET_WM_ACTION_SHADE,
         atoms._NET_WM_ACTION_STICK,
         atoms._NET_WM_ACTION_MAXIMIZE_HORZ,
         atoms._NET_WM_ACTION_MAXIMIZE_VERT,
@@ -195,58 +292,22 @@ void wm_become(server_t* s) {
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32, 2,
                         geometry);
 
-    // _NET_NUMBER_OF_DESKTOPS / _NET_CURRENT_DESKTOP
-    s->desktop_count = s->config.desktop_count ? s->config.desktop_count : 1;
-    s->current_desktop = 0;
+    // Initialize workarea to full screen (no struts yet).
+    s->workarea.x = 0;
+    s->workarea.y = 0;
+    s->workarea.w = (uint16_t)screen->width_in_pixels;
+    s->workarea.h = (uint16_t)screen->height_in_pixels;
 
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_NUMBER_OF_DESKTOPS, XCB_ATOM_CARDINAL, 32, 1,
-                        &s->desktop_count);
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
-                        &s->current_desktop);
+    wm_publish_desktop_props(s);
 
-    // _NET_DESKTOP_NAMES
-    {
-        uint32_t n = s->desktop_count;
-        size_t total_len = 0;
+    uint32_t wa_vals[4] = {0, 0, (uint32_t)s->workarea.w, (uint32_t)s->workarea.h};
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_WORKAREA, XCB_ATOM_CARDINAL, 32, 4, wa_vals);
 
-        if (s->config.desktop_names) {
-            for (uint32_t i = 0; i < n; i++)
-                total_len += (s->config.desktop_names[i] ? strlen(s->config.desktop_names[i]) : 0) + 1;
-        } else {
-            for (uint32_t i = 0; i < n; i++) {
-                // "1".."999"+NUL
-                total_len += (i < 9 ? 1 : (i < 99 ? 2 : 3)) + 1;
-            }
-        }
-
-        char* buf = total_len ? malloc(total_len) : NULL;
-        if (buf) {
-            char* p = buf;
-            if (s->config.desktop_names) {
-                for (uint32_t i = 0; i < n; i++) {
-                    const char* name = s->config.desktop_names[i];
-                    if (name) {
-                        size_t l = strlen(name);
-                        memcpy(p, name, l);
-                        p[l] = '\0';
-                        p += l + 1;
-                    } else {
-                        *p++ = '\0';
-                    }
-                }
-            } else {
-                for (uint32_t i = 0; i < n; i++) {
-                    int l = snprintf(p, (size_t)(buf + total_len - p), "%u", i + 1);
-                    if (l < 0) l = 0;
-                    p += (size_t)l + 1;
-                }
-            }
-
-            xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 8,
-                                (uint32_t)total_len, buf);
-            free(buf);
-        }
-    }
+    // Initialize root lists and focus to sane empty values.
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, 0, NULL);
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CLIENT_LIST_STACKING, XCB_ATOM_WINDOW, 32, 0,
+                        NULL);
+    xcb_delete_property(conn, root, atoms._NET_ACTIVE_WINDOW);
 
     xcb_flush(conn);
     LOG_INFO("Became WM on root %u, supporting %u", root, s->supporting_wm_check);
@@ -335,6 +396,8 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
 
     if (ev->atom == atoms.WM_NAME || ev->atom == atoms._NET_WM_NAME) {
         hot->dirty |= DIRTY_TITLE;
+    } else if (ev->atom == atoms.WM_HINTS) {
+        hot->dirty |= DIRTY_HINTS | DIRTY_STATE;
     } else if (ev->atom == atoms.WM_NORMAL_HINTS) {
         hot->dirty |= DIRTY_HINTS | DIRTY_STATE;
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
@@ -344,6 +407,12 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
 }
 
 // Dirty flush
+
+static bool wm_client_is_hidden(const server_t* s, const client_hot_t* hot) {
+    if (hot->state != STATE_MAPPED) return true;
+    if (!hot->sticky && hot->desktop != (int32_t)s->current_desktop) return true;
+    return false;
+}
 
 void wm_flush_dirty(server_t* s) {
     for (uint32_t i = 1; i < s->clients.cap; i++) {
@@ -417,6 +486,8 @@ void wm_flush_dirty(server_t* s) {
                 xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 0, 32).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
                             ((uint64_t)hot->xid << 32) | atoms.WM_NORMAL_HINTS);
+            c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_HINTS, atoms.WM_HINTS, 0, 32).sequence;
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_HINTS);
             hot->dirty &= ~DIRTY_HINTS;
         }
 
@@ -438,8 +509,13 @@ void wm_flush_dirty(server_t* s) {
             hot->dirty &= ~DIRTY_FRAME_STYLE;
         }
 
+        if (hot->dirty & DIRTY_STACK) {
+            stack_move_to_layer(s, h);
+            hot->dirty &= ~DIRTY_STACK;
+        }
+
         if (hot->dirty & DIRTY_STATE) {
-            xcb_atom_t state_atoms[6];
+            xcb_atom_t state_atoms[12];
             uint32_t count = 0;
 
             if (hot->layer == LAYER_FULLSCREEN) {
@@ -452,6 +528,10 @@ void wm_flush_dirty(server_t* s) {
 
             if (hot->flags & CLIENT_FLAG_URGENT) state_atoms[count++] = atoms._NET_WM_STATE_DEMANDS_ATTENTION;
             if (hot->sticky) state_atoms[count++] = atoms._NET_WM_STATE_STICKY;
+            if (hot->maximized_horz) state_atoms[count++] = atoms._NET_WM_STATE_MAXIMIZED_HORZ;
+            if (hot->maximized_vert) state_atoms[count++] = atoms._NET_WM_STATE_MAXIMIZED_VERT;
+            if (wm_client_is_hidden(s, hot)) state_atoms[count++] = atoms._NET_WM_STATE_HIDDEN;
+            if (hot->flags & CLIENT_FLAG_FOCUSED) state_atoms[count++] = atoms._NET_WM_STATE_FOCUSED;
 
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_STATE, XCB_ATOM_ATOM, 32, count,
                                 state_atoms);
@@ -461,7 +541,6 @@ void wm_flush_dirty(server_t* s) {
             uint32_t num_actions = 0;
             actions[num_actions++] = atoms._NET_WM_ACTION_MOVE;
             actions[num_actions++] = atoms._NET_WM_ACTION_MINIMIZE;
-            actions[num_actions++] = atoms._NET_WM_ACTION_SHADE;
             actions[num_actions++] = atoms._NET_WM_ACTION_STICK;
             actions[num_actions++] = atoms._NET_WM_ACTION_CHANGE_DESKTOP;
             actions[num_actions++] = atoms._NET_WM_ACTION_CLOSE;
@@ -587,6 +666,22 @@ void wm_flush_dirty(server_t* s) {
             free(wa_vals);
         }
 
+        // Re-apply workarea-dependent geometry for maximized/fullscreen windows.
+        for (uint32_t i = 1; i < s->clients.cap; i++) {
+            if (!s->clients.hdr[i].live) continue;
+            handle_t h = handle_make(i, s->clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(s, h);
+            if (!hot) continue;
+            if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
+
+            if (hot->layer == LAYER_FULLSCREEN && s->config.fullscreen_use_workarea) {
+                hot->desired = s->workarea;
+                hot->dirty |= DIRTY_GEOM;
+            } else if (hot->maximized_horz || hot->maximized_vert) {
+                wm_client_set_maximize(s, hot, hot->maximized_horz, hot->maximized_vert);
+            }
+        }
+
         s->root_dirty &= ~ROOT_DIRTY_WORKAREA;
     }
 
@@ -614,7 +709,9 @@ void wm_cycle_focus(server_t* s, bool forward) {
         client_hot_t* c = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
 
         if (c->state == STATE_MAPPED && (c->desktop == (int32_t)s->current_desktop || c->sticky) &&
-            c->type != WINDOW_TYPE_DOCK && c->type != WINDOW_TYPE_NOTIFICATION && c->type != WINDOW_TYPE_DESKTOP) {
+            c->type != WINDOW_TYPE_DOCK && c->type != WINDOW_TYPE_NOTIFICATION && c->type != WINDOW_TYPE_DESKTOP &&
+            c->type != WINDOW_TYPE_MENU && c->type != WINDOW_TYPE_DROPDOWN_MENU && c->type != WINDOW_TYPE_POPUP_MENU &&
+            c->type != WINDOW_TYPE_TOOLTIP) {
             wm_set_focus(s, c->self);
             stack_raise(s, c->self);
             return;
@@ -812,7 +909,10 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
     if (!hot) return;
 
     // Focus + optional raise on click
-    if (s->focused_client != h && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP) {
+    if (s->focused_client != h && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP &&
+        hot->type != WINDOW_TYPE_NOTIFICATION && hot->type != WINDOW_TYPE_MENU &&
+        hot->type != WINDOW_TYPE_DROPDOWN_MENU && hot->type != WINDOW_TYPE_POPUP_MENU &&
+        hot->type != WINDOW_TYPE_TOOLTIP) {
         wm_set_focus(s, h);
         if (should_raise_on_click(hot, ev->detail)) stack_raise(s, h);
     }
@@ -1027,6 +1127,22 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
 
+    if (prop == atoms._NET_WM_STATE_FOCUSED) return;
+
+    if (prop == atoms._NET_WM_STATE_HIDDEN) {
+        if (action == 2) {
+            if (hot->state == STATE_MAPPED)
+                wm_client_iconify(s, h);
+            else
+                wm_client_restore(s, h);
+        } else if (action == 1) {
+            wm_client_iconify(s, h);
+        } else if (action == 0) {
+            wm_client_restore(s, h);
+        }
+        return;
+    }
+
     bool add = false;
 
     if (action == 1) {
@@ -1044,6 +1160,10 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
             add = !hot->sticky;
         else if (prop == atoms._NET_WM_STATE_DEMANDS_ATTENTION)
             add = !(hot->flags & CLIENT_FLAG_URGENT);
+        else if (prop == atoms._NET_WM_STATE_MAXIMIZED_HORZ)
+            add = !hot->maximized_horz;
+        else if (prop == atoms._NET_WM_STATE_MAXIMIZED_VERT)
+            add = !hot->maximized_vert;
         else
             return;
     } else {
@@ -1055,6 +1175,10 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
             hot->saved_geom = hot->server;
             hot->saved_layer = hot->layer;
             hot->saved_flags = hot->flags;
+            hot->saved_maximized_horz = hot->maximized_horz;
+            hot->saved_maximized_vert = hot->maximized_vert;
+            hot->maximized_horz = false;
+            hot->maximized_vert = false;
             hot->layer = LAYER_FULLSCREEN;
             hot->flags |= CLIENT_FLAG_UNDECORATED;
 
@@ -1073,6 +1197,8 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
             hot->layer = hot->saved_layer;
             hot->desired = hot->saved_geom;
             hot->flags = hot->saved_flags;
+            hot->maximized_horz = hot->saved_maximized_horz;
+            hot->maximized_vert = hot->saved_maximized_vert;
             hot->dirty |= DIRTY_GEOM | DIRTY_STATE | DIRTY_STACK;
         }
         return;
@@ -1103,13 +1229,41 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
         hot->dirty |= DIRTY_STATE | DIRTY_FRAME_STYLE;
         return;
     }
+
+    if (prop == atoms._NET_WM_STATE_MAXIMIZED_HORZ || prop == atoms._NET_WM_STATE_MAXIMIZED_VERT) {
+        bool new_horz = hot->maximized_horz;
+        bool new_vert = hot->maximized_vert;
+
+        if (prop == atoms._NET_WM_STATE_MAXIMIZED_HORZ) new_horz = add;
+        if (prop == atoms._NET_WM_STATE_MAXIMIZED_VERT) new_vert = add;
+
+        wm_client_set_maximize(s, hot, new_horz, new_vert);
+        return;
+    }
 }
 
 void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     if (ev->type == atoms._NET_CURRENT_DESKTOP) {
         uint32_t desktop = ev->data.data32[0];
+        if (s->desktop_count == 1) {
+            if (desktop != 0) {
+                LOG_INFO("Client requested switch to desktop %u (clamped to 0)", desktop);
+            }
+            wm_switch_workspace(s, 0);
+            return;
+        }
         LOG_INFO("Client requested switch to desktop %u", desktop);
         wm_switch_workspace(s, desktop);
+        return;
+    }
+
+    if (ev->type == atoms._NET_NUMBER_OF_DESKTOPS) {
+        uint32_t requested = ev->data.data32[0];
+        if (requested == 0) requested = 1;
+        if (requested != 1) {
+            LOG_INFO("Client requested %u desktops (clamped to 1)", requested);
+        }
+        wm_publish_desktop_props(s);
         return;
     }
 
@@ -1117,6 +1271,9 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         handle_t h = server_get_client_by_window(s, ev->window);
         if (h != HANDLE_INVALID) {
             uint32_t desktop = ev->data.data32[0];
+            if (s->desktop_count == 1 && desktop != 0xFFFFFFFFu) {
+                desktop = 0;
+            }
             wm_client_move_to_workspace(s, h, desktop, false);
         }
         return;
@@ -1125,6 +1282,14 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     if (ev->type == atoms._NET_ACTIVE_WINDOW) {
         handle_t h = server_get_client_by_window(s, ev->window);
         if (h != HANDLE_INVALID) {
+            client_hot_t* hot = server_chot(s, h);
+            if (!hot) return;
+            if (!hot->sticky && hot->desktop >= 0 && (uint32_t)hot->desktop != s->current_desktop) {
+                wm_switch_workspace(s, (uint32_t)hot->desktop);
+            }
+            if (hot->state == STATE_UNMAPPED) {
+                wm_client_restore(s, h);
+            }
             wm_set_focus(s, h);
             stack_raise(s, h);
         }
@@ -1159,7 +1324,11 @@ void wm_place_window(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
 
-    if (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP) return;
+    if (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP || hot->type == WINDOW_TYPE_NOTIFICATION ||
+        hot->type == WINDOW_TYPE_MENU || hot->type == WINDOW_TYPE_DROPDOWN_MENU ||
+        hot->type == WINDOW_TYPE_POPUP_MENU || hot->type == WINDOW_TYPE_TOOLTIP) {
+        return;
+    }
 
     // 1. Check rules/types for explicit placement
     if (hot->placement == PLACEMENT_CENTER) {
@@ -1232,11 +1401,13 @@ void wm_switch_workspace(server_t* s, uint32_t new_desktop) {
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                 state_vals);
+            c->dirty |= DIRTY_STATE;
         } else {
             xcb_unmap_window(s->conn, c->frame);
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                 state_vals);
+            c->dirty |= DIRTY_STATE;
         }
     }
 
@@ -1274,7 +1445,13 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
 
-    if (desktop != 0xFFFFFFFF && desktop >= s->desktop_count) return;
+    if (desktop != 0xFFFFFFFF && desktop >= s->desktop_count) {
+        if (s->desktop_count == 1) {
+            desktop = 0;
+        } else {
+            return;
+        }
+    }
 
     int32_t new_desk = (desktop == 0xFFFFFFFF) ? -1 : (int32_t)desktop;
 
@@ -1293,11 +1470,13 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                 state_vals);
+            c->dirty |= DIRTY_STATE;
         } else {
             xcb_unmap_window(s->conn, c->frame);
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                 state_vals);
+            c->dirty |= DIRTY_STATE;
         }
 
         if (!visible && s->focused_client == h) {
@@ -1337,11 +1516,13 @@ void wm_client_toggle_sticky(server_t* s, handle_t h) {
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                 state_vals);
+            c->dirty |= DIRTY_STATE;
         } else {
             xcb_unmap_window(s->conn, c->frame);
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                 state_vals);
+            c->dirty |= DIRTY_STATE;
         }
 
         if (!visible && s->focused_client == h) {
@@ -1369,24 +1550,9 @@ void wm_client_toggle_maximize(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
 
-    if (!hot->is_maximized) {
-        // Maximize
-        hot->saved_geom = hot->server;
-        hot->is_maximized = true;
-
-        // Use workarea
-        hot->desired.x = s->workarea.x;
-        hot->desired.y = s->workarea.y;
-        hot->desired.w = (uint16_t)(s->workarea.w - 2 * s->config.theme.border_width);
-        hot->desired.h = (uint16_t)(s->workarea.h - s->config.theme.title_height - s->config.theme.border_width);
-    } else {
-        // Restore
-        hot->desired = hot->saved_geom;
-        hot->is_maximized = false;
-    }
-
-    hot->dirty |= DIRTY_GEOM;
-    LOG_INFO("Client %u maximized toggle: %d", hot->xid, hot->is_maximized);
+    bool want = !(hot->maximized_horz && hot->maximized_vert);
+    wm_client_set_maximize(s, hot, want, want);
+    LOG_INFO("Client %u maximized toggle: %d", hot->xid, want);
 }
 
 void wm_client_iconify(server_t* s, handle_t h) {
@@ -1397,6 +1563,7 @@ void wm_client_iconify(server_t* s, handle_t h) {
 
     hot->state = STATE_UNMAPPED;
     xcb_unmap_window(s->conn, hot->frame);
+    stack_remove(s, h);
 
     if (s->focused_client == h) {
         handle_t next_h = HANDLE_INVALID;
@@ -1414,6 +1581,22 @@ void wm_client_iconify(server_t* s, handle_t h) {
     uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2, state_vals);
 
-    // Add _NET_WM_STATE_HIDDEN
-    wm_client_update_state(s, h, 1, atoms._NET_WM_STATE_HIDDEN);
+    hot->dirty |= DIRTY_STATE;
+}
+
+void wm_client_restore(server_t* s, handle_t h) {
+    client_hot_t* hot = server_chot(s, h);
+    if (!hot || hot->state == STATE_MAPPED) return;
+
+    LOG_INFO("Restoring client %u", hot->xid);
+
+    hot->state = STATE_MAPPED;
+    xcb_map_window(s->conn, hot->xid);
+    xcb_map_window(s->conn, hot->frame);
+
+    uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2, state_vals);
+
+    hot->dirty |= DIRTY_STATE;
+    stack_raise(s, h);
 }

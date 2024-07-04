@@ -135,6 +135,55 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                         changed = true;
                     }
                 }
+            } else if (atom == atoms._NET_WM_STATE) {
+                if (xcb_get_property_value_length(r) > 0) {
+                    xcb_atom_t* states = (xcb_atom_t*)xcb_get_property_value(r);
+                    int num_states = xcb_get_property_value_length(r) / sizeof(xcb_atom_t);
+                    bool want_fullscreen = false;
+                    bool want_above = false;
+                    bool want_below = false;
+                    bool want_sticky = false;
+                    bool want_attention = false;
+                    bool want_max_horz = false;
+                    bool want_max_vert = false;
+
+                    for (int i = 0; i < num_states; i++) {
+                        xcb_atom_t state = states[i];
+                        if (state == atoms._NET_WM_STATE_FULLSCREEN) {
+                            want_fullscreen = true;
+                        } else if (state == atoms._NET_WM_STATE_ABOVE) {
+                            want_above = true;
+                        } else if (state == atoms._NET_WM_STATE_BELOW) {
+                            want_below = true;
+                        } else if (state == atoms._NET_WM_STATE_STICKY) {
+                            want_sticky = true;
+                        } else if (state == atoms._NET_WM_STATE_DEMANDS_ATTENTION) {
+                            want_attention = true;
+                        } else if (state == atoms._NET_WM_STATE_MAXIMIZED_HORZ) {
+                            want_max_horz = true;
+                        } else if (state == atoms._NET_WM_STATE_MAXIMIZED_VERT) {
+                            want_max_vert = true;
+                        }
+                    }
+
+                    if (want_max_horz) wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_MAXIMIZED_HORZ);
+                    if (want_max_vert) wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_MAXIMIZED_VERT);
+                    if (want_above) wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_ABOVE);
+                    if (!want_above && want_below) {
+                        wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_BELOW);
+                    }
+                    if (want_attention) {
+                        wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_DEMANDS_ATTENTION);
+                    }
+                    if (want_fullscreen) {
+                        wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_FULLSCREEN);
+                    }
+                    if (want_sticky) {
+                        hot->sticky = true;
+                        hot->desktop = -1;
+                        hot->dirty |= DIRTY_STATE;
+                    }
+                }
             } else if (atom == atoms.WM_NORMAL_HINTS) {
                 xcb_size_hints_t hints;
                 if (xcb_icccm_get_wm_size_hints_from_reply(&hints, r)) {
@@ -196,10 +245,12 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_NOTIFICATION) {
                             hot->type = WINDOW_TYPE_NOTIFICATION;
                             hot->layer = LAYER_OVERLAY;
+                            hot->flags |= CLIENT_FLAG_UNDECORATED;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DIALOG) {
                             hot->type = WINDOW_TYPE_DIALOG;
                             hot->layer = LAYER_NORMAL;
+                            hot->placement = PLACEMENT_CENTER;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DESKTOP) {
                             hot->type = WINDOW_TYPE_DESKTOP;
@@ -215,6 +266,26 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_UTILITY) {
                             hot->type = WINDOW_TYPE_UTILITY;
+                            break;
+                        } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_MENU) {
+                            hot->type = WINDOW_TYPE_MENU;
+                            hot->layer = LAYER_OVERLAY;
+                            hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            break;
+                        } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DROPDOWN_MENU) {
+                            hot->type = WINDOW_TYPE_DROPDOWN_MENU;
+                            hot->layer = LAYER_OVERLAY;
+                            hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            break;
+                        } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_POPUP_MENU) {
+                            hot->type = WINDOW_TYPE_POPUP_MENU;
+                            hot->layer = LAYER_OVERLAY;
+                            hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            break;
+                        } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_TOOLTIP) {
+                            hot->type = WINDOW_TYPE_TOOLTIP;
+                            hot->layer = LAYER_OVERLAY;
+                            hot->flags |= CLIENT_FLAG_UNDECORATED;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_NORMAL) {
                             hot->type = WINDOW_TYPE_NORMAL;
@@ -239,11 +310,17 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
             } else if (atom == atoms._NET_WM_DESKTOP) {
                 if (xcb_get_property_value_length(r) >= 4) {
                     uint32_t val = *(uint32_t*)xcb_get_property_value(r);
-                    hot->desktop = (int32_t)val;
                     if (val == 0xFFFFFFFF) {
                         hot->sticky = true;
+                        hot->desktop = -1;
                     } else {
                         hot->sticky = false;
+                        if (s->desktop_count == 1) {
+                            val = 0;
+                        } else if (val >= s->desktop_count) {
+                            val = s->current_desktop;
+                        }
+                        hot->desktop = (int32_t)val;
                     }
                     LOG_DEBUG("Window %u requested desktop %d (sticky=%d)", hot->xid, hot->desktop, hot->sticky);
                 }
@@ -275,6 +352,17 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                     xcb_icccm_wm_hints_t hints;
                     if (xcb_icccm_get_wm_hints_from_reply(&hints, r)) {
                         cold->can_focus = (bool)(hints.input);
+                        bool urgent = (hints.flags & XCB_ICCCM_WM_HINT_X_URGENCY) != 0;
+                        bool was_urgent = (hot->flags & CLIENT_FLAG_URGENT) != 0;
+                        if (urgent) {
+                            hot->flags |= CLIENT_FLAG_URGENT;
+                        } else {
+                            hot->flags &= ~CLIENT_FLAG_URGENT;
+                        }
+                        if (urgent != was_urgent) {
+                            hot->dirty |= DIRTY_STATE;
+                            changed = true;
+                        }
                         LOG_DEBUG("Window %u WM_HINTS input: %d", hot->xid, cold->can_focus);
                     }
                 }

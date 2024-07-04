@@ -15,7 +15,9 @@ bool should_focus_on_map(const client_hot_t* hot) {
     if (hot->focus_override != -1) return (bool)hot->focus_override;
 
     // Some window types should never get focus on map
-    if (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_NOTIFICATION || hot->type == WINDOW_TYPE_DESKTOP) {
+    if (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_NOTIFICATION || hot->type == WINDOW_TYPE_DESKTOP ||
+        hot->type == WINDOW_TYPE_MENU || hot->type == WINDOW_TYPE_DROPDOWN_MENU ||
+        hot->type == WINDOW_TYPE_POPUP_MENU || hot->type == WINDOW_TYPE_TOOLTIP) {
         return false;
     }
     // Dialogs and transients may steal focus
@@ -46,13 +48,18 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->state = STATE_NEW;
     hot->layer = LAYER_NORMAL;
     hot->focus_override = -1;
+    hot->maximized_horz = false;
+    hot->maximized_vert = false;
+    hot->saved_maximize_valid = false;
+    hot->saved_maximized_horz = false;
+    hot->saved_maximized_vert = false;
     hot->last_cursor_dir = -1;
     render_init(&hot->render_ctx);
     hot->icon_surface = NULL;
     hot->visual_type = NULL;
     hot->depth = 0;
-    hot->pending_replies = 14;  // Attrs, Geom, Class, Hints, NormalHints, Transient, Type, Protocols, Name, NetName,
-                                // Desktop, Strut, StrutPartial, Icon
+    hot->pending_replies = 15;  // Attrs, Geom, Class, Hints, NormalHints, Transient, Type, Protocols, Name, NetName,
+                                // NetState, Desktop, Strut, StrutPartial, Icon
     hot->override_redirect = false;
     hot->manage_aborted = false;
 
@@ -107,21 +114,25 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     uint32_t c10 = xcb_get_property(s->conn, 0, win, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
     cookie_jar_push(&s->cookie_jar, c10, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_NAME);
 
-    // 11. GetProperty (_NET_WM_DESKTOP)
-    uint32_t c11 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c11, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_DESKTOP);
+    // 11. GetProperty (_NET_WM_STATE)
+    uint32_t c11 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STATE, XCB_ATOM_ATOM, 0, 32).sequence;
+    cookie_jar_push(&s->cookie_jar, c11, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STATE);
 
-    // 12. GetProperty (_NET_WM_STRUT)
-    uint32_t c12 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
-    cookie_jar_push(&s->cookie_jar, c12, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT);
+    // 12. GetProperty (_NET_WM_DESKTOP)
+    uint32_t c12 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 0, 1).sequence;
+    cookie_jar_push(&s->cookie_jar, c12, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_DESKTOP);
 
-    // 13. GetProperty (_NET_WM_STRUT_PARTIAL)
-    uint32_t c13 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
-    cookie_jar_push(&s->cookie_jar, c13, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT_PARTIAL);
+    // 13. GetProperty (_NET_WM_STRUT)
+    uint32_t c13 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
+    cookie_jar_push(&s->cookie_jar, c13, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT);
 
-    // 14. GetProperty (_NET_WM_ICON)
-    uint32_t c14 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 16384).sequence;
-    cookie_jar_push(&s->cookie_jar, c14, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON);
+    // 14. GetProperty (_NET_WM_STRUT_PARTIAL)
+    uint32_t c14 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
+    cookie_jar_push(&s->cookie_jar, c14, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT_PARTIAL);
+
+    // 15. GetProperty (_NET_WM_ICON)
+    uint32_t c15 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 16384).sequence;
+    cookie_jar_push(&s->cookie_jar, c15, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON);
 
     LOG_DEBUG("Started management for window %u (handle %lx)", win, h);
 }
@@ -160,6 +171,10 @@ static void client_apply_rules(server_t* s, handle_t h) {
             if (r->focus != -1) hot->focus_override = r->focus;
             if (r->placement != PLACEMENT_DEFAULT) hot->placement = (uint8_t)r->placement;
         }
+    }
+
+    if (!hot->sticky && hot->desktop >= (int32_t)s->desktop_count) {
+        hot->desktop = (int32_t)s->current_desktop;
     }
 }
 
@@ -216,7 +231,6 @@ void client_finish_manage(server_t* s, handle_t h) {
     uint32_t num_actions = 0;
     actions[num_actions++] = atoms._NET_WM_ACTION_MOVE;
     actions[num_actions++] = atoms._NET_WM_ACTION_MINIMIZE;
-    actions[num_actions++] = atoms._NET_WM_ACTION_SHADE;
     actions[num_actions++] = atoms._NET_WM_ACTION_STICK;
     actions[num_actions++] = atoms._NET_WM_ACTION_CHANGE_DESKTOP;
     actions[num_actions++] = atoms._NET_WM_ACTION_CLOSE;
@@ -254,6 +268,7 @@ void client_finish_manage(server_t* s, handle_t h) {
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                             state_vals);
     }
+    hot->dirty |= DIRTY_STATE;
 
     // Subscribe to client events
     uint32_t client_events = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_FOCUS_CHANGE;

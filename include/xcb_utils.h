@@ -34,6 +34,9 @@ struct atoms {
     xcb_atom_t _NET_WM_STATE_STICKY;
     xcb_atom_t _NET_WM_STATE_DEMANDS_ATTENTION;
     xcb_atom_t _NET_WM_STATE_HIDDEN;
+    xcb_atom_t _NET_WM_STATE_MAXIMIZED_HORZ;
+    xcb_atom_t _NET_WM_STATE_MAXIMIZED_VERT;
+    xcb_atom_t _NET_WM_STATE_FOCUSED;
     xcb_atom_t _NET_WM_WINDOW_TYPE_DOCK;
     xcb_atom_t _NET_WM_WINDOW_TYPE_DIALOG;
     xcb_atom_t _NET_WM_WINDOW_TYPE_NOTIFICATION;
@@ -42,6 +45,10 @@ struct atoms {
     xcb_atom_t _NET_WM_WINDOW_TYPE_SPLASH;
     xcb_atom_t _NET_WM_WINDOW_TYPE_TOOLBAR;
     xcb_atom_t _NET_WM_WINDOW_TYPE_UTILITY;
+    xcb_atom_t _NET_WM_WINDOW_TYPE_MENU;
+    xcb_atom_t _NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
+    xcb_atom_t _NET_WM_WINDOW_TYPE_POPUP_MENU;
+    xcb_atom_t _NET_WM_WINDOW_TYPE_TOOLTIP;
     xcb_atom_t _NET_SUPPORTING_WM_CHECK;
     xcb_atom_t _NET_DESKTOP_VIEWPORT;
     xcb_atom_t _NET_NUMBER_OF_DESKTOPS;

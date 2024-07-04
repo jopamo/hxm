@@ -205,8 +205,99 @@ void test_allowed_actions() {
     free(s.conn);
 }
 
+void test_desktop_clamp_single() {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+    s.is_test = true;
+    s.root_depth = 24;
+    s.root_visual_type = xcb_get_visualtype(NULL, 0);
+    s.conn = (xcb_connection_t*)malloc(1);
+    s.desktop_count = 1;
+    s.current_desktop = 0;
+
+    atoms._NET_WM_DESKTOP = 500;
+    atoms.WM_STATE = 501;
+
+    if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+    list_init(&s.focus_history);
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    hot->self = h;
+    hot->xid = 123;
+    hot->frame = 456;
+    hot->state = STATE_MAPPED;
+    hot->desktop = 0;
+    hot->sticky = false;
+    list_init(&hot->focus_node);
+
+    stub_last_prop_atom = 0;
+    wm_client_move_to_workspace(&s, h, 2, false);
+
+    assert(hot->desktop == 0);
+    assert(!hot->sticky);
+    assert(stub_last_prop_atom == atoms._NET_WM_DESKTOP);
+    assert(stub_last_prop_len == 1);
+    uint32_t* val = (uint32_t*)stub_last_prop_data;
+    assert(val[0] == 0);
+
+    printf("test_desktop_clamp_single passed\n");
+
+    render_free(&hot->render_ctx);
+    if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+    slotmap_destroy(&s.clients);
+    free(s.conn);
+}
+
+void test_dirty_stack_relayer() {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+    s.is_test = true;
+    s.root_depth = 24;
+    s.root_visual_type = xcb_get_visualtype(NULL, 0);
+    s.conn = (xcb_connection_t*)malloc(1);
+    s.root = 1;
+
+    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+
+    if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    hot->self = h;
+    hot->xid = 123;
+    hot->frame = 456;
+    hot->state = STATE_MAPPED;
+    hot->layer = LAYER_NORMAL;
+    list_init(&hot->stacking_node);
+    list_init(&hot->transient_sibling);
+    list_init(&hot->transients_head);
+
+    list_insert(&hot->stacking_node, &s.layers[LAYER_NORMAL], s.layers[LAYER_NORMAL].next);
+
+    hot->layer = LAYER_ABOVE;
+    hot->dirty = DIRTY_STACK;
+
+    wm_flush_dirty(&s);
+
+    assert(s.layers[LAYER_NORMAL].next == &s.layers[LAYER_NORMAL]);
+    assert(s.layers[LAYER_ABOVE].next == &hot->stacking_node);
+    assert(s.layers[LAYER_ABOVE].prev == &hot->stacking_node);
+
+    printf("test_dirty_stack_relayer passed\n");
+
+    render_free(&hot->render_ctx);
+    if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+    slotmap_destroy(&s.clients);
+    free(s.conn);
+}
+
 int main() {
     test_frame_extents();
     test_allowed_actions();
+    test_desktop_clamp_single();
+    test_dirty_stack_relayer();
     return 0;
 }

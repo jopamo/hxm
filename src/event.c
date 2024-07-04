@@ -688,49 +688,8 @@ static void apply_reload(server_t* s) {
         if (hot) hot->dirty |= DIRTY_FRAME_STYLE | DIRTY_GEOM;
     }
 
-    // Update desktop count / current desktop if config changed
-    if (s->config.desktop_count == 0) s->config.desktop_count = 1;
-
-    if (s->desktop_count != s->config.desktop_count) {
-        s->desktop_count = s->config.desktop_count;
-        if (s->current_desktop >= s->desktop_count) {
-            wm_switch_workspace(s, s->desktop_count - 1);
-        }
-    }
-
-    // Publish _NET_NUMBER_OF_DESKTOPS (root prop)
-    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_NUMBER_OF_DESKTOPS, XCB_ATOM_CARDINAL, 32,
-                        1, &s->desktop_count);
-
-    // Publish _NET_DESKTOP_NAMES
-    if (s->config.desktop_names) {
-        size_t total_len = 0;
-        for (uint32_t i = 0; i < s->config.desktop_names_count; i++) {
-            if (s->config.desktop_names[i]) {
-                total_len += strlen(s->config.desktop_names[i]) + 1;
-            } else {
-                total_len += 1;
-            }
-        }
-        char* buf = malloc(total_len);
-        if (buf) {
-            char* p = buf;
-            for (uint32_t i = 0; i < s->config.desktop_names_count; i++) {
-                if (s->config.desktop_names[i]) {
-                    size_t l = strlen(s->config.desktop_names[i]);
-                    memcpy(p, s->config.desktop_names[i], l);
-                    p[l] = '\0';
-                    p += l + 1;
-                } else {
-                    *p = '\0';
-                    p++;
-                }
-            }
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 8,
-                                (uint32_t)total_len, buf);
-            free(buf);
-        }
-    }
+    // Single-desktop mode: clamp and re-publish root desktop properties.
+    wm_publish_desktop_props(s);
 }
 
 volatile sig_atomic_t g_shutdown_pending = 0;

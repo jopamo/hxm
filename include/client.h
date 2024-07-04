@@ -81,6 +81,10 @@ typedef enum window_type {
     WINDOW_TYPE_SPLASH,
     WINDOW_TYPE_TOOLBAR,
     WINDOW_TYPE_UTILITY,
+    WINDOW_TYPE_MENU,
+    WINDOW_TYPE_DROPDOWN_MENU,
+    WINDOW_TYPE_POPUP_MENU,
+    WINDOW_TYPE_TOOLTIP,
     WINDOW_TYPE_COUNT
 } window_type_t;
 
@@ -97,8 +101,12 @@ typedef struct client_hot {
     uint32_t pending_epoch;
 
     rect_t saved_geom;
+    rect_t saved_maximize_geom;
     uint8_t saved_layer;
     uint16_t saved_flags;
+    bool saved_maximize_valid;
+    bool saved_maximized_horz;
+    bool saved_maximized_vert;
 
     strut_t strut;
 
@@ -110,7 +118,8 @@ typedef struct client_hot {
     uint8_t type;     // window_type_t
     int32_t desktop;  // -1 for ALL_DESKTOPS
     bool sticky;
-    bool is_maximized;
+    bool maximized_horz;
+    bool maximized_vert;
     int8_t focus_override;  // -1: default, 0: no, 1: yes
     uint8_t placement;      // placement_policy_t
     uint16_t flags;

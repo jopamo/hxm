@@ -50,6 +50,19 @@ void stack_raise(server_t* s, handle_t h) {
     }
 }
 
+void stack_move_to_layer(server_t* s, handle_t h) {
+    client_hot_t* c = server_chot(s, h);
+    if (!c) return;
+
+    stack_remove(s, h);
+
+    list_node_t* head = &s->layers[c->layer];
+    list_insert(&c->stacking_node, head->prev, head);
+    s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+
+    stack_restack(s, h);
+}
+
 void stack_lower(server_t* s, handle_t h) {
     client_hot_t* c = server_chot(s, h);
     if (!c) return;

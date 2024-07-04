@@ -12,6 +12,7 @@ typedef struct server server_t;
 typedef struct pending_config pending_config_t;
 
 void wm_become(server_t* s);
+void wm_publish_desktop_props(server_t* s);
 void wm_setup_keys(server_t* s);
 
 void wm_cycle_focus(server_t* s, bool forward);
@@ -38,6 +39,7 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
 void wm_client_toggle_sticky(server_t* s, handle_t h);
 void wm_client_toggle_maximize(server_t* s, handle_t h);
 void wm_client_iconify(server_t* s, handle_t h);
+void wm_client_restore(server_t* s, handle_t h);
 
 // From src/focus.c
 void wm_set_focus(server_t* s, handle_t h);
@@ -47,6 +49,7 @@ void stack_raise(server_t* s, handle_t h);
 void stack_lower(server_t* s, handle_t h);
 void stack_place_above(server_t* s, handle_t h, handle_t sibling_h);
 void stack_remove(server_t* s, handle_t h);
+void stack_move_to_layer(server_t* s, handle_t h);
 
 void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev);
 void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_event_t* ev);

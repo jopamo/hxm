@@ -23,7 +23,7 @@ void wm_set_focus(server_t* s, handle_t h) {
         client_hot_t* old = server_chot(s, s->focused_client);
         if (old) {
             old->flags &= ~CLIENT_FLAG_FOCUSED;
-            old->dirty |= DIRTY_FRAME_STYLE;
+            old->dirty |= DIRTY_FRAME_STYLE | DIRTY_STATE;
         }
     }
 
@@ -31,7 +31,7 @@ void wm_set_focus(server_t* s, handle_t h) {
 
     if (c) {
         c->flags |= CLIENT_FLAG_FOCUSED;
-        c->dirty |= DIRTY_FRAME_STYLE;
+        c->dirty |= DIRTY_FRAME_STYLE | DIRTY_STATE;
 
         // Move to MRU head
         if (c->focus_node.next && c->focus_node.next != &c->focus_node) {
