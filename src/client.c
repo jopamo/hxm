@@ -47,6 +47,9 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->xid = win;
     hot->state = STATE_NEW;
     hot->layer = LAYER_NORMAL;
+    hot->base_layer = LAYER_NORMAL;
+    hot->state_above = false;
+    hot->state_below = false;
     hot->focus_override = -1;
     hot->maximized_horz = false;
     hot->maximized_vert = false;
@@ -167,7 +170,12 @@ static void client_apply_rules(server_t* s, handle_t h) {
                     hot->sticky = false;
                 }
             }
-            if (r->layer != -1) hot->layer = (uint8_t)r->layer;
+            if (r->layer != -1) {
+                hot->base_layer = (uint8_t)r->layer;
+                if (hot->layer != LAYER_FULLSCREEN) {
+                    hot->layer = client_layer_from_state(hot);
+                }
+            }
             if (r->focus != -1) hot->focus_override = r->focus;
             if (r->placement != PLACEMENT_DEFAULT) hot->placement = (uint8_t)r->placement;
         }

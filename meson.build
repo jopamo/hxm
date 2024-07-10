@@ -141,6 +141,27 @@ test_wm_class = executable('test_wm_class',
 )
 test('wm_class', test_wm_class)
 
+test_wm_name_fallback = executable('test_wm_name_fallback',
+  ['tests/test_wm_name_fallback.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('wm_name_fallback', test_wm_name_fallback)
+
+test_wm_icon_invalid = executable('test_wm_icon_invalid',
+  ['tests/test_wm_icon_invalid.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('wm_icon_invalid', test_wm_icon_invalid)
+
+test_workarea_compute = executable('test_workarea_compute',
+  ['tests/test_workarea_compute.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('workarea_compute', test_workarea_compute)
+
 test_unmanage_race = executable('test_unmanage_race',
   ['tests/test_unmanage_race.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,

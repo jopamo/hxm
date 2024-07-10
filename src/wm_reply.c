@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <xcb/xcb_icccm.h>
@@ -8,6 +9,78 @@
 #include "event.h"
 #include "frame.h"
 #include "wm.h"
+
+static bool is_valid_utf8(const char* str, size_t len) {
+    size_t i = 0;
+    while (i < len) {
+        uint8_t c = (uint8_t)str[i];
+        if (c <= 0x7Fu) {
+            i++;
+            continue;
+        }
+
+        uint32_t code = 0;
+        size_t need = 0;
+        if ((c & 0xE0u) == 0xC0u) {
+            need = 1;
+            code = c & 0x1Fu;
+        } else if ((c & 0xF0u) == 0xE0u) {
+            need = 2;
+            code = c & 0x0Fu;
+        } else if ((c & 0xF8u) == 0xF0u) {
+            need = 3;
+            code = c & 0x07u;
+            if (c > 0xF4u) return false;
+        } else {
+            return false;
+        }
+
+        if (i + need >= len) return false;
+        for (size_t j = 1; j <= need; j++) {
+            uint8_t cc = (uint8_t)str[i + j];
+            if ((cc & 0xC0u) != 0x80u) return false;
+            code = (code << 6) | (cc & 0x3Fu);
+        }
+
+        if ((need == 1 && code < 0x80u) || (need == 2 && code < 0x800u) || (need == 3 && code < 0x10000u)) {
+            return false;
+        }
+        if (code > 0x10FFFFu) return false;
+        if (code >= 0xD800u && code <= 0xDFFFu) return false;
+
+        i += need + 1;
+    }
+    return true;
+}
+
+static bool prop_is_empty(const xcb_get_property_reply_t* r) { return !r || xcb_get_property_value_length(r) == 0; }
+
+static char* prop_get_string(const xcb_get_property_reply_t* r, int* out_len) {
+    if (!r || r->format != 8) return NULL;
+    int len = xcb_get_property_value_length(r);
+    if (len <= 0) return NULL;
+    if (out_len) *out_len = len;
+    return (char*)xcb_get_property_value(r);
+}
+
+static uint32_t* prop_get_u32_array(const xcb_get_property_reply_t* r, int min_count, int* out_count) {
+    if (!r || r->format != 32) return NULL;
+    int len = xcb_get_property_value_length(r);
+    if (len < (int)(min_count * (int)sizeof(uint32_t))) return NULL;
+    int count = len / (int)sizeof(uint32_t);
+    if (out_count) *out_count = count;
+    return (uint32_t*)xcb_get_property_value(r);
+}
+
+static void client_update_effective_strut(client_hot_t* hot) {
+    if (hot->strut_partial_active) {
+        hot->strut = hot->strut_partial;
+    } else if (hot->strut_full_active) {
+        hot->strut = hot->strut_full;
+    } else {
+        memset(&hot->strut, 0, sizeof(hot->strut));
+    }
+}
 
 static void abort_manage(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
@@ -100,9 +173,9 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
             xcb_get_property_reply_t* r = (xcb_get_property_reply_t*)reply;
 
             if (atom == atoms.WM_CLASS) {
-                if (xcb_get_property_value_length(r) > 0) {
-                    int len = xcb_get_property_value_length(r);
-                    char* str = (char*)xcb_get_property_value(r);
+                int len = 0;
+                char* str = prop_get_string(r, &len);
+                if (str) {
                     char* instance = str;
                     char* class = (strlen(instance) + 1 < (size_t)len) ? instance + strlen(instance) + 1 : instance;
 
@@ -114,21 +187,41 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                     }
                 }
             } else if (atom == atoms._NET_WM_NAME) {
-                if (xcb_get_property_value_length(r) > 0) {
-                    int len = xcb_get_property_value_length(r);
-                    char* str = (char*)xcb_get_property_value(r);
-                    if (!cold->has_net_wm_name || !cold->title || strlen(cold->title) != (size_t)len ||
-                        strncmp(cold->title, str, len) != 0) {
-                        cold->title = arena_strndup(&cold->string_arena, str, len);
+                int len = 0;
+                char* str = prop_get_string(r, &len);
+                if (!str) len = 0;
+                size_t trimmed_len = (len > 0) ? (size_t)len : 0;
+                while (trimmed_len > 0 && str[trimmed_len - 1] == '\0') trimmed_len--;
+
+                bool valid = trimmed_len > 0;
+                if (valid && memchr(str, '\0', trimmed_len) != NULL) valid = false;
+                if (valid && !is_valid_utf8(str, trimmed_len)) valid = false;
+
+                if (!valid) {
+                    bool had_net = cold->has_net_wm_name;
+                    cold->has_net_wm_name = false;
+                    if (had_net) {
+                        cold->title = arena_strndup(&cold->string_arena, "", 0);
+                        changed = true;
+                    }
+
+                    uint32_t c =
+                        xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
+                    cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, slot->client,
+                                    ((uint64_t)hot->xid << 32) | atoms.WM_NAME);
+                } else {
+                    if (!cold->has_net_wm_name || !cold->title || strlen(cold->title) != trimmed_len ||
+                        strncmp(cold->title, str, trimmed_len) != 0) {
+                        cold->title = arena_strndup(&cold->string_arena, str, trimmed_len);
                         cold->has_net_wm_name = true;
                         LOG_DEBUG("Window %u _NET_WM_NAME: %s", hot->xid, cold->title);
                         changed = true;
                     }
                 }
             } else if (atom == atoms.WM_NAME) {
-                if (xcb_get_property_value_length(r) > 0 && !cold->has_net_wm_name) {
-                    int len = xcb_get_property_value_length(r);
-                    char* str = (char*)xcb_get_property_value(r);
+                int len = 0;
+                char* str = prop_get_string(r, &len);
+                if (str && !cold->has_net_wm_name) {
                     if (!cold->title || strlen(cold->title) != (size_t)len || strncmp(cold->title, str, len) != 0) {
                         cold->title = arena_strndup(&cold->string_arena, str, len);
                         LOG_DEBUG("Window %u WM_NAME: %s", hot->xid, cold->title);
@@ -136,52 +229,33 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                     }
                 }
             } else if (atom == atoms._NET_WM_STATE) {
-                if (xcb_get_property_value_length(r) > 0) {
-                    xcb_atom_t* states = (xcb_atom_t*)xcb_get_property_value(r);
-                    int num_states = xcb_get_property_value_length(r) / sizeof(xcb_atom_t);
-                    bool want_fullscreen = false;
-                    bool want_above = false;
-                    bool want_below = false;
-                    bool want_sticky = false;
-                    bool want_attention = false;
-                    bool want_max_horz = false;
-                    bool want_max_vert = false;
-
-                    for (int i = 0; i < num_states; i++) {
-                        xcb_atom_t state = states[i];
-                        if (state == atoms._NET_WM_STATE_FULLSCREEN) {
-                            want_fullscreen = true;
-                        } else if (state == atoms._NET_WM_STATE_ABOVE) {
-                            want_above = true;
-                        } else if (state == atoms._NET_WM_STATE_BELOW) {
-                            want_below = true;
-                        } else if (state == atoms._NET_WM_STATE_STICKY) {
-                            want_sticky = true;
-                        } else if (state == atoms._NET_WM_STATE_DEMANDS_ATTENTION) {
-                            want_attention = true;
-                        } else if (state == atoms._NET_WM_STATE_MAXIMIZED_HORZ) {
-                            want_max_horz = true;
-                        } else if (state == atoms._NET_WM_STATE_MAXIMIZED_VERT) {
-                            want_max_vert = true;
+                if (prop_is_empty(r)) {
+                    client_state_set_t set = {0};
+                    wm_client_apply_state_set(s, slot->client, &set);
+                } else {
+                    int num_states = 0;
+                    xcb_atom_t* states = (xcb_atom_t*)prop_get_u32_array(r, 1, &num_states);
+                    if (states) {
+                        client_state_set_t set = {0};
+                        for (int i = 0; i < num_states; i++) {
+                            xcb_atom_t state = states[i];
+                            if (state == atoms._NET_WM_STATE_FULLSCREEN) {
+                                set.fullscreen = true;
+                            } else if (state == atoms._NET_WM_STATE_ABOVE) {
+                                set.above = true;
+                            } else if (state == atoms._NET_WM_STATE_BELOW) {
+                                set.below = true;
+                            } else if (state == atoms._NET_WM_STATE_STICKY) {
+                                set.sticky = true;
+                            } else if (state == atoms._NET_WM_STATE_DEMANDS_ATTENTION) {
+                                set.urgent = true;
+                            } else if (state == atoms._NET_WM_STATE_MAXIMIZED_HORZ) {
+                                set.max_horz = true;
+                            } else if (state == atoms._NET_WM_STATE_MAXIMIZED_VERT) {
+                                set.max_vert = true;
+                            }
                         }
-                    }
-
-                    if (want_max_horz) wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_MAXIMIZED_HORZ);
-                    if (want_max_vert) wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_MAXIMIZED_VERT);
-                    if (want_above) wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_ABOVE);
-                    if (!want_above && want_below) {
-                        wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_BELOW);
-                    }
-                    if (want_attention) {
-                        wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_DEMANDS_ATTENTION);
-                    }
-                    if (want_fullscreen) {
-                        wm_client_update_state(s, slot->client, 1, atoms._NET_WM_STATE_FULLSCREEN);
-                    }
-                    if (want_sticky) {
-                        hot->sticky = true;
-                        hot->desktop = -1;
-                        hot->dirty |= DIRTY_STATE;
+                        wm_client_apply_state_set(s, slot->client, &set);
                     }
                 }
             } else if (atom == atoms.WM_NORMAL_HINTS) {
@@ -239,27 +313,27 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                     for (int i = 0; i < num_types; i++) {
                         if (types[i] == atoms._NET_WM_WINDOW_TYPE_DOCK) {
                             hot->type = WINDOW_TYPE_DOCK;
-                            hot->layer = LAYER_ABOVE;
+                            hot->base_layer = LAYER_ABOVE;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_NOTIFICATION) {
                             hot->type = WINDOW_TYPE_NOTIFICATION;
-                            hot->layer = LAYER_OVERLAY;
+                            hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DIALOG) {
                             hot->type = WINDOW_TYPE_DIALOG;
-                            hot->layer = LAYER_NORMAL;
+                            hot->base_layer = LAYER_NORMAL;
                             hot->placement = PLACEMENT_CENTER;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DESKTOP) {
                             hot->type = WINDOW_TYPE_DESKTOP;
-                            hot->layer = LAYER_DESKTOP;
+                            hot->base_layer = LAYER_DESKTOP;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_SPLASH) {
                             hot->type = WINDOW_TYPE_SPLASH;
-                            hot->layer = LAYER_ABOVE;
+                            hot->base_layer = LAYER_ABOVE;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_TOOLBAR) {
                             hot->type = WINDOW_TYPE_TOOLBAR;
@@ -269,22 +343,22 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_MENU) {
                             hot->type = WINDOW_TYPE_MENU;
-                            hot->layer = LAYER_OVERLAY;
+                            hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DROPDOWN_MENU) {
                             hot->type = WINDOW_TYPE_DROPDOWN_MENU;
-                            hot->layer = LAYER_OVERLAY;
+                            hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_POPUP_MENU) {
                             hot->type = WINDOW_TYPE_POPUP_MENU;
-                            hot->layer = LAYER_OVERLAY;
+                            hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_TOOLTIP) {
                             hot->type = WINDOW_TYPE_TOOLTIP;
-                            hot->layer = LAYER_OVERLAY;
+                            hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_NORMAL) {
@@ -292,11 +366,19 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                             break;
                         }
                     }
+
+                    if (hot->layer != LAYER_FULLSCREEN) {
+                        uint8_t prev_layer = hot->layer;
+                        hot->layer = client_layer_from_state(hot);
+                        if (hot->layer != prev_layer) {
+                            hot->dirty |= DIRTY_STATE | DIRTY_STACK;
+                        }
+                    }
                 }
             } else if (atom == atoms.WM_PROTOCOLS) {
-                if (xcb_get_property_value_length(r) > 0) {
-                    xcb_atom_t* protocols = (xcb_atom_t*)xcb_get_property_value(r);
-                    int num_protocols = xcb_get_property_value_length(r) / sizeof(xcb_atom_t);
+                int num_protocols = 0;
+                xcb_atom_t* protocols = (xcb_atom_t*)prop_get_u32_array(r, 1, &num_protocols);
+                if (protocols) {
                     for (int i = 0; i < num_protocols; i++) {
                         if (protocols[i] == atoms.WM_DELETE_WINDOW) {
                             cold->protocols |= PROTOCOL_DELETE_WINDOW;
@@ -308,47 +390,59 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                     }
                 }
             } else if (atom == atoms._NET_WM_DESKTOP) {
-                if (xcb_get_property_value_length(r) >= 4) {
-                    uint32_t val = *(uint32_t*)xcb_get_property_value(r);
-                    if (val == 0xFFFFFFFF) {
+                uint32_t* val = prop_get_u32_array(r, 1, NULL);
+                if (val) {
+                    if (*val == 0xFFFFFFFF) {
                         hot->sticky = true;
                         hot->desktop = -1;
                     } else {
                         hot->sticky = false;
-                        if (s->desktop_count == 1) {
-                            val = 0;
-                        } else if (val >= s->desktop_count) {
-                            val = s->current_desktop;
+                        uint32_t desk = *val;
+                        if (desk >= s->desktop_count) {
+                            desk = s->current_desktop;
                         }
-                        hot->desktop = (int32_t)val;
+                        hot->desktop = (int32_t)desk;
                     }
                     LOG_DEBUG("Window %u requested desktop %d (sticky=%d)", hot->xid, hot->desktop, hot->sticky);
                 }
             } else if (atom == atoms._NET_WM_STRUT || atom == atoms._NET_WM_STRUT_PARTIAL) {
-                if (xcb_get_property_value_length(r) >= 16) {
-                    uint32_t* val = (uint32_t*)xcb_get_property_value(r);
-                    hot->strut.left = val[0];
-                    hot->strut.right = val[1];
-                    hot->strut.top = val[2];
-                    hot->strut.bottom = val[3];
+                int len = r ? xcb_get_property_value_length(r) : 0;
+                bool is_partial = (atom == atoms._NET_WM_STRUT_PARTIAL);
+                strut_t* target = is_partial ? &hot->strut_partial : &hot->strut_full;
+                bool* active = is_partial ? &hot->strut_partial_active : &hot->strut_full_active;
 
-                    if (atom == atoms._NET_WM_STRUT_PARTIAL && xcb_get_property_value_length(r) >= 48) {
-                        hot->strut.left_start_y = val[4];
-                        hot->strut.left_end_y = val[5];
-                        hot->strut.right_start_y = val[6];
-                        hot->strut.right_end_y = val[7];
-                        hot->strut.top_start_x = val[8];
-                        hot->strut.top_end_x = val[9];
-                        hot->strut.bottom_start_x = val[10];
-                        hot->strut.bottom_end_x = val[11];
+                if (len >= 16) {
+                    uint32_t* val = prop_get_u32_array(r, 4, NULL);
+                    memset(target, 0, sizeof(*target));
+                    if (val) {
+                        target->left = val[0];
+                        target->right = val[1];
+                        target->top = val[2];
+                        target->bottom = val[3];
                     }
 
-                    s->root_dirty |= ROOT_DIRTY_WORKAREA;
-                    LOG_DEBUG("Window %u struts: L=%u R=%u T=%u B=%u", hot->xid, hot->strut.left, hot->strut.right,
-                              hot->strut.top, hot->strut.bottom);
+                    if (is_partial && len >= 48 && val) {
+                        target->left_start_y = val[4];
+                        target->left_end_y = val[5];
+                        target->right_start_y = val[6];
+                        target->right_end_y = val[7];
+                        target->top_start_x = val[8];
+                        target->top_end_x = val[9];
+                        target->bottom_start_x = val[10];
+                        target->bottom_end_x = val[11];
+                    }
+                    *active = true;
+                } else {
+                    memset(target, 0, sizeof(*target));
+                    *active = false;
                 }
+
+                client_update_effective_strut(hot);
+                s->root_dirty |= ROOT_DIRTY_WORKAREA;
+                LOG_DEBUG("Window %u struts: L=%u R=%u T=%u B=%u", hot->xid, hot->strut.left, hot->strut.right,
+                          hot->strut.top, hot->strut.bottom);
             } else if (atom == atoms.WM_HINTS) {
-                if (xcb_get_property_value_length(r) >= 4) {
+                if (!prop_is_empty(r)) {
                     xcb_icccm_wm_hints_t hints;
                     if (xcb_icccm_get_wm_hints_from_reply(&hints, r)) {
                         cold->can_focus = (bool)(hints.input);
@@ -367,47 +461,76 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                     }
                 }
             } else if (atom == atoms._NET_WM_ICON) {
-                if (xcb_get_property_value_length(r) >= 8) {
-                    uint32_t* val = (uint32_t*)xcb_get_property_value(r);
-                    int total_words = xcb_get_property_value_length(r) / 4;
+                if (!prop_is_empty(r)) {
+                    const uint32_t icon_target_sizes[] = {16, 24, 32, 48, 64};
+                    const uint32_t icon_dim_max = 4096;
+                    const uint64_t icon_pixels_max = 1024ull * 1024ull;
+                    const uint64_t icon_total_pixels_max = 4ull * 1024ull * 1024ull;
+                    const uint32_t icon_count_max = 32;
 
-                    // Find best icon (closest to 16x16)
-                    int best_w = 0, best_h = 0;
+                    int total_words = 0;
+                    uint32_t* val = prop_get_u32_array(r, 2, &total_words);
+                    if (!val) break;
+
+                    uint32_t best_w = 0;
+                    uint32_t best_h = 0;
+                    uint64_t best_area = 0;
                     uint32_t* best_data = NULL;
-                    int min_diff = 10000;
+                    uint32_t best_diff = UINT32_MAX;
 
                     int i = 0;
+                    uint32_t icons_seen = 0;
+                    uint64_t total_pixels = 0;
                     while (i + 2 <= total_words) {
-                        int w = (int)val[i];
-                        int h = (int)val[i + 1];
-                        int size = w * h;
-                        if (i + 2 + size > total_words) break;
+                        if (icons_seen >= icon_count_max) break;
 
-                        int diff = abs(w - 16) + abs(h - 16);
-                        if (diff < min_diff) {
-                            min_diff = diff;
-                            best_w = w;
-                            best_h = h;
-                            best_data = &val[i + 2];
+                        uint32_t w = val[i];
+                        uint32_t h = val[i + 1];
+                        if (w == 0 || h == 0) break;
+
+                        uint64_t pixels = (uint64_t)w * (uint64_t)h;
+                        if (pixels > (uint64_t)(total_words - i - 2)) break;
+                        if (pixels > icon_pixels_max) break;
+                        if (total_pixels + pixels > icon_total_pixels_max) break;
+
+                        if (w <= icon_dim_max && h <= icon_dim_max) {
+                            uint32_t diff = UINT32_MAX;
+                            for (size_t t = 0; t < sizeof(icon_target_sizes) / sizeof(icon_target_sizes[0]); t++) {
+                                int dw = abs((int)w - (int)icon_target_sizes[t]);
+                                int dh = abs((int)h - (int)icon_target_sizes[t]);
+                                uint32_t td = (uint32_t)(dw + dh);
+                                if (td < diff) diff = td;
+                            }
+
+                            if (diff < best_diff || (diff == best_diff && pixels > best_area)) {
+                                best_diff = diff;
+                                best_w = w;
+                                best_h = h;
+                                best_area = pixels;
+                                best_data = &val[i + 2];
+                            }
                         }
-                        i += 2 + size;
+
+                        i += (int)(2 + pixels);
+                        icons_seen++;
+                        total_pixels += pixels;
                     }
 
                     if (best_data) {
                         if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
-                        hot->icon_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, best_w, best_h);
+                        hot->icon_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)best_w, (int)best_h);
 
                         unsigned char* dest = cairo_image_surface_get_data(hot->icon_surface);
                         int stride = cairo_image_surface_get_stride(hot->icon_surface);
                         cairo_surface_flush(hot->icon_surface);
 
-                        for (int y = 0; y < best_h; y++) {
+                        for (int y = 0; y < (int)best_h; y++) {
                             uint32_t* row = (uint32_t*)(dest + y * stride);
-                            for (int x = 0; x < best_w; x++) {
+                            for (int x = 0; x < (int)best_w; x++) {
                                 // X11 icon data is ARGB 32-bit words.
                                 // Cairo ARGB32 is also ARGB but host-endian.
                                 // Usually these match on little-endian systems.
-                                row[x] = best_data[y * best_w + x];
+                                row[x] = best_data[y * (int)best_w + x];
                             }
                         }
                         cairo_surface_mark_dirty(hot->icon_surface);

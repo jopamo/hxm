@@ -67,37 +67,126 @@ static bool should_raise_on_click(client_hot_t* c, xcb_button_t button) {
     return (button == 1 || button == 3);
 }
 
+static void wm_client_set_maximize(server_t* s, client_hot_t* hot, bool max_horz, bool max_vert);
+
 void wm_publish_desktop_props(server_t* s) {
     xcb_connection_t* conn = s->conn;
     xcb_window_t root = s->root;
 
-    // Single-desktop mode for now.
-    s->desktop_count = 1;
-    s->current_desktop = 0;
+    if (s->desktop_count == 0) s->desktop_count = 1;
+    if (s->current_desktop >= s->desktop_count) s->current_desktop = 0;
 
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_NUMBER_OF_DESKTOPS, XCB_ATOM_CARDINAL, 32, 1,
                         &s->desktop_count);
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
                         &s->current_desktop);
 
-    const char* name = NULL;
-    if (s->config.desktop_names && s->config.desktop_names_count > 0) {
-        name = s->config.desktop_names[0];
+    size_t name_bytes = 0;
+    for (uint32_t i = 0; i < s->desktop_count; i++) {
+        const char* name = NULL;
+        char fallback[32];
+        if (s->config.desktop_names && i < s->config.desktop_names_count) {
+            name = s->config.desktop_names[i];
+        }
+        if (!name || name[0] == '\0') {
+            snprintf(fallback, sizeof(fallback), "%u", i + 1);
+            name = fallback;
+        }
+        name_bytes += strlen(name) + 1;
     }
-    if (!name || name[0] == '\0') name = "1";
 
-    size_t name_len = strlen(name) + 1;
-    char* buf = malloc(name_len);
+    char* buf = malloc(name_bytes);
     if (buf) {
-        memcpy(buf, name, name_len);
+        size_t offset = 0;
+        for (uint32_t i = 0; i < s->desktop_count; i++) {
+            const char* name = NULL;
+            char fallback[32];
+            if (s->config.desktop_names && i < s->config.desktop_names_count) {
+                name = s->config.desktop_names[i];
+            }
+            if (!name || name[0] == '\0') {
+                snprintf(fallback, sizeof(fallback), "%u", i + 1);
+                name = fallback;
+            }
+            size_t len = strlen(name) + 1;
+            memcpy(buf + offset, name, len);
+            offset += len;
+        }
         xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 8,
-                            (uint32_t)name_len, buf);
+                            (uint32_t)name_bytes, buf);
         free(buf);
     }
 
-    uint32_t viewport[2] = {0, 0};
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_VIEWPORT, XCB_ATOM_CARDINAL, 32, 2,
-                        viewport);
+    uint32_t* viewport = calloc(s->desktop_count * 2, sizeof(uint32_t));
+    if (viewport) {
+        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_VIEWPORT, XCB_ATOM_CARDINAL, 32,
+                            s->desktop_count * 2, viewport);
+        free(viewport);
+    }
+}
+
+void wm_compute_workarea(server_t* s, rect_t* out) {
+    if (!s || !out) return;
+
+    xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+    int32_t l = 0, r = (int32_t)screen->width_in_pixels, t = 0, b = (int32_t)screen->height_in_pixels;
+
+    for (uint32_t i = 1; i < s->clients.cap; i++) {
+        if (!s->clients.hdr[i].live) continue;
+
+        handle_t h = handle_make(i, s->clients.hdr[i].gen);
+        client_hot_t* c = server_chot(s, h);
+        if (!c) continue;
+        if (c->state != STATE_MAPPED) continue;
+
+        if ((int32_t)c->strut.left > l) l = (int32_t)c->strut.left;
+        if ((int32_t)((int32_t)screen->width_in_pixels - (int32_t)c->strut.right) < r)
+            r = (int32_t)screen->width_in_pixels - (int32_t)c->strut.right;
+        if ((int32_t)c->strut.top > t) t = (int32_t)c->strut.top;
+        if ((int32_t)((int32_t)screen->height_in_pixels - (int32_t)c->strut.bottom) < b)
+            b = (int32_t)screen->height_in_pixels - (int32_t)c->strut.bottom;
+    }
+
+    out->x = (int16_t)l;
+    out->y = (int16_t)t;
+    out->w = (uint16_t)((r > l) ? (r - l) : 0);
+    out->h = (uint16_t)((b > t) ? (b - t) : 0);
+}
+
+static void wm_publish_workarea(server_t* s, const rect_t* wa) {
+    if (!s || !wa) return;
+
+    s->workarea = *wa;
+
+    uint32_t n = s->desktop_count ? s->desktop_count : 1;
+    uint32_t* wa_vals = malloc(n * 4 * sizeof(uint32_t));
+    if (wa_vals) {
+        for (uint32_t i = 0; i < n; i++) {
+            wa_vals[i * 4 + 0] = (uint32_t)s->workarea.x;
+            wa_vals[i * 4 + 1] = (uint32_t)s->workarea.y;
+            wa_vals[i * 4 + 2] = (uint32_t)s->workarea.w;
+            wa_vals[i * 4 + 3] = (uint32_t)s->workarea.h;
+        }
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_WORKAREA, XCB_ATOM_CARDINAL, 32, n * 4,
+                            wa_vals);
+        free(wa_vals);
+    }
+
+    // Re-apply workarea-dependent geometry for maximized/fullscreen windows.
+    for (uint32_t i = 1; i < s->clients.cap; i++) {
+        if (!s->clients.hdr[i].live) continue;
+        handle_t h = handle_make(i, s->clients.hdr[i].gen);
+        client_hot_t* hot = server_chot(s, h);
+        if (!hot) continue;
+        if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
+
+        if (hot->layer == LAYER_FULLSCREEN && s->config.fullscreen_use_workarea) {
+            hot->desired = s->workarea;
+            hot->dirty |= DIRTY_GEOM;
+        } else if (hot->maximized_horz || hot->maximized_vert) {
+            wm_client_set_maximize(s, hot, hot->maximized_horz, hot->maximized_vert);
+        }
+    }
 }
 
 static void wm_client_apply_maximize(server_t* s, client_hot_t* hot) {
@@ -300,8 +389,9 @@ void wm_become(server_t* s) {
 
     wm_publish_desktop_props(s);
 
-    uint32_t wa_vals[4] = {0, 0, (uint32_t)s->workarea.w, (uint32_t)s->workarea.h};
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_WORKAREA, XCB_ATOM_CARDINAL, 32, 4, wa_vals);
+    rect_t wa;
+    wm_compute_workarea(s, &wa);
+    wm_publish_workarea(s, &wa);
 
     // Initialize root lists and focus to sane empty values.
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, 0, NULL);
@@ -403,6 +493,43 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
         s->root_dirty |= ROOT_DIRTY_WORKAREA;
+    }
+}
+
+void wm_client_apply_state_set(server_t* s, handle_t h, const client_state_set_t* set) {
+    client_hot_t* hot = server_chot(s, h);
+    if (!hot || !set) return;
+
+    if (hot->maximized_horz != set->max_horz || hot->maximized_vert != set->max_vert) {
+        wm_client_set_maximize(s, hot, set->max_horz, set->max_vert);
+    }
+
+    if (set->above) {
+        if (!hot->state_above) wm_client_update_state(s, h, 1, atoms._NET_WM_STATE_ABOVE);
+    } else if (hot->state_above) {
+        wm_client_update_state(s, h, 0, atoms._NET_WM_STATE_ABOVE);
+    }
+
+    if (set->below && !set->above) {
+        if (!hot->state_below) wm_client_update_state(s, h, 1, atoms._NET_WM_STATE_BELOW);
+    } else if (hot->state_below) {
+        wm_client_update_state(s, h, 0, atoms._NET_WM_STATE_BELOW);
+    }
+
+    if (set->urgent) {
+        if (!(hot->flags & CLIENT_FLAG_URGENT)) wm_client_update_state(s, h, 1, atoms._NET_WM_STATE_DEMANDS_ATTENTION);
+    } else if (hot->flags & CLIENT_FLAG_URGENT) {
+        wm_client_update_state(s, h, 0, atoms._NET_WM_STATE_DEMANDS_ATTENTION);
+    }
+
+    if (set->fullscreen) {
+        if (hot->layer != LAYER_FULLSCREEN) wm_client_update_state(s, h, 1, atoms._NET_WM_STATE_FULLSCREEN);
+    } else if (hot->layer == LAYER_FULLSCREEN) {
+        wm_client_update_state(s, h, 0, atoms._NET_WM_STATE_FULLSCREEN);
+    }
+
+    if (set->sticky != hot->sticky) {
+        wm_client_toggle_sticky(s, h);
     }
 }
 
@@ -520,9 +647,11 @@ void wm_flush_dirty(server_t* s) {
 
             if (hot->layer == LAYER_FULLSCREEN) {
                 state_atoms[count++] = atoms._NET_WM_STATE_FULLSCREEN;
-            } else if (hot->layer == LAYER_ABOVE) {
+            }
+            if (hot->state_above) {
                 state_atoms[count++] = atoms._NET_WM_STATE_ABOVE;
-            } else if (hot->layer == LAYER_BELOW) {
+            }
+            if (hot->state_below) {
                 state_atoms[count++] = atoms._NET_WM_STATE_BELOW;
             }
 
@@ -628,59 +757,9 @@ void wm_flush_dirty(server_t* s) {
     }
 
     if (s->root_dirty & ROOT_DIRTY_WORKAREA) {
-        xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
-        int32_t l = 0, r = (int32_t)screen->width_in_pixels, t = 0, b = (int32_t)screen->height_in_pixels;
-
-        for (uint32_t i = 1; i < s->clients.cap; i++) {
-            if (!s->clients.hdr[i].live) continue;
-
-            handle_t h = handle_make(i, s->clients.hdr[i].gen);
-            client_hot_t* c = server_chot(s, h);
-            if (!c) continue;
-            if (c->state != STATE_MAPPED) continue;
-
-            if ((int32_t)c->strut.left > l) l = (int32_t)c->strut.left;
-            if ((int32_t)((int32_t)screen->width_in_pixels - (int32_t)c->strut.right) < r)
-                r = (int32_t)screen->width_in_pixels - (int32_t)c->strut.right;
-            if ((int32_t)c->strut.top > t) t = (int32_t)c->strut.top;
-            if ((int32_t)((int32_t)screen->height_in_pixels - (int32_t)c->strut.bottom) < b)
-                b = (int32_t)screen->height_in_pixels - (int32_t)c->strut.bottom;
-        }
-
-        s->workarea.x = (int16_t)l;
-        s->workarea.y = (int16_t)t;
-        s->workarea.w = (uint16_t)((r > l) ? (r - l) : 0);
-        s->workarea.h = (uint16_t)((b > t) ? (b - t) : 0);
-
-        uint32_t n = s->desktop_count ? s->desktop_count : 1;
-        uint32_t* wa_vals = malloc(n * 4 * sizeof(uint32_t));
-        if (wa_vals) {
-            for (uint32_t i = 0; i < n; i++) {
-                wa_vals[i * 4 + 0] = (uint32_t)s->workarea.x;
-                wa_vals[i * 4 + 1] = (uint32_t)s->workarea.y;
-                wa_vals[i * 4 + 2] = (uint32_t)s->workarea.w;
-                wa_vals[i * 4 + 3] = (uint32_t)s->workarea.h;
-            }
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_WORKAREA, XCB_ATOM_CARDINAL, 32,
-                                n * 4, wa_vals);
-            free(wa_vals);
-        }
-
-        // Re-apply workarea-dependent geometry for maximized/fullscreen windows.
-        for (uint32_t i = 1; i < s->clients.cap; i++) {
-            if (!s->clients.hdr[i].live) continue;
-            handle_t h = handle_make(i, s->clients.hdr[i].gen);
-            client_hot_t* hot = server_chot(s, h);
-            if (!hot) continue;
-            if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
-
-            if (hot->layer == LAYER_FULLSCREEN && s->config.fullscreen_use_workarea) {
-                hot->desired = s->workarea;
-                hot->dirty |= DIRTY_GEOM;
-            } else if (hot->maximized_horz || hot->maximized_vert) {
-                wm_client_set_maximize(s, hot, hot->maximized_horz, hot->maximized_vert);
-            }
-        }
+        rect_t wa;
+        wm_compute_workarea(s, &wa);
+        wm_publish_workarea(s, &wa);
 
         s->root_dirty &= ~ROOT_DIRTY_WORKAREA;
     }
@@ -1153,9 +1232,9 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
         if (prop == atoms._NET_WM_STATE_FULLSCREEN)
             add = (hot->layer != LAYER_FULLSCREEN);
         else if (prop == atoms._NET_WM_STATE_ABOVE)
-            add = (hot->layer != LAYER_ABOVE);
+            add = !hot->state_above;
         else if (prop == atoms._NET_WM_STATE_BELOW)
-            add = (hot->layer != LAYER_BELOW);
+            add = !hot->state_below;
         else if (prop == atoms._NET_WM_STATE_STICKY)
             add = !hot->sticky;
         else if (prop == atoms._NET_WM_STATE_DEMANDS_ATTENTION)
@@ -1174,7 +1253,7 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
         if (add && hot->layer != LAYER_FULLSCREEN) {
             hot->saved_geom = hot->server;
             hot->saved_layer = hot->layer;
-            hot->saved_flags = hot->flags;
+            hot->saved_state_mask = hot->flags & CLIENT_FLAG_UNDECORATED;
             hot->saved_maximized_horz = hot->maximized_horz;
             hot->saved_maximized_vert = hot->maximized_vert;
             hot->maximized_horz = false;
@@ -1194,9 +1273,9 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
 
             hot->dirty |= DIRTY_GEOM | DIRTY_STATE | DIRTY_STACK;
         } else if (!add && hot->layer == LAYER_FULLSCREEN) {
-            hot->layer = hot->saved_layer;
+            hot->layer = client_layer_from_state(hot);
             hot->desired = hot->saved_geom;
-            hot->flags = hot->saved_flags;
+            hot->flags = (hot->flags & ~CLIENT_FLAG_UNDECORATED) | (hot->saved_state_mask & CLIENT_FLAG_UNDECORATED);
             hot->maximized_horz = hot->saved_maximized_horz;
             hot->maximized_vert = hot->saved_maximized_vert;
             hot->dirty |= DIRTY_GEOM | DIRTY_STATE | DIRTY_STACK;
@@ -1205,14 +1284,38 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
     }
 
     if (prop == atoms._NET_WM_STATE_ABOVE) {
-        hot->layer = add ? LAYER_ABOVE : LAYER_NORMAL;
-        hot->dirty |= DIRTY_STATE | DIRTY_STACK;
+        if (add) {
+            hot->state_above = true;
+            hot->state_below = false;
+        } else {
+            hot->state_above = false;
+        }
+        if (hot->layer != LAYER_FULLSCREEN) {
+            uint8_t desired = client_layer_from_state(hot);
+            if (hot->layer != desired) {
+                hot->layer = desired;
+                hot->dirty |= DIRTY_STACK;
+            }
+        }
+        hot->dirty |= DIRTY_STATE;
         return;
     }
 
     if (prop == atoms._NET_WM_STATE_BELOW) {
-        hot->layer = add ? LAYER_BELOW : LAYER_NORMAL;
-        hot->dirty |= DIRTY_STATE | DIRTY_STACK;
+        if (add) {
+            hot->state_below = true;
+            hot->state_above = false;
+        } else {
+            hot->state_below = false;
+        }
+        if (hot->layer != LAYER_FULLSCREEN) {
+            uint8_t desired = client_layer_from_state(hot);
+            if (hot->layer != desired) {
+                hot->layer = desired;
+                hot->dirty |= DIRTY_STACK;
+            }
+        }
+        hot->dirty |= DIRTY_STATE;
         return;
     }
 
@@ -1245,11 +1348,8 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
 void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     if (ev->type == atoms._NET_CURRENT_DESKTOP) {
         uint32_t desktop = ev->data.data32[0];
-        if (s->desktop_count == 1) {
-            if (desktop != 0) {
-                LOG_INFO("Client requested switch to desktop %u (clamped to 0)", desktop);
-            }
-            wm_switch_workspace(s, 0);
+        if (desktop >= s->desktop_count) {
+            LOG_INFO("Client requested switch to desktop %u (out of range)", desktop);
             return;
         }
         LOG_INFO("Client requested switch to desktop %u", desktop);
@@ -1260,10 +1360,26 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     if (ev->type == atoms._NET_NUMBER_OF_DESKTOPS) {
         uint32_t requested = ev->data.data32[0];
         if (requested == 0) requested = 1;
-        if (requested != 1) {
-            LOG_INFO("Client requested %u desktops (clamped to 1)", requested);
+        if (requested != s->desktop_count) {
+            LOG_INFO("Client requested %u desktops", requested);
+            s->desktop_count = requested;
+            if (s->current_desktop >= s->desktop_count) s->current_desktop = 0;
+
+            for (uint32_t i = 1; i < s->clients.cap; i++) {
+                if (!s->clients.hdr[i].live) continue;
+                handle_t h = handle_make(i, s->clients.hdr[i].gen);
+                client_hot_t* hot = server_chot(s, h);
+                if (!hot || hot->sticky) continue;
+                if (hot->desktop >= (int32_t)s->desktop_count) {
+                    hot->desktop = (int32_t)s->current_desktop;
+                    uint32_t prop_val = (uint32_t)hot->desktop;
+                    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_DESKTOP,
+                                        XCB_ATOM_CARDINAL, 32, 1, &prop_val);
+                }
+            }
         }
         wm_publish_desktop_props(s);
+        s->root_dirty |= ROOT_DIRTY_WORKAREA;
         return;
     }
 
@@ -1271,8 +1387,9 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         handle_t h = server_get_client_by_window(s, ev->window);
         if (h != HANDLE_INVALID) {
             uint32_t desktop = ev->data.data32[0];
-            if (s->desktop_count == 1 && desktop != 0xFFFFFFFFu) {
-                desktop = 0;
+            if (desktop != 0xFFFFFFFFu && desktop >= s->desktop_count) {
+                LOG_INFO("Client requested move to desktop %u (out of range)", desktop);
+                return;
             }
             wm_client_move_to_workspace(s, h, desktop, false);
         }

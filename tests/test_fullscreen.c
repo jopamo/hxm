@@ -48,6 +48,9 @@ void test_fullscreen_decorations() {
 
     hot->state = STATE_MAPPED;
     hot->layer = LAYER_NORMAL;
+    hot->base_layer = LAYER_NORMAL;
+    hot->state_above = false;
+    hot->state_below = false;
     hot->flags = CLIENT_FLAG_NONE;
     hot->server.x = 100;
     hot->server.y = 100;
@@ -64,7 +67,7 @@ void test_fullscreen_decorations() {
     assert(hot->saved_layer == LAYER_NORMAL);
     assert(hot->saved_geom.x == 100);
     assert(hot->saved_geom.w == 400);
-    assert((hot->saved_flags & CLIENT_FLAG_UNDECORATED) == 0);
+    assert((hot->saved_state_mask & CLIENT_FLAG_UNDECORATED) == 0);
 
     // 2. Disable Fullscreen
     wm_client_update_state(&s, h, 0, atoms._NET_WM_STATE_FULLSCREEN);

@@ -56,7 +56,10 @@ void test_net_wm_state_logic() {
     memset(&hot, 0, sizeof(hot));
 
     hot.layer = LAYER_FULLSCREEN;
+    hot.base_layer = LAYER_NORMAL;
     hot.flags = CLIENT_FLAG_URGENT;
+    hot.state_above = false;
+    hot.state_below = false;
 
     // Logic from wm_flush_dirty
     xcb_atom_t state_atoms[5];
@@ -69,7 +72,8 @@ void test_net_wm_state_logic() {
 
     if (hot.layer == LAYER_FULLSCREEN) {
         state_atoms[count++] = ATOM_FULLSCREEN;
-    } else if (hot.layer == LAYER_ABOVE) {
+    }
+    if (hot.state_above) {
         state_atoms[count++] = ATOM_ABOVE;
     }
 

@@ -215,6 +215,7 @@ void test_move_interaction() {
     s.focused_client = HANDLE_INVALID;
     hash_map_init(&s.window_to_client);
     hash_map_init(&s.frame_to_client);
+    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
