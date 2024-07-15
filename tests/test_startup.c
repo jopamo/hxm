@@ -26,7 +26,7 @@ void test_adoption_logic() {
     slot.data = 999;  // window xid
 
     // This should trigger client_manage_start for window 999
-    wm_handle_reply(&s, &slot, &mock_attr);
+    wm_handle_reply(&s, &slot, &mock_attr, NULL);
 
     // Check if window 999 is now being managed (should be in window_to_client map)
     handle_t h = server_get_client_by_window(&s, 999);

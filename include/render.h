@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <xcb/xcb.h>
 
+#include "bbox.h"
 #include "theme.h"
 
 // Holds persistent resources to prevent allocation churn
@@ -30,4 +31,4 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
                   bool is_test, const char* title, bool active,
                   int width,   // Total frame width
                   int height,  // Total frame height
-                  theme_t* theme, cairo_surface_t* icon);
+                  theme_t* theme, cairo_surface_t* icon, const dirty_region_t* dirty);

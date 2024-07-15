@@ -69,6 +69,10 @@ static xcb_rectangle_t get_button_rect(server_t* s, client_hot_t* hot, frame_but
 
 void frame_redraw(server_t* s, handle_t h, uint32_t what) {
     (void)what;  // Currently we always redraw all with the new engine
+    frame_redraw_region(s, h, NULL);
+}
+
+void frame_redraw_region(server_t* s, handle_t h, const dirty_region_t* dirty) {
     client_hot_t* hot = server_chot(s, h);
     client_cold_t* cold = server_ccold(s, h);
     if (!hot) return;
@@ -107,8 +111,17 @@ void frame_redraw(server_t* s, handle_t h, uint32_t what) {
         return;
     }
 
+    dirty_region_t clip = {0};
+    const dirty_region_t* clip_ptr = NULL;
+    if (dirty && dirty->valid) {
+        clip = *dirty;
+        dirty_region_clamp(&clip, 0, 0, frame_w, frame_h);
+        if (!clip.valid) return;
+        clip_ptr = &clip;
+    }
+
     render_frame(s->conn, hot->frame, visual, &hot->render_ctx, (int)hot->depth, s->is_test, cold ? cold->title : "",
-                 active, frame_w, frame_h, &s->config.theme, hot->icon_surface);
+                 active, frame_w, frame_h, &s->config.theme, hot->icon_surface, clip_ptr);
 }
 
 frame_button_t frame_get_button_at(server_t* s, handle_t h, int16_t x, int16_t y) {

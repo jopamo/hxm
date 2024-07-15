@@ -52,7 +52,7 @@ void test_net_wm_name_fallback() {
 
     xcb_get_property_reply_t* rep = make_string_reply(atoms.UTF8_STRING, "modern", 6);
     slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_NAME;
-    wm_handle_reply(&s, &slot, rep);
+    wm_handle_reply(&s, &slot, rep, NULL);
     free(rep);
 
     assert(cold->has_net_wm_name);
@@ -60,19 +60,19 @@ void test_net_wm_name_fallback() {
 
     rep = make_string_reply(XCB_ATOM_STRING, "legacy", 6);
     slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_NAME;
-    wm_handle_reply(&s, &slot, rep);
+    wm_handle_reply(&s, &slot, rep, NULL);
     free(rep);
     assert(strcmp(cold->title, "modern") == 0);
 
     rep = make_string_reply(atoms.UTF8_STRING, "", 0);
     slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_NAME;
-    wm_handle_reply(&s, &slot, rep);
+    wm_handle_reply(&s, &slot, rep, NULL);
     free(rep);
     assert(!cold->has_net_wm_name);
 
     rep = make_string_reply(XCB_ATOM_STRING, "legacy", 6);
     slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_NAME;
-    wm_handle_reply(&s, &slot, rep);
+    wm_handle_reply(&s, &slot, rep, NULL);
     free(rep);
     assert(strcmp(cold->title, "legacy") == 0);
 

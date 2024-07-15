@@ -51,19 +51,19 @@ void test_wm_icon_invalid() {
 
     uint32_t huge_dims[] = {UINT32_MAX, UINT32_MAX};
     xcb_get_property_reply_t* rep = make_icon_reply(huge_dims, 2);
-    wm_handle_reply(&s, &slot, rep);
+    wm_handle_reply(&s, &slot, rep, NULL);
     free(rep);
     assert(hot->icon_surface == NULL);
 
     uint32_t big_dims[] = {4097, 4097};
     rep = make_icon_reply(big_dims, 2);
-    wm_handle_reply(&s, &slot, rep);
+    wm_handle_reply(&s, &slot, rep, NULL);
     free(rep);
     assert(hot->icon_surface == NULL);
 
     uint32_t truncated[] = {64, 64};
     rep = make_icon_reply(truncated, 2);
-    wm_handle_reply(&s, &slot, rep);
+    wm_handle_reply(&s, &slot, rep, NULL);
     free(rep);
     assert(hot->icon_surface == NULL);
 

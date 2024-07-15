@@ -70,7 +70,7 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev);
 void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_event_t* ev);
 void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_event_t* ev);
 void wm_flush_dirty(server_t* s);
-void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply);
+void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err);
 void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t prop);
 
 #endif  // WM_H

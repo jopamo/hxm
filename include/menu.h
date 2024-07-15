@@ -54,6 +54,7 @@ void menu_hide(server_t* s);
 
 // Event handlers specific to menu when active
 void menu_handle_expose(server_t* s);
+void menu_handle_expose_region(server_t* s, const dirty_region_t* dirty);
 void menu_handle_pointer_motion(server_t* s, int16_t x, int16_t y);
 void menu_handle_button_press(server_t* s, xcb_button_press_event_t* ev);
 void menu_handle_button_release(server_t* s, xcb_button_release_event_t* ev);

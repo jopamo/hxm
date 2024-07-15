@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <xcb/damage.h>
 #include <xcb/xcb.h>
 
 #include "bbox.h"
@@ -149,6 +150,9 @@ typedef struct client_hot {
     xcb_visualid_t visual_id;
     xcb_visualtype_t* visual_type;
     uint8_t depth;
+
+    xcb_damage_damage_t damage;
+    dirty_region_t damage_region;
 } client_hot_t;
 
 static inline uint8_t client_layer_from_state(const client_hot_t* hot) {

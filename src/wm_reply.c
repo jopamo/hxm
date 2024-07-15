@@ -101,7 +101,10 @@ static void abort_manage(server_t* s, handle_t h) {
     slotmap_free(&s->clients, h);
 }
 
-void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
+void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
+    if (err) {
+        LOG_DEBUG("Cookie %u returned error code %d", slot->sequence, err->error_code);
+    }
     if (slot->client == HANDLE_INVALID) {
         // Pre-management adoption probe
         if (slot->type == COOKIE_GET_WINDOW_ATTRIBUTES && reply) {
@@ -208,7 +211,7 @@ void wm_handle_reply(server_t* s, cookie_slot_t* slot, void* reply) {
                     uint32_t c =
                         xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
                     cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, slot->client,
-                                    ((uint64_t)hot->xid << 32) | atoms.WM_NAME);
+                                    ((uint64_t)hot->xid << 32) | atoms.WM_NAME, wm_handle_reply);
                 } else {
                     if (!cold->has_net_wm_name || !cold->title || strlen(cold->title) != trimmed_len ||
                         strncmp(cold->title, str, trimmed_len) != 0) {

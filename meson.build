@@ -21,6 +21,7 @@ xcb_xkb_dep = dependency('xcb-xkb')
 xcb_randr_dep = dependency('xcb-randr')
 xcb_xinerama_dep = dependency('xcb-xinerama', required: false)
 xcb_keysyms_dep = dependency('xcb-keysyms', required: false)
+xcb_damage_dep = dependency('xcb-damage')
 cairo_dep = dependency('cairo')
 pango_dep = dependency('pango')
 pangocairo_dep = dependency('pangocairo')
@@ -49,6 +50,7 @@ deps = [
   xcb_randr_dep,
   xcb_xinerama_dep,
   xcb_keysyms_dep,
+  xcb_damage_dep,
   xkbcommon_dep,
   cairo_dep,
   pango_dep,

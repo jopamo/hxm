@@ -167,7 +167,8 @@ static void draw_button(cairo_t* cr, int x, int y, int w, int h, const char* typ
 }
 
 void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* visual, render_context_t* ctx, int depth,
-                  bool is_test, const char* title, bool active, int w, int h, theme_t* theme, cairo_surface_t* icon) {
+                  bool is_test, const char* title, bool active, int w, int h, theme_t* theme, cairo_surface_t* icon,
+                  const dirty_region_t* dirty) {
     if (w <= 0 || h <= 0) return;
 
     ensure_layout(ctx);
@@ -188,6 +189,20 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
     }
 
     cairo_t* cr = cairo_create(target_surface);
+    if (dirty && dirty->valid) {
+        dirty_region_t clip = *dirty;
+        dirty_region_clamp(&clip, 0, 0, (uint16_t)w, (uint16_t)h);
+        if (!clip.valid) {
+            cairo_destroy(cr);
+            cairo_surface_destroy(target_surface);
+            if (!is_test) {
+                xcb_free_pixmap(conn, pixmap);
+            }
+            return;
+        }
+        cairo_rectangle(cr, clip.x, clip.y, clip.w, clip.h);
+        cairo_clip(cr);
+    }
 
     // Map State
     appearance_t* title_bg = active ? &theme->window_active_title : &theme->window_inactive_title;

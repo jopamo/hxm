@@ -3,6 +3,13 @@
 #include <xcb/xcb.h>
 #include <xcb/xproto.h>
 
+const xcb_query_extension_reply_t* xcb_get_extension_data(xcb_connection_t* c, xcb_extension_t* ext) {
+    (void)c;
+    (void)ext;
+    static xcb_query_extension_reply_t reply = {0};
+    return &reply;
+}
+
 xcb_get_window_attributes_cookie_t xcb_get_window_attributes(xcb_connection_t* c, xcb_window_t window) {
     (void)c;
     (void)window;

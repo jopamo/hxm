@@ -56,7 +56,7 @@ void test_wm_icon() {
     slot.client = h;
     slot.data = ((uint64_t)123 << 32) | atoms._NET_WM_ICON;
 
-    wm_handle_reply(&s, &slot, &mock_r);
+    wm_handle_reply(&s, &slot, &mock_r, NULL);
 
     assert(hot->icon_surface != NULL);
     assert(cairo_image_surface_get_width(hot->icon_surface) == 2);

@@ -47,7 +47,7 @@ void test_wm_class_split() {
     slot.client = h;
     slot.data = ((uint64_t)123 << 32) | atoms.WM_CLASS;
 
-    wm_handle_reply(&s, &slot, &mock_r);
+    wm_handle_reply(&s, &slot, &mock_r, NULL);
 
     assert(cold->wm_instance != NULL);
     assert(cold->wm_class != NULL);
@@ -57,14 +57,14 @@ void test_wm_class_split() {
     // Test update with same values (no new allocation in arena ideally, but at least no change)
     char* old_instance = cold->wm_instance;
     char* old_class = cold->wm_class;
-    wm_handle_reply(&s, &slot, &mock_r);
+    wm_handle_reply(&s, &slot, &mock_r, NULL);
     assert(cold->wm_instance == old_instance);
     assert(cold->wm_class == old_class);
 
     // Test update with different values
     mock_r.reply.value_len = 11;
     memcpy(mock_r.data, "urxvt\0URxvt\0", 11);
-    wm_handle_reply(&s, &slot, &mock_r);
+    wm_handle_reply(&s, &slot, &mock_r, NULL);
     assert(strcmp(cold->wm_instance, "urxvt") == 0);
     assert(strcmp(cold->wm_class, "URxvt") == 0);
     assert(cold->wm_instance != old_instance);

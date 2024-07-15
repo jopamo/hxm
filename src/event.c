@@ -5,8 +5,10 @@
 #include <fontconfig/fontconfig.h>
 #include <pango/pangocairo.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <xcb/damage.h>
 #include <xcb/xcb_keysyms.h>
 
 #include "bbox.h"
@@ -36,6 +38,7 @@ static void epoll_add_fd_or_die(int epfd, int fd);
 static void load_config_from_home(server_t* s);
 static void apply_reload(server_t* s);
 static void buckets_reset(event_buckets_t* b);
+static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
 
 void server_init(server_t* s) {
     memset(s, 0, sizeof(*s));
@@ -52,12 +55,36 @@ void server_init(server_t* s) {
     s->root_visual_type = xcb_get_visualtype(s->conn, s->root_visual);
     s->root_depth = screen->root_depth;
     s->xcb_fd = xcb_get_file_descriptor(s->conn);
+    int flags = fcntl(s->xcb_fd, F_GETFL, 0);
+    if (flags >= 0 && !(flags & O_NONBLOCK)) {
+        if (fcntl(s->xcb_fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+            LOG_ERROR("fcntl(O_NONBLOCK) on xcb fd failed: %s", strerror(errno));
+            exit(1);
+        }
+    }
 
     // Keysyms are used by keybinding setup and keypress handling
     s->keysyms = xcb_key_symbols_alloc(s->conn);
     if (!s->keysyms) {
         LOG_ERROR("xcb_key_symbols_alloc failed");
         exit(1);
+    }
+
+    s->damage_supported = false;
+    s->damage_event_base = 0;
+    s->damage_error_base = 0;
+    const xcb_query_extension_reply_t* damage_ext = xcb_get_extension_data(s->conn, &xcb_damage_id);
+    if (damage_ext && damage_ext->present) {
+        s->damage_supported = true;
+        s->damage_event_base = damage_ext->first_event;
+        s->damage_error_base = damage_ext->first_error;
+        xcb_damage_query_version_cookie_t cookie = xcb_damage_query_version(s->conn, 1, 1);
+        xcb_damage_query_version_reply_t* reply = xcb_damage_query_version_reply(s->conn, cookie, NULL);
+        if (!reply) {
+            s->damage_supported = false;
+            LOG_WARN("XDamage present but version query failed; disabling damage tracking");
+        }
+        free(reply);
     }
 
     // Initialize configuration (defaults then optional load)
@@ -86,16 +113,17 @@ void server_init(server_t* s) {
     small_vec_init(&s->buckets.unmap_notifies);
     small_vec_init(&s->buckets.destroy_notifies);
     small_vec_init(&s->buckets.key_presses);
-    small_vec_init(&s->buckets.expose_events);
     small_vec_init(&s->buckets.button_events);
     small_vec_init(&s->buckets.client_messages);
 
+    hash_map_init(&s->buckets.expose_regions);
     hash_map_init(&s->buckets.configure_requests);
     hash_map_init(&s->buckets.configure_notifies);
     hash_map_init(&s->buckets.destroyed_windows);
     hash_map_init(&s->buckets.property_notifies);
+    hash_map_init(&s->buckets.motion_notifies);
+    hash_map_init(&s->buckets.damage_regions);
 
-    s->buckets.motion_notify.valid = false;
     s->buckets.pointer_notify.enter_valid = false;
     s->buckets.pointer_notify.leave_valid = false;
     s->buckets.ingested = 0;
@@ -134,6 +162,10 @@ void server_init(server_t* s) {
 }
 
 void server_cleanup(server_t* s) {
+    if (s->prefetched_event) {
+        free(s->prefetched_event);
+        s->prefetched_event = NULL;
+    }
     // Unmanage all clients (reparent back to root)
     if (s->clients.hdr) {
         for (uint32_t i = 1; i < s->clients.cap; i++) {
@@ -152,6 +184,7 @@ void server_cleanup(server_t* s) {
 
     if (s->epoll_fd > 0) close(s->epoll_fd);
     if (s->conn) xcb_disconnect(s->conn);
+    cookie_jar_destroy(&s->cookie_jar);
 
     arena_destroy(&s->tick_arena);
 
@@ -159,14 +192,16 @@ void server_cleanup(server_t* s) {
     small_vec_destroy(&s->buckets.unmap_notifies);
     small_vec_destroy(&s->buckets.destroy_notifies);
     small_vec_destroy(&s->buckets.key_presses);
-    small_vec_destroy(&s->buckets.expose_events);
     small_vec_destroy(&s->buckets.button_events);
     small_vec_destroy(&s->buckets.client_messages);
 
+    hash_map_destroy(&s->buckets.expose_regions);
     hash_map_destroy(&s->buckets.configure_requests);
     hash_map_destroy(&s->buckets.configure_notifies);
     hash_map_destroy(&s->buckets.destroyed_windows);
     hash_map_destroy(&s->buckets.property_notifies);
+    hash_map_destroy(&s->buckets.motion_notifies);
+    hash_map_destroy(&s->buckets.damage_regions);
 
     hash_map_destroy(&s->window_to_client);
     hash_map_destroy(&s->frame_to_client);
@@ -179,7 +214,7 @@ void server_cleanup(server_t* s) {
 }
 
 static int make_epoll_or_die(void) {
-    int epfd = epoll_create1(0);
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
     if (epfd < 0) {
         LOG_ERROR("epoll_create1 failed: %s", strerror(errno));
         exit(1);
@@ -190,7 +225,7 @@ static int make_epoll_or_die(void) {
 static void epoll_add_fd_or_die(int epfd, int fd) {
     struct epoll_event ev;
     memset(&ev, 0, sizeof(ev));
-    ev.events = EPOLLIN;
+    ev.events = EPOLLIN | EPOLLERR | EPOLLHUP;
     ev.data.fd = fd;
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) < 0) {
         LOG_ERROR("epoll_ctl add fd=%d failed: %s", fd, strerror(errno));
@@ -240,12 +275,14 @@ static void buckets_reset(event_buckets_t* b) {
     small_vec_clear(&b->unmap_notifies);
     small_vec_clear(&b->destroy_notifies);
     small_vec_clear(&b->key_presses);
-    small_vec_clear(&b->expose_events);
     small_vec_clear(&b->button_events);
     small_vec_clear(&b->client_messages);
 
     // For hash maps, keep the API simple: destroy+init per tick
     // If this shows up in profiles, replace with hash_map_clear without realloc
+    hash_map_destroy(&b->expose_regions);
+    hash_map_init(&b->expose_regions);
+
     hash_map_destroy(&b->configure_requests);
     hash_map_init(&b->configure_requests);
 
@@ -258,7 +295,12 @@ static void buckets_reset(event_buckets_t* b) {
     hash_map_destroy(&b->property_notifies);
     hash_map_init(&b->property_notifies);
 
-    b->motion_notify.valid = false;
+    hash_map_destroy(&b->motion_notifies);
+    hash_map_init(&b->motion_notifies);
+
+    hash_map_destroy(&b->damage_regions);
+    hash_map_init(&b->damage_regions);
+
     b->pointer_notify.enter_valid = false;
     b->pointer_notify.leave_valid = false;
 
@@ -266,203 +308,244 @@ static void buckets_reset(event_buckets_t* b) {
     b->coalesced = 0;
 }
 
-void event_ingest(server_t* s) {
+void event_ingest(server_t* s, bool x_ready) {
     buckets_reset(&s->buckets);
     arena_reset(&s->tick_arena);
 
     uint64_t count = 0;
+    if (s->prefetched_event) {
+        event_ingest_one(s, s->prefetched_event);
+        s->prefetched_event = NULL;
+        count++;
+    }
+    while (count < MAX_EVENTS_PER_TICK) {
+        xcb_generic_event_t* ev = xcb_poll_for_queued_event(s->conn);
+        if (!ev) break;
+        count++;
+        event_ingest_one(s, ev);
+    }
+
+    if (!x_ready) {
+        s->buckets.ingested = count;
+        return;
+    }
+
     while (count < MAX_EVENTS_PER_TICK) {
         xcb_generic_event_t* ev = xcb_poll_for_event(s->conn);
         if (!ev) break;
 
         count++;
-        uint8_t type = ev->response_type & ~0x80;
-        counters.events_seen[type]++;
-
-        switch (type) {
-            case XCB_EXPOSE: {
-                xcb_expose_event_t* e = (xcb_expose_event_t*)ev;
-                // Only repaint on the final expose in a series
-                if (e->count == 0) {
-                    void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
-                    memcpy(copy, e, sizeof(*e));
-                    small_vec_push(&s->buckets.expose_events, copy);
-                } else {
-                    counters.coalesced_drops[type]++;
-                }
-                break;
-            }
-
-            case XCB_BUTTON_PRESS:
-            case XCB_BUTTON_RELEASE: {
-                // Keep ordering for press/release (don’t coalesce)
-                // Pointer motion is coalesced separately
-                size_t sz =
-                    (type == XCB_BUTTON_PRESS) ? sizeof(xcb_button_press_event_t) : sizeof(xcb_button_release_event_t);
-                void* copy = arena_alloc(&s->tick_arena, sz);
-                memcpy(copy, ev, sz);
-                small_vec_push(&s->buckets.button_events, copy);
-                break;
-            }
-
-            case XCB_CLIENT_MESSAGE: {
-                xcb_client_message_event_t* e = (xcb_client_message_event_t*)ev;
-                void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
-                memcpy(copy, e, sizeof(*e));
-                small_vec_push(&s->buckets.client_messages, copy);
-                break;
-            }
-
-            case XCB_KEY_PRESS: {
-                xcb_key_press_event_t* e = (xcb_key_press_event_t*)ev;
-                void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
-                memcpy(copy, e, sizeof(*e));
-                small_vec_push(&s->buckets.key_presses, copy);
-                break;
-            }
-
-            case XCB_MAP_REQUEST: {
-                xcb_map_request_event_t* e = (xcb_map_request_event_t*)ev;
-                void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
-                memcpy(copy, e, sizeof(*e));
-                small_vec_push(&s->buckets.map_requests, copy);
-                break;
-            }
-
-            case XCB_UNMAP_NOTIFY: {
-                xcb_unmap_notify_event_t* e = (xcb_unmap_notify_event_t*)ev;
-                void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
-                memcpy(copy, e, sizeof(*e));
-                small_vec_push(&s->buckets.unmap_notifies, copy);
-                break;
-            }
-
-            case XCB_DESTROY_NOTIFY: {
-                xcb_destroy_notify_event_t* e = (xcb_destroy_notify_event_t*)ev;
-
-                // Mark destroyed in this tick
-                hash_map_insert(&s->buckets.destroyed_windows, e->window, (void*)1);
-
-                // Drop earlier ConfigureRequests for this window in this tick
-                hash_map_remove(&s->buckets.configure_requests, e->window);
-
-                void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
-                memcpy(copy, e, sizeof(*e));
-                small_vec_push(&s->buckets.destroy_notifies, copy);
-                break;
-            }
-
-            case XCB_CONFIGURE_REQUEST: {
-                xcb_configure_request_event_t* e = (xcb_configure_request_event_t*)ev;
-
-                // If the window is destroyed later this tick, this work is dropped by rule
-                pending_config_t* existing = hash_map_get(&s->buckets.configure_requests, e->window);
-                if (existing) {
-                    if (e->value_mask & XCB_CONFIG_WINDOW_X) existing->x = e->x;
-                    if (e->value_mask & XCB_CONFIG_WINDOW_Y) existing->y = e->y;
-                    if (e->value_mask & XCB_CONFIG_WINDOW_WIDTH) existing->width = e->width;
-                    if (e->value_mask & XCB_CONFIG_WINDOW_HEIGHT) existing->height = e->height;
-                    if (e->value_mask & XCB_CONFIG_WINDOW_BORDER_WIDTH) existing->border_width = e->border_width;
-                    if (e->value_mask & XCB_CONFIG_WINDOW_SIBLING) existing->sibling = e->sibling;
-                    if (e->value_mask & XCB_CONFIG_WINDOW_STACK_MODE) existing->stack_mode = e->stack_mode;
-
-                    existing->mask |= e->value_mask;
-                    counters.coalesced_drops[type]++;
-                    s->buckets.coalesced++;
-                } else {
-                    pending_config_t* pc = arena_alloc(&s->tick_arena, sizeof(*pc));
-                    pc->window = e->window;
-                    pc->x = e->x;
-                    pc->y = e->y;
-                    pc->width = e->width;
-                    pc->height = e->height;
-                    pc->border_width = e->border_width;
-                    pc->sibling = e->sibling;
-                    pc->stack_mode = e->stack_mode;
-                    pc->mask = e->value_mask;
-                    hash_map_insert(&s->buckets.configure_requests, e->window, pc);
-                }
-                break;
-            }
-
-            case XCB_CONFIGURE_NOTIFY: {
-                xcb_configure_notify_event_t* e = (xcb_configure_notify_event_t*)ev;
-
-                // Coalesce by window: last wins
-                xcb_configure_notify_event_t* copy = arena_alloc(&s->tick_arena, sizeof(*e));
-                memcpy(copy, e, sizeof(*e));
-
-                if (hash_map_get(&s->buckets.configure_notifies, e->window)) {
-                    counters.coalesced_drops[type]++;
-                    s->buckets.coalesced++;
-                }
-                hash_map_insert(&s->buckets.configure_notifies, e->window, copy);
-                break;
-            }
-
-            case XCB_PROPERTY_NOTIFY: {
-                xcb_property_notify_event_t* e = (xcb_property_notify_event_t*)ev;
-
-                // Coalesce by (window, atom)
-                uint64_t key = ((uint64_t)e->window << 32) | (uint64_t)e->atom;
-                if (hash_map_get(&s->buckets.property_notifies, key)) {
-                    counters.coalesced_drops[type]++;
-                    s->buckets.coalesced++;
-                    break;
-                }
-
-                void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
-                memcpy(copy, e, sizeof(*e));
-                hash_map_insert(&s->buckets.property_notifies, key, copy);
-                break;
-            }
-
-            case XCB_MOTION_NOTIFY: {
-                // Coalesce motion: keep only latest
-                xcb_motion_notify_event_t* e = (xcb_motion_notify_event_t*)ev;
-                if (s->buckets.motion_notify.valid) {
-                    counters.coalesced_drops[type]++;
-                    s->buckets.coalesced++;
-                }
-                s->buckets.motion_notify.window = e->event;
-                s->buckets.motion_notify.event = *e;
-                s->buckets.motion_notify.valid = true;
-                break;
-            }
-
-            case XCB_ENTER_NOTIFY: {
-                // Keep only the latest enter per tick
-                xcb_enter_notify_event_t* e = (xcb_enter_notify_event_t*)ev;
-                if (s->buckets.pointer_notify.enter_valid) {
-                    counters.coalesced_drops[type]++;
-                    s->buckets.coalesced++;
-                }
-                s->buckets.pointer_notify.enter = *e;
-                s->buckets.pointer_notify.enter_valid = true;
-                break;
-            }
-
-            case XCB_LEAVE_NOTIFY: {
-                // Keep only the latest leave per tick
-                xcb_leave_notify_event_t* e = (xcb_leave_notify_event_t*)ev;
-                if (s->buckets.pointer_notify.leave_valid) {
-                    counters.coalesced_drops[type]++;
-                    s->buckets.coalesced++;
-                }
-                s->buckets.pointer_notify.leave = *e;
-                s->buckets.pointer_notify.leave_valid = true;
-                break;
-            }
-
-            default:
-                // Intentionally ignored in this phase
-                break;
-        }
-
-        free(ev);
+        event_ingest_one(s, ev);
     }
 
     s->buckets.ingested = count;
+}
+
+static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
+    uint8_t type = ev->response_type & ~0x80;
+    counters.events_seen[type]++;
+
+    if (s->damage_supported && type == (uint8_t)(s->damage_event_base + XCB_DAMAGE_NOTIFY)) {
+        xcb_damage_notify_event_t* e = (xcb_damage_notify_event_t*)ev;
+        dirty_region_t* region = hash_map_get(&s->buckets.damage_regions, e->drawable);
+        if (region) {
+            dirty_region_union_rect(region, e->area.x, e->area.y, e->area.width, e->area.height);
+            counters.coalesced_drops[type]++;
+            s->buckets.coalesced++;
+        } else {
+            dirty_region_t* copy = arena_alloc(&s->tick_arena, sizeof(*copy));
+            *copy = dirty_region_make(e->area.x, e->area.y, e->area.width, e->area.height);
+            hash_map_insert(&s->buckets.damage_regions, e->drawable, copy);
+        }
+        free(ev);
+        return;
+    }
+
+    switch (type) {
+        case XCB_EXPOSE: {
+            xcb_expose_event_t* e = (xcb_expose_event_t*)ev;
+            dirty_region_t* region = hash_map_get(&s->buckets.expose_regions, e->window);
+            if (region) {
+                dirty_region_union_rect(region, e->x, e->y, e->width, e->height);
+                counters.coalesced_drops[type]++;
+                s->buckets.coalesced++;
+            } else {
+                dirty_region_t* copy = arena_alloc(&s->tick_arena, sizeof(*copy));
+                *copy = dirty_region_make(e->x, e->y, e->width, e->height);
+                hash_map_insert(&s->buckets.expose_regions, e->window, copy);
+            }
+            break;
+        }
+
+        case XCB_BUTTON_PRESS:
+        case XCB_BUTTON_RELEASE: {
+            // Keep ordering for press/release (don’t coalesce)
+            // Pointer motion is coalesced separately
+            size_t sz =
+                (type == XCB_BUTTON_PRESS) ? sizeof(xcb_button_press_event_t) : sizeof(xcb_button_release_event_t);
+            void* copy = arena_alloc(&s->tick_arena, sz);
+            memcpy(copy, ev, sz);
+            small_vec_push(&s->buckets.button_events, copy);
+            break;
+        }
+
+        case XCB_CLIENT_MESSAGE: {
+            xcb_client_message_event_t* e = (xcb_client_message_event_t*)ev;
+            void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+            memcpy(copy, e, sizeof(*e));
+            small_vec_push(&s->buckets.client_messages, copy);
+            break;
+        }
+
+        case XCB_KEY_PRESS: {
+            xcb_key_press_event_t* e = (xcb_key_press_event_t*)ev;
+            void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+            memcpy(copy, e, sizeof(*e));
+            small_vec_push(&s->buckets.key_presses, copy);
+            break;
+        }
+
+        case XCB_MAP_REQUEST: {
+            xcb_map_request_event_t* e = (xcb_map_request_event_t*)ev;
+            void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+            memcpy(copy, e, sizeof(*e));
+            small_vec_push(&s->buckets.map_requests, copy);
+            break;
+        }
+
+        case XCB_UNMAP_NOTIFY: {
+            xcb_unmap_notify_event_t* e = (xcb_unmap_notify_event_t*)ev;
+            void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+            memcpy(copy, e, sizeof(*e));
+            small_vec_push(&s->buckets.unmap_notifies, copy);
+            break;
+        }
+
+        case XCB_DESTROY_NOTIFY: {
+            xcb_destroy_notify_event_t* e = (xcb_destroy_notify_event_t*)ev;
+
+            // Mark destroyed in this tick
+            hash_map_insert(&s->buckets.destroyed_windows, e->window, (void*)1);
+
+            // Drop earlier ConfigureRequests for this window in this tick
+            hash_map_remove(&s->buckets.configure_requests, e->window);
+
+            void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+            memcpy(copy, e, sizeof(*e));
+            small_vec_push(&s->buckets.destroy_notifies, copy);
+            break;
+        }
+
+        case XCB_CONFIGURE_REQUEST: {
+            xcb_configure_request_event_t* e = (xcb_configure_request_event_t*)ev;
+
+            // If the window is destroyed later this tick, this work is dropped by rule
+            pending_config_t* existing = hash_map_get(&s->buckets.configure_requests, e->window);
+            if (existing) {
+                if (e->value_mask & XCB_CONFIG_WINDOW_X) existing->x = e->x;
+                if (e->value_mask & XCB_CONFIG_WINDOW_Y) existing->y = e->y;
+                if (e->value_mask & XCB_CONFIG_WINDOW_WIDTH) existing->width = e->width;
+                if (e->value_mask & XCB_CONFIG_WINDOW_HEIGHT) existing->height = e->height;
+                if (e->value_mask & XCB_CONFIG_WINDOW_BORDER_WIDTH) existing->border_width = e->border_width;
+                if (e->value_mask & XCB_CONFIG_WINDOW_SIBLING) existing->sibling = e->sibling;
+                if (e->value_mask & XCB_CONFIG_WINDOW_STACK_MODE) existing->stack_mode = e->stack_mode;
+
+                existing->mask |= e->value_mask;
+                counters.coalesced_drops[type]++;
+                s->buckets.coalesced++;
+            } else {
+                pending_config_t* pc = arena_alloc(&s->tick_arena, sizeof(*pc));
+                pc->window = e->window;
+                pc->x = e->x;
+                pc->y = e->y;
+                pc->width = e->width;
+                pc->height = e->height;
+                pc->border_width = e->border_width;
+                pc->sibling = e->sibling;
+                pc->stack_mode = e->stack_mode;
+                pc->mask = e->value_mask;
+                hash_map_insert(&s->buckets.configure_requests, e->window, pc);
+            }
+            break;
+        }
+
+        case XCB_CONFIGURE_NOTIFY: {
+            xcb_configure_notify_event_t* e = (xcb_configure_notify_event_t*)ev;
+
+            // Coalesce by window: last wins
+            xcb_configure_notify_event_t* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+            memcpy(copy, e, sizeof(*e));
+
+            if (hash_map_get(&s->buckets.configure_notifies, e->window)) {
+                counters.coalesced_drops[type]++;
+                s->buckets.coalesced++;
+            }
+            hash_map_insert(&s->buckets.configure_notifies, e->window, copy);
+            break;
+        }
+
+        case XCB_PROPERTY_NOTIFY: {
+            xcb_property_notify_event_t* e = (xcb_property_notify_event_t*)ev;
+
+            // Coalesce by (window, atom)
+            uint64_t key = ((uint64_t)e->window << 32) | (uint64_t)e->atom;
+            if (hash_map_get(&s->buckets.property_notifies, key)) {
+                counters.coalesced_drops[type]++;
+                s->buckets.coalesced++;
+                break;
+            }
+
+            void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+            memcpy(copy, e, sizeof(*e));
+            hash_map_insert(&s->buckets.property_notifies, key, copy);
+            break;
+        }
+
+        case XCB_MOTION_NOTIFY: {
+            xcb_motion_notify_event_t* e = (xcb_motion_notify_event_t*)ev;
+            xcb_motion_notify_event_t* existing = hash_map_get(&s->buckets.motion_notifies, e->event);
+            if (existing) {
+                counters.coalesced_drops[type]++;
+                s->buckets.coalesced++;
+                *existing = *e;
+                break;
+            }
+            xcb_motion_notify_event_t* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+            *copy = *e;
+            hash_map_insert(&s->buckets.motion_notifies, e->event, copy);
+            break;
+        }
+
+        case XCB_ENTER_NOTIFY: {
+            // Keep only the latest enter per tick
+            xcb_enter_notify_event_t* e = (xcb_enter_notify_event_t*)ev;
+            if (s->buckets.pointer_notify.enter_valid) {
+                counters.coalesced_drops[type]++;
+                s->buckets.coalesced++;
+            }
+            s->buckets.pointer_notify.enter = *e;
+            s->buckets.pointer_notify.enter_valid = true;
+            break;
+        }
+
+        case XCB_LEAVE_NOTIFY: {
+            // Keep only the latest leave per tick
+            xcb_leave_notify_event_t* e = (xcb_leave_notify_event_t*)ev;
+            if (s->buckets.pointer_notify.leave_valid) {
+                counters.coalesced_drops[type]++;
+                s->buckets.coalesced++;
+            }
+            s->buckets.pointer_notify.leave = *e;
+            s->buckets.pointer_notify.leave_valid = true;
+            break;
+        }
+
+        default:
+            // Intentionally ignored in this phase
+            break;
+    }
+
+    free(ev);
 }
 
 void event_process(server_t* s) {
@@ -474,7 +557,8 @@ void event_process(server_t* s) {
     //  5. motion/enter/leave (interactive ops)
     //  6. configure requests/notifies
     //  7. property notifies
-    //  8. flush dirty model -> X requests
+    //  8. damage tracking
+    //  9. flush dirty model -> X requests
 
     // 1. lifecycle
     for (size_t i = 0; i < s->buckets.map_requests.length; i++) {
@@ -512,16 +596,24 @@ void event_process(server_t* s) {
     }
 
     // 4. expose (frames + menu)
-    for (size_t i = 0; i < s->buckets.expose_events.length; i++) {
-        xcb_expose_event_t* ev = s->buckets.expose_events.items[i];
-        if (ev->window == s->menu.window) {
-            menu_handle_expose(s);
-            continue;
-        }
+    if (s->buckets.expose_regions.capacity > 0) {
+        for (size_t i = 0; i < s->buckets.expose_regions.capacity; i++) {
+            hash_map_entry_t* entry = &s->buckets.expose_regions.entries[i];
+            if (entry->key == 0) continue;
 
-        handle_t h = server_get_client_by_frame(s, ev->window);
-        if (h != HANDLE_INVALID) {
-            frame_redraw(s, h, FRAME_REDRAW_ALL);
+            xcb_window_t win = (xcb_window_t)entry->key;
+            dirty_region_t* region = (dirty_region_t*)entry->value;
+            if (!region || !region->valid) continue;
+
+            if (win == s->menu.window) {
+                menu_handle_expose_region(s, region);
+                continue;
+            }
+
+            handle_t h = server_get_client_by_frame(s, win);
+            if (h != HANDLE_INVALID) {
+                frame_redraw_region(s, h, region);
+            }
         }
     }
 
@@ -540,8 +632,14 @@ void event_process(server_t* s) {
         // Optional: focus-follows-mouse or pointer tracking
         // wm_handle_leave_notify(s, &s->buckets.pointer_notify.leave);
     }
-    if (s->buckets.motion_notify.valid) {
-        wm_handle_motion_notify(s, &s->buckets.motion_notify.event);
+    if (s->buckets.motion_notifies.capacity > 0) {
+        for (size_t i = 0; i < s->buckets.motion_notifies.capacity; i++) {
+            hash_map_entry_t* entry = &s->buckets.motion_notifies.entries[i];
+            if (entry->key == 0) continue;
+
+            xcb_motion_notify_event_t* ev = (xcb_motion_notify_event_t*)entry->value;
+            if (ev) wm_handle_motion_notify(s, ev);
+        }
     }
 
     // 7. configure requests (coalesced)
@@ -606,7 +704,29 @@ void event_process(server_t* s) {
         }
     }
 
-    // 10. maintenance (model->X)
+    // 10. damage (coalesced)
+    if (s->buckets.damage_regions.capacity > 0) {
+        for (size_t i = 0; i < s->buckets.damage_regions.capacity; i++) {
+            hash_map_entry_t* entry = &s->buckets.damage_regions.entries[i];
+            if (entry->key == 0) continue;
+
+            xcb_window_t win = (xcb_window_t)entry->key;
+            dirty_region_t* region = (dirty_region_t*)entry->value;
+            if (!region || !region->valid) continue;
+
+            handle_t h = server_get_client_by_window(s, win);
+            if (h == HANDLE_INVALID) continue;
+            client_hot_t* hot = server_chot(s, h);
+            if (!hot) continue;
+
+            dirty_region_union(&hot->damage_region, region);
+            if (hot->damage != XCB_NONE) {
+                xcb_damage_subtract(s->conn, hot->damage, XCB_NONE, XCB_NONE);
+            }
+        }
+    }
+
+    // 11. maintenance (model->X)
     wm_flush_dirty(s);
 
     // Root props flush should be a separate dirty mask and applied here
@@ -614,14 +734,8 @@ void event_process(server_t* s) {
 }
 
 void event_drain_cookies(server_t* s) {
-    cookie_slot_t slot;
-    void* reply;
-
     // Drain any replies that are ready without blocking
-    while (cookie_jar_poll(&s->cookie_jar, s->conn, &slot, &reply)) {
-        wm_handle_reply(s, &slot, reply);
-        if (reply) free(reply);
-    }
+    cookie_jar_drain(&s->cookie_jar, s->conn, s, COOKIE_JAR_MAX_REPLIES_PER_TICK);
 }
 
 static void apply_reload(server_t* s) {
@@ -695,6 +809,43 @@ static void apply_reload(server_t* s) {
 volatile sig_atomic_t g_shutdown_pending = 0;
 volatile sig_atomic_t g_restart_pending = 0;
 
+static bool server_wait_for_events(server_t* s) {
+    if (s->epoll_fd <= 0) return true;
+    if (s->prefetched_event) return true;
+    xcb_generic_event_t* queued = xcb_poll_for_queued_event(s->conn);
+    if (queued) {
+        s->prefetched_event = queued;
+        return true;
+    }
+
+    if (cookie_jar_has_pending(&s->cookie_jar)) {
+        xcb_flush(s->conn);
+    }
+
+    if (xcb_connection_has_error(s->conn)) {
+        g_shutdown_pending = 1;
+        return false;
+    }
+
+    struct epoll_event ev;
+    for (;;) {
+        int n = epoll_wait(s->epoll_fd, &ev, 1, -1);
+        if (n > 0) {
+            if (ev.events & (EPOLLERR | EPOLLHUP)) {
+                g_shutdown_pending = 1;
+            }
+            return true;
+        }
+        if (n == 0) return false;
+        if (errno == EINTR) {
+            if (g_shutdown_pending || g_restart_pending || g_reload_pending) return false;
+            continue;
+        }
+        LOG_ERROR("epoll_wait failed: %s", strerror(errno));
+        return false;
+    }
+}
+
 void server_run(server_t* s) {
     LOG_INFO("Starting event loop");
 
@@ -721,16 +872,25 @@ void server_run(server_t* s) {
             break;
         }
 
+        bool reload_applied = false;
         if (g_reload_pending) {
             g_reload_pending = 0;
             apply_reload(s);
+            reload_applied = true;
+        }
+
+        bool x_ready = false;
+        if (!reload_applied) {
+            x_ready = server_wait_for_events(s);
         }
 
         uint64_t start = monotonic_time_ns();
 
-        event_ingest(s);
+        if (x_ready) {
+            event_drain_cookies(s);
+        }
+        event_ingest(s, x_ready);
         event_process(s);
-        event_drain_cookies(s);
 
         // Flush X requests once per tick
         xcb_flush(s->conn);

@@ -324,7 +324,7 @@ void test_title_update() {
     reply_data.r.type = atoms.UTF8_STRING;
     memcpy(reply_data.title, "Hello", 5);
 
-    wm_handle_reply(&s, &slot, &reply_data.r);
+    wm_handle_reply(&s, &slot, &reply_data.r, NULL);
 
     assert(cold->title != NULL);
     assert(strcmp(cold->title, "Hello") == 0);

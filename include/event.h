@@ -33,9 +33,11 @@ typedef struct event_buckets {
     small_vec_t unmap_notifies;
     small_vec_t destroy_notifies;
     small_vec_t key_presses;
-    small_vec_t expose_events;
     small_vec_t button_events;  // Stores both press and release
     small_vec_t client_messages;
+
+    // Expose coalesced by window with dirty region union
+    hash_map_t expose_regions;  // window -> dirty_region_t
 
     // ConfigureRequest coalesced by window
     hash_map_t configure_requests;  // window -> pending config
@@ -50,12 +52,8 @@ typedef struct event_buckets {
     // We'll use a combined key: (window << 32) | atom
     hash_map_t property_notifies;
 
-    // MotionNotify latest only
-    struct {
-        xcb_window_t window;
-        xcb_motion_notify_event_t event;
-        bool valid;
-    } motion_notify;
+    // MotionNotify latest per window
+    hash_map_t motion_notifies;  // window -> xcb_motion_notify_event_t
 
     // EnterNotify/LeaveNotify latest per pointer
     struct {
@@ -64,6 +62,9 @@ typedef struct event_buckets {
         bool enter_valid;
         bool leave_valid;
     } pointer_notify;
+
+    // Damage events coalesced by drawable with dirty region union
+    hash_map_t damage_regions;  // drawable -> dirty_region_t
 
     // Counters for this tick
     uint64_t ingested;
@@ -90,6 +91,10 @@ typedef struct server {
     xcb_window_t supporting_wm_check;
     int xcb_fd;
     int epoll_fd;
+
+    bool damage_supported;
+    uint8_t damage_event_base;
+    uint8_t damage_error_base;
 
     // Root dirty bits
     uint32_t root_dirty;
@@ -131,6 +136,9 @@ typedef struct server {
 
     // Async replies
     cookie_jar_t cookie_jar;
+
+    // Prefetched event when checking the queue
+    xcb_generic_event_t* prefetched_event;
 
     // Event buckets
     event_buckets_t buckets;
@@ -186,7 +194,7 @@ void server_run(server_t* s);
 void server_cleanup(server_t* s);
 
 // Event ingestion
-void event_ingest(server_t* s);
+void event_ingest(server_t* s, bool x_ready);
 void event_process(server_t* s);
 
 #endif  // EVENT_H

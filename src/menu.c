@@ -264,7 +264,9 @@ static rgba_t u32_to_rgba(uint32_t c) {
     return (rgba_t){((c >> 16) & 0xFF) / 255.0, ((c >> 8) & 0xFF) / 255.0, (c & 0xFF) / 255.0, 1.0};
 }
 
-void menu_handle_expose(server_t* s) {
+void menu_handle_expose(server_t* s) { menu_handle_expose_region(s, NULL); }
+
+void menu_handle_expose_region(server_t* s, const dirty_region_t* dirty) {
     if (s->menu.w == 0 || s->menu.h == 0) return;
 
     cairo_surface_t* target_surface = NULL;
@@ -280,6 +282,22 @@ void menu_handle_expose(server_t* s) {
     }
 
     cairo_t* cr = cairo_create(target_surface);
+    if (dirty && dirty->valid) {
+        dirty_region_t clip = *dirty;
+        dirty_region_clamp(&clip, 0, 0, s->menu.w, s->menu.h);
+        if (!clip.valid) {
+            cairo_destroy(cr);
+            if (s->is_test) {
+                cairo_surface_destroy(target_surface);
+            } else {
+                cairo_surface_destroy(target_surface);
+                xcb_free_pixmap(s->conn, pixmap);
+            }
+            return;
+        }
+        cairo_rectangle(cr, clip.x, clip.y, clip.w, clip.h);
+        cairo_clip(cr);
+    }
 
     rgba_t bg = u32_to_rgba(s->config.theme.menu_items.color);
     cairo_set_source_rgba(cr, bg.r, bg.g, bg.b, bg.a);

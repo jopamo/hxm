@@ -59,7 +59,7 @@ void test_icccm_protocols() {
     slot.client = h;
     slot.data = ((uint64_t)123 << 32) | atoms.WM_PROTOCOLS;
 
-    wm_handle_reply(&s, &slot, &mock_r);
+    wm_handle_reply(&s, &slot, &mock_r, NULL);
 
     assert(cold->protocols & PROTOCOL_DELETE_WINDOW);
     assert(cold->protocols & PROTOCOL_TAKE_FOCUS);
@@ -178,7 +178,7 @@ void test_name_fallback() {
     slot.client = h;
     slot.data = ((uint64_t)123 << 32) | atoms.WM_NAME;
 
-    wm_handle_reply(&s, &slot, &mock_wm_name);
+    wm_handle_reply(&s, &slot, &mock_wm_name, NULL);
     assert(cold->title != NULL);
     assert(strcmp(cold->title, "legacy") == 0);
 
@@ -193,12 +193,12 @@ void test_name_fallback() {
     memcpy(mock_net_name.name, "modern", 6);
 
     slot.data = ((uint64_t)123 << 32) | atoms._NET_WM_NAME;
-    wm_handle_reply(&s, &slot, &mock_net_name);
+    wm_handle_reply(&s, &slot, &mock_net_name, NULL);
     assert(strcmp(cold->title, "modern") == 0);
 
     // 3. Another WM_NAME reply (should NOT overwrite modern)
     slot.data = ((uint64_t)123 << 32) | atoms.WM_NAME;
-    wm_handle_reply(&s, &slot, &mock_wm_name);
+    wm_handle_reply(&s, &slot, &mock_wm_name, NULL);
     assert(strcmp(cold->title, "modern") == 0);
 
     printf("test_name_fallback passed\n");

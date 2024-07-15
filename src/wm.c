@@ -418,7 +418,8 @@ void wm_adopt_children(server_t* s) {
 
         // Defer decision: use async attributes check via cookie jar and adopt in reply handler
         xcb_get_window_attributes_cookie_t ck = xcb_get_window_attributes(s->conn, win);
-        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_WINDOW_ATTRIBUTES, HANDLE_INVALID, (uint64_t)win);
+        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_WINDOW_ATTRIBUTES, HANDLE_INVALID, (uint64_t)win,
+                        wm_handle_reply);
     }
 
     free(reply);
@@ -600,10 +601,12 @@ void wm_flush_dirty(server_t* s) {
         if (hot->dirty & DIRTY_TITLE) {
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_NAME, atoms.UTF8_STRING, 0, 1024).sequence;
-            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_NAME);
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_NAME,
+                            wm_handle_reply);
 
             c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME);
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME,
+                            wm_handle_reply);
 
             hot->dirty &= ~DIRTY_TITLE;
         }
@@ -612,9 +615,10 @@ void wm_flush_dirty(server_t* s) {
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 0, 32).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                            ((uint64_t)hot->xid << 32) | atoms.WM_NORMAL_HINTS);
+                            ((uint64_t)hot->xid << 32) | atoms.WM_NORMAL_HINTS, wm_handle_reply);
             c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_HINTS, atoms.WM_HINTS, 0, 32).sequence;
-            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_HINTS);
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_HINTS,
+                            wm_handle_reply);
             hot->dirty &= ~DIRTY_HINTS;
         }
 
@@ -622,11 +626,11 @@ void wm_flush_dirty(server_t* s) {
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                            ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT_PARTIAL);
+                            ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT_PARTIAL, wm_handle_reply);
 
             c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
-            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                            ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT);
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT,
+                            wm_handle_reply);
 
             hot->dirty &= ~DIRTY_STRUT;
         }
