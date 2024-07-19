@@ -10,7 +10,6 @@
 #include "wm.h"
 
 // Stub required globals
-volatile sig_atomic_t g_reload_pending = 0;
 
 void test_resize_logic() {
     server_t s;

@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcb/sync.h>
 #include <xcb/xcb_icccm.h>
 
 #include "bbox.h"
@@ -9,6 +10,16 @@
 #include "event.h"
 #include "frame.h"
 #include "wm.h"
+
+// Motif Hints
+#define MWM_HINTS_DECORATIONS (1L << 1)
+#define MWM_DECOR_ALL (1L << 0)
+#define MWM_DECOR_BORDER (1L << 1)
+#define MWM_DECOR_RESIZEH (1L << 2)
+#define MWM_DECOR_TITLE (1L << 3)
+#define MWM_DECOR_MENU (1L << 4)
+#define MWM_DECOR_MINIMIZE (1L << 5)
+#define MWM_DECOR_MAXIMIZE (1L << 6)
 
 static bool is_valid_utf8(const char* str, size_t len) {
     size_t i = 0;
@@ -55,6 +66,10 @@ static bool is_valid_utf8(const char* str, size_t len) {
 
 static bool prop_is_empty(const xcb_get_property_reply_t* r) { return !r || xcb_get_property_value_length(r) == 0; }
 
+static bool prop_is_cardinal(const xcb_get_property_reply_t* r) {
+    return r && r->type == XCB_ATOM_CARDINAL && r->format == 32;
+}
+
 static char* prop_get_string(const xcb_get_property_reply_t* r, int* out_len) {
     if (!r || r->format != 8) return NULL;
     int len = xcb_get_property_value_length(r);
@@ -87,26 +102,115 @@ static void abort_manage(server_t* s, handle_t h) {
     client_cold_t* cold = server_ccold(s, h);
     if (!hot || !cold) return;
 
-    // Drop xid->handle mapping so later events don't resolve a dead handle
     if (hot->xid != XCB_NONE) {
         hash_map_remove(&s->window_to_client, hot->xid);
     }
 
-    // Cold allocations
     arena_destroy(&cold->string_arena);
     render_free(&hot->render_ctx);
     if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
 
-    // Slot free
     slotmap_free(&s->clients, h);
+}
+
+static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, client_cold_t* cold, xcb_atom_t atom,
+                                   const xcb_get_property_reply_t* r) {
+    int len = 0;
+    char* str = prop_get_string(r, &len);
+    if (!str) len = 0;
+
+    size_t trimmed_len = (len > 0) ? (size_t)len : 0;
+    while (trimmed_len > 0 && str[trimmed_len - 1] == '\0') trimmed_len--;
+
+    bool valid = trimmed_len > 0;
+    if (valid && memchr(str, '\0', trimmed_len) != NULL) valid = false;
+    if (valid && !is_valid_utf8(str, trimmed_len)) valid = false;
+
+    if (atom == atoms._NET_WM_NAME) {
+        if (!valid) {
+            bool had_net = cold->has_net_wm_name;
+            cold->has_net_wm_name = false;
+            if (had_net) {
+                cold->base_title = arena_strndup(&cold->string_arena, "", 0);
+                wm_client_refresh_title(s, h);
+                hot->dirty |= DIRTY_FRAME_STYLE;
+            }
+
+            if (hot->manage_phase != MANAGE_DONE) hot->pending_replies++;
+            uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME,
+                            wm_handle_reply);
+            return;
+        }
+
+        if (!cold->has_net_wm_name || !cold->base_title || strlen(cold->base_title) != trimmed_len ||
+            strncmp(cold->base_title, str, trimmed_len) != 0) {
+            cold->base_title = arena_strndup(&cold->string_arena, str, trimmed_len);
+            cold->has_net_wm_name = true;
+            wm_client_refresh_title(s, h);
+            hot->dirty |= DIRTY_FRAME_STYLE;
+        }
+        return;
+    }
+
+    if (atom == atoms._NET_WM_ICON_NAME) {
+        if (!valid) {
+            bool had_net = cold->has_net_wm_icon_name;
+            cold->has_net_wm_icon_name = false;
+            if (had_net) {
+                cold->base_icon_name = arena_strndup(&cold->string_arena, "", 0);
+                wm_client_refresh_title(s, h);
+                hot->dirty |= DIRTY_FRAME_STYLE;
+            }
+
+            if (hot->manage_phase != MANAGE_DONE) hot->pending_replies++;
+            uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_ICON_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_ICON_NAME,
+                            wm_handle_reply);
+            return;
+        }
+
+        if (!cold->has_net_wm_icon_name || !cold->base_icon_name || strlen(cold->base_icon_name) != trimmed_len ||
+            strncmp(cold->base_icon_name, str, trimmed_len) != 0) {
+            cold->base_icon_name = arena_strndup(&cold->string_arena, str, trimmed_len);
+            cold->has_net_wm_icon_name = true;
+            wm_client_refresh_title(s, h);
+            hot->dirty |= DIRTY_FRAME_STYLE;
+        }
+        return;
+    }
+}
+
+static void parse_wm_class(client_cold_t* cold, const xcb_get_property_reply_t* r) {
+    int len = 0;
+    char* str = prop_get_string(r, &len);
+    if (!str || len <= 0) return;
+
+    size_t n = (size_t)len;
+    char* nul1 = memchr(str, '\0', n);
+    if (!nul1) return;
+
+    size_t inst_len = (size_t)(nul1 - str);
+    size_t rem = n - inst_len - 1;
+
+    char* cls = nul1 + 1;
+    char* nul2 = memchr(cls, '\0', rem);
+    size_t cls_len = nul2 ? (size_t)(nul2 - cls) : rem;
+
+    if (!cold->wm_instance || strcmp(cold->wm_instance, str) != 0) {
+        cold->wm_instance = arena_strndup(&cold->string_arena, str, inst_len);
+    }
+    if (!cold->wm_class || strcmp(cold->wm_class, cls) != 0) {
+        cold->wm_class = arena_strndup(&cold->string_arena, cls, cls_len);
+    }
 }
 
 void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
     if (err) {
         LOG_DEBUG("Cookie %u returned error code %d", slot->sequence, err->error_code);
     }
+
     if (slot->client == HANDLE_INVALID) {
-        // Pre-management adoption probe
         if (slot->type == COOKIE_GET_WINDOW_ATTRIBUTES && reply) {
             xcb_get_window_attributes_reply_t* r = (xcb_get_window_attributes_reply_t*)reply;
             xcb_window_t win = (xcb_window_t)slot->data;
@@ -127,7 +231,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
     if (!reply) {
         LOG_WARN("NULL reply for cookie type %d client %u", slot->type, hot->xid);
-        // NULL replies should not auto-abort by default; just consume the pending count
+        if (slot->type == COOKIE_GET_WINDOW_ATTRIBUTES && hot->state == STATE_NEW &&
+            hot->manage_phase == MANAGE_PHASE1) {
+            hot->manage_aborted = true;
+        }
         goto done_one;
     }
 
@@ -139,6 +246,11 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             hot->override_redirect = r->override_redirect ? true : false;
             hot->visual_id = r->visual;
             hot->visual_type = xcb_get_visualtype(s->conn, r->visual);
+
+            if (r->map_state == XCB_MAP_STATE_UNMAPPED) {
+                if (hot->ignore_unmap > 0) hot->ignore_unmap--;
+            }
+
             if (hot->override_redirect && hot->state == STATE_NEW) {
                 LOG_DEBUG("Window %u is override_redirect, aborting manage", hot->xid);
                 hot->manage_aborted = true;
@@ -155,8 +267,6 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             hot->server.h = r->height;
             hot->depth = r->depth;
 
-            // Avoid "fixing" legitimately small windows
-            // Only clamp truly broken values
             if (r->width == 0 || r->height == 0) {
                 hot->server.w = 800;
                 hot->server.h = 600;
@@ -176,61 +286,63 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             xcb_get_property_reply_t* r = (xcb_get_property_reply_t*)reply;
 
             if (atom == atoms.WM_CLASS) {
-                int len = 0;
-                char* str = prop_get_string(r, &len);
-                if (str) {
-                    char* instance = str;
-                    char* class = (strlen(instance) + 1 < (size_t)len) ? instance + strlen(instance) + 1 : instance;
+                parse_wm_class(cold, r);
 
-                    if (!cold->wm_instance || strcmp(cold->wm_instance, instance) != 0 || !cold->wm_class ||
-                        strcmp(cold->wm_class, class) != 0) {
-                        cold->wm_instance = arena_strndup(&cold->string_arena, instance, strlen(instance));
-                        cold->wm_class = arena_strndup(&cold->string_arena, class, strlen(class));
-                        LOG_DEBUG("Window %u WM_CLASS: %s, %s", hot->xid, cold->wm_instance, cold->wm_class);
-                    }
-                }
-            } else if (atom == atoms._NET_WM_NAME) {
-                int len = 0;
-                char* str = prop_get_string(r, &len);
-                if (!str) len = 0;
-                size_t trimmed_len = (len > 0) ? (size_t)len : 0;
-                while (trimmed_len > 0 && str[trimmed_len - 1] == '\0') trimmed_len--;
+            } else if (atom == atoms._NET_WM_NAME || atom == atoms._NET_WM_ICON_NAME) {
+                parse_net_wm_name_like(s, slot->client, hot, cold, atom, r);
+                break;
 
-                bool valid = trimmed_len > 0;
-                if (valid && memchr(str, '\0', trimmed_len) != NULL) valid = false;
-                if (valid && !is_valid_utf8(str, trimmed_len)) valid = false;
-
-                if (!valid) {
-                    bool had_net = cold->has_net_wm_name;
-                    cold->has_net_wm_name = false;
-                    if (had_net) {
-                        cold->title = arena_strndup(&cold->string_arena, "", 0);
-                        changed = true;
-                    }
-
-                    uint32_t c =
-                        xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-                    cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, slot->client,
-                                    ((uint64_t)hot->xid << 32) | atoms.WM_NAME, wm_handle_reply);
-                } else {
-                    if (!cold->has_net_wm_name || !cold->title || strlen(cold->title) != trimmed_len ||
-                        strncmp(cold->title, str, trimmed_len) != 0) {
-                        cold->title = arena_strndup(&cold->string_arena, str, trimmed_len);
-                        cold->has_net_wm_name = true;
-                        LOG_DEBUG("Window %u _NET_WM_NAME: %s", hot->xid, cold->title);
-                        changed = true;
-                    }
-                }
             } else if (atom == atoms.WM_NAME) {
                 int len = 0;
                 char* str = prop_get_string(r, &len);
                 if (str && !cold->has_net_wm_name) {
-                    if (!cold->title || strlen(cold->title) != (size_t)len || strncmp(cold->title, str, len) != 0) {
-                        cold->title = arena_strndup(&cold->string_arena, str, len);
-                        LOG_DEBUG("Window %u WM_NAME: %s", hot->xid, cold->title);
+                    if (!cold->base_title || strlen(cold->base_title) != (size_t)len ||
+                        strncmp(cold->base_title, str, len) != 0) {
+                        cold->base_title = arena_strndup(&cold->string_arena, str, len);
+                        wm_client_refresh_title(s, slot->client);
                         changed = true;
                     }
                 }
+
+            } else if (atom == atoms.WM_ICON_NAME) {
+                int len = 0;
+                char* str = prop_get_string(r, &len);
+                if (str && !cold->has_net_wm_icon_name) {
+                    if (!cold->base_icon_name || strlen(cold->base_icon_name) != (size_t)len ||
+                        strncmp(cold->base_icon_name, str, len) != 0) {
+                        cold->base_icon_name = arena_strndup(&cold->string_arena, str, len);
+                        wm_client_refresh_title(s, slot->client);
+                        changed = true;
+                    }
+                }
+
+            } else if (atom == atoms._MOTIF_WM_HINTS) {
+                if (xcb_get_property_value_length(r) >= (int)(3 * sizeof(uint32_t))) {
+                    uint32_t* hints = (uint32_t*)xcb_get_property_value(r);
+                    uint32_t flags = hints[0];
+                    uint32_t decorations = hints[2];
+
+                    if (flags & MWM_HINTS_DECORATIONS) {
+                        bool want_border = (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_BORDER)
+                                                                         : (decorations & MWM_DECOR_BORDER);
+                        bool want_title = (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_TITLE)
+                                                                        : (decorations & MWM_DECOR_TITLE);
+
+                        bool was_undecorated = (hot->flags & CLIENT_FLAG_UNDECORATED) != 0;
+                        bool now_undecorated = (!want_border && !want_title);
+
+                        if (now_undecorated) {
+                            hot->flags |= CLIENT_FLAG_UNDECORATED;
+                        } else {
+                            hot->flags &= ~CLIENT_FLAG_UNDECORATED;
+                        }
+
+                        if (was_undecorated != now_undecorated) {
+                            changed = true;
+                        }
+                    }
+                }
+
             } else if (atom == atoms._NET_WM_STATE) {
                 if (prop_is_empty(r)) {
                     client_state_set_t set = {0};
@@ -256,15 +368,26 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                                 set.max_horz = true;
                             } else if (state == atoms._NET_WM_STATE_MAXIMIZED_VERT) {
                                 set.max_vert = true;
+                            } else if (state == atoms._NET_WM_STATE_MODAL) {
+                                set.modal = true;
+                            } else if (state == atoms._NET_WM_STATE_SHADED) {
+                                set.shaded = true;
+                            } else if (state == atoms._NET_WM_STATE_SKIP_TASKBAR) {
+                                set.skip_taskbar = true;
+                            } else if (state == atoms._NET_WM_STATE_SKIP_PAGER) {
+                                set.skip_pager = true;
                             }
                         }
                         wm_client_apply_state_set(s, slot->client, &set);
                     }
                 }
+
             } else if (atom == atoms.WM_NORMAL_HINTS) {
                 xcb_size_hints_t hints;
                 if (xcb_icccm_get_wm_size_hints_from_reply(&hints, r)) {
+                    memset(&hot->hints, 0, sizeof(hot->hints));
                     hot->hints_flags = hints.flags;
+
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
                         hot->hints.min_w = hints.min_width;
                         hot->hints.min_h = hints.min_height;
@@ -287,18 +410,17 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         hot->hints.max_aspect_num = hints.max_aspect_num;
                         hot->hints.max_aspect_den = hints.max_aspect_den;
                     }
-                    LOG_DEBUG("Window %u hints: min %dx%d max %dx%d inc %dx%d", hot->xid, hot->hints.min_w,
-                              hot->hints.min_h, hot->hints.max_w, hot->hints.max_h, hot->hints.inc_w, hot->hints.inc_h);
                 }
+
             } else if (atom == atoms.WM_TRANSIENT_FOR) {
                 if (xcb_get_property_value_length(r) >= 4) {
                     xcb_window_t transient_for_xid = *(xcb_window_t*)xcb_get_property_value(r);
                     cold->transient_for_xid = transient_for_xid;
                     hot->transient_for = server_get_client_by_window(s, transient_for_xid);
+
                     if (hot->transient_for != HANDLE_INVALID) {
                         client_hot_t* parent = server_chot(s, hot->transient_for);
                         if (parent) {
-                            // Remove from old parent if any (e.g. property changed)
                             if (hot->transient_sibling.next && hot->transient_sibling.next != &hot->transient_sibling) {
                                 list_remove(&hot->transient_sibling);
                             }
@@ -306,13 +428,13 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                                         &parent->transients_head);
                         }
                     }
-                    LOG_DEBUG("Window %u is transient for %u (handle %lx)", hot->xid, transient_for_xid,
-                              hot->transient_for);
                 }
+
             } else if (atom == atoms._NET_WM_WINDOW_TYPE) {
                 if (xcb_get_property_value_length(r) > 0) {
                     xcb_atom_t* types = (xcb_atom_t*)xcb_get_property_value(r);
-                    int num_types = xcb_get_property_value_length(r) / sizeof(xcb_atom_t);
+                    int num_types = xcb_get_property_value_length(r) / (int)sizeof(xcb_atom_t);
+
                     for (int i = 0; i < num_types; i++) {
                         if (types[i] == atoms._NET_WM_WINDOW_TYPE_DOCK) {
                             hot->type = WINDOW_TYPE_DOCK;
@@ -378,6 +500,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         }
                     }
                 }
+
             } else if (atom == atoms.WM_PROTOCOLS) {
                 int num_protocols = 0;
                 xcb_atom_t* protocols = (xcb_atom_t*)prop_get_u32_array(r, 1, &num_protocols);
@@ -385,29 +508,29 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     for (int i = 0; i < num_protocols; i++) {
                         if (protocols[i] == atoms.WM_DELETE_WINDOW) {
                             cold->protocols |= PROTOCOL_DELETE_WINDOW;
-                            LOG_DEBUG("Window %u supports WM_DELETE_WINDOW", hot->xid);
                         } else if (protocols[i] == atoms.WM_TAKE_FOCUS) {
                             cold->protocols |= PROTOCOL_TAKE_FOCUS;
-                            LOG_DEBUG("Window %u supports WM_TAKE_FOCUS", hot->xid);
+                        } else if (protocols[i] == atoms._NET_WM_SYNC_REQUEST) {
+                            cold->protocols |= PROTOCOL_SYNC_REQUEST;
+                            hot->sync_enabled = true;
                         }
                     }
                 }
+
             } else if (atom == atoms._NET_WM_DESKTOP) {
                 uint32_t* val = prop_get_u32_array(r, 1, NULL);
                 if (val) {
-                    if (*val == 0xFFFFFFFF) {
+                    if (*val == 0xFFFFFFFFu) {
                         hot->sticky = true;
                         hot->desktop = -1;
                     } else {
                         hot->sticky = false;
                         uint32_t desk = *val;
-                        if (desk >= s->desktop_count) {
-                            desk = s->current_desktop;
-                        }
+                        if (desk >= s->desktop_count) desk = s->current_desktop;
                         hot->desktop = (int32_t)desk;
                     }
-                    LOG_DEBUG("Window %u requested desktop %d (sticky=%d)", hot->xid, hot->desktop, hot->sticky);
                 }
+
             } else if (atom == atoms._NET_WM_STRUT || atom == atoms._NET_WM_STRUT_PARTIAL) {
                 int len = r ? xcb_get_property_value_length(r) : 0;
                 bool is_partial = (atom == atoms._NET_WM_STRUT_PARTIAL);
@@ -442,13 +565,21 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
                 client_update_effective_strut(hot);
                 s->root_dirty |= ROOT_DIRTY_WORKAREA;
-                LOG_DEBUG("Window %u struts: L=%u R=%u T=%u B=%u", hot->xid, hot->strut.left, hot->strut.right,
-                          hot->strut.top, hot->strut.bottom);
+
             } else if (atom == atoms.WM_HINTS) {
                 if (!prop_is_empty(r)) {
                     xcb_icccm_wm_hints_t hints;
                     if (xcb_icccm_get_wm_hints_from_reply(&hints, r)) {
-                        cold->can_focus = (bool)(hints.input);
+                        if (hints.flags & XCB_ICCCM_WM_HINT_INPUT) {
+                            cold->can_focus = (bool)(hints.input);
+                        } else {
+                            cold->can_focus = true;
+                        }
+
+                        if (hints.flags & XCB_ICCCM_WM_HINT_STATE) {
+                            hot->initial_state = (uint8_t)hints.initial_state;
+                        }
+
                         bool urgent = (hints.flags & XCB_ICCCM_WM_HINT_X_URGENCY) != 0;
                         bool was_urgent = (hot->flags & CLIENT_FLAG_URGENT) != 0;
                         if (urgent) {
@@ -460,9 +591,9 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                             hot->dirty |= DIRTY_STATE;
                             changed = true;
                         }
-                        LOG_DEBUG("Window %u WM_HINTS input: %d", hot->xid, cold->can_focus);
                     }
                 }
+
             } else if (atom == atoms._NET_WM_ICON) {
                 if (!prop_is_empty(r)) {
                     const uint32_t icon_target_sizes[] = {16, 24, 32, 48, 64};
@@ -530,17 +661,57 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         for (int y = 0; y < (int)best_h; y++) {
                             uint32_t* row = (uint32_t*)(dest + y * stride);
                             for (int x = 0; x < (int)best_w; x++) {
-                                // X11 icon data is ARGB 32-bit words.
-                                // Cairo ARGB32 is also ARGB but host-endian.
-                                // Usually these match on little-endian systems.
                                 row[x] = best_data[y * (int)best_w + x];
                             }
                         }
+
                         cairo_surface_mark_dirty(hot->icon_surface);
                         changed = true;
                     }
                 }
+
+            } else if (atom == atoms._NET_WM_PID) {
+                if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
+                    uint32_t val = *(uint32_t*)xcb_get_property_value(r);
+                    cold->pid = val;
+                }
+
+            } else if (atom == atoms._NET_WM_USER_TIME) {
+                if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
+                    uint32_t val = *(uint32_t*)xcb_get_property_value(r);
+                    hot->user_time = val;
+                }
+
+            } else if (atom == atoms._NET_WM_USER_TIME_WINDOW) {
+                if (r && r->type == XCB_ATOM_WINDOW && xcb_get_property_value_length(r) >= 4) {
+                    xcb_window_t w = *(xcb_window_t*)xcb_get_property_value(r);
+                    hot->user_time_window = w;
+
+                    if (w != hot->xid) {
+                        uint32_t values[] = {XCB_EVENT_MASK_PROPERTY_CHANGE};
+                        xcb_change_window_attributes(s->conn, w, XCB_CW_EVENT_MASK, values);
+                    }
+                }
+
+            } else if (atom == atoms._NET_WM_SYNC_REQUEST_COUNTER) {
+                if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
+                    xcb_sync_counter_t counter = *(xcb_sync_counter_t*)xcb_get_property_value(r);
+                    hot->sync_counter = counter;
+                }
+
+            } else if (atom == atoms._NET_WM_ICON_GEOMETRY) {
+                if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 16) {
+                    uint32_t* val = (uint32_t*)xcb_get_property_value(r);
+                    hot->icon_geometry.x = (int16_t)val[0];
+                    hot->icon_geometry.y = (int16_t)val[1];
+                    hot->icon_geometry.w = (uint16_t)val[2];
+                    hot->icon_geometry.h = (uint16_t)val[3];
+                    hot->icon_geometry_valid = true;
+                } else {
+                    hot->icon_geometry_valid = false;
+                }
             }
+
             break;
         }
 
@@ -553,14 +724,18 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 done_one:
     if (hot->pending_replies > 0) hot->pending_replies--;
 
-    if (hot->state == STATE_NEW && hot->pending_replies == 0) {
-        if (hot->manage_aborted) {
-            abort_manage(s, slot->client);
-            return;
-        }
+    if (hot->state != STATE_NEW) return;
+    if (hot->pending_replies != 0) return;
 
-        // Finish exactly once
+    if (hot->manage_aborted) {
+        abort_manage(s, slot->client);
+        return;
+    }
+
+    if (hot->manage_phase == MANAGE_PHASE1) {
+        hot->manage_phase = MANAGE_DONE;
         LOG_INFO("Finishing management for window %u", hot->xid);
         client_finish_manage(s, slot->client);
+        return;
     }
 }

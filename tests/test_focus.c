@@ -10,8 +10,6 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 void test_should_focus_on_map() {
     client_hot_t hot = {0};
     render_init(&hot.render_ctx);

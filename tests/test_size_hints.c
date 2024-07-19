@@ -3,10 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcb/xcb_icccm.h>
 
 #include "client.h"
-
-volatile sig_atomic_t g_reload_pending = 0;
 
 void test_size_hints() {
     size_hints_t s;
@@ -19,7 +18,7 @@ void test_size_hints() {
     s.min_h = 100;
     w = 50;
     h = 50;
-    client_constrain_size(&s, &w, &h);
+    client_constrain_size(&s, XCB_ICCCM_SIZE_HINT_P_MIN_SIZE, &w, &h);
     assert(w == 100);
     assert(h == 100);
 
@@ -28,7 +27,7 @@ void test_size_hints() {
     s.max_h = 200;
     w = 250;
     h = 250;
-    client_constrain_size(&s, &w, &h);
+    client_constrain_size(&s, XCB_ICCCM_SIZE_HINT_P_MAX_SIZE, &w, &h);
     assert(w == 200);
     assert(h == 200);
 
@@ -41,7 +40,7 @@ void test_size_hints() {
     s.inc_h = 20;
     w = 115;
     h = 135;
-    client_constrain_size(&s, &w, &h);
+    client_constrain_size(&s, XCB_ICCCM_SIZE_HINT_P_RESIZE_INC | XCB_ICCCM_SIZE_HINT_BASE_SIZE, &w, &h);
     assert(w == 110);
     assert(h == 120);
 
@@ -53,7 +52,7 @@ void test_size_hints() {
     s.max_aspect_den = 1;
     w = 100;
     h = 50;
-    client_constrain_size(&s, &w, &h);
+    client_constrain_size(&s, XCB_ICCCM_SIZE_HINT_P_ASPECT, &w, &h);
     // Should be 1:1. 100x50 violates min_aspect (w/h >= 1/1).
     // Our logic: w = h * 1/1 = 50. (Wait, my logic made it wider or shorter?)
     // If w/h < min_aspect, w = h * min_num / min_den.

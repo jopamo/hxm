@@ -10,8 +10,6 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 extern int stub_grab_button_count;
 
 void test_focus_on_finish_manage() {

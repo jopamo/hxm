@@ -10,8 +10,6 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 void test_wm_icon() {
     server_t s;
     memset(&s, 0, sizeof(s));

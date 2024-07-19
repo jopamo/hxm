@@ -10,8 +10,6 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 static xcb_get_property_reply_t* make_icon_reply(uint32_t* data, uint32_t count) {
     size_t total = sizeof(xcb_get_property_reply_t) + sizeof(uint32_t) * count;
     xcb_get_property_reply_t* rep = calloc(1, total);

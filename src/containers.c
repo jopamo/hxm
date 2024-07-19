@@ -1,28 +1,50 @@
 #include "containers.h"
 
 #include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "bbox.h"
 
-// Arena allocator
+/*
+ * containers.c
+ *
+ * Includes:
+ *  - arena allocator (bump allocator with linked blocks)
+ *  - small vector (inline storage, grows to heap)
+ *  - hash map (open addressing, linear probing, backshift delete)
+ *
+ * Notes:
+ *  - arena allocations are 8-byte aligned
+ *  - hash_map reserves key=0 as empty sentinel (use XCB_NONE replacement too)
+ */
+
+/* -----------------------------
+ * Arena allocator
+ * ----------------------------- */
+
 void arena_init(struct arena* a, size_t block_size) {
     a->first = NULL;
     a->current = NULL;
     a->pos = 0;
-    a->block_size = block_size;
+    a->block_size = block_size ? block_size : 4096;
 }
 
-static arena_block_t* arena_add_block(struct arena* a) {
-    size_t size = sizeof(arena_block_t) + a->block_size;
-    arena_block_t* block = malloc(size);
+static arena_block_t* arena_add_block(struct arena* a, size_t min_size) {
+    size_t payload = a->block_size;
+    if (payload < min_size) payload = min_size;
+
+    size_t size = sizeof(arena_block_t) + payload;
+    arena_block_t* block = (arena_block_t*)malloc(size);
     if (!block) {
         LOG_ERROR("arena allocation failed");
         abort();
     }
+
     block->next = NULL;
-    block->size = a->block_size;
+    block->size = payload;
     block->used = 0;
 
     if (a->current) {
@@ -30,52 +52,63 @@ static arena_block_t* arena_add_block(struct arena* a) {
     } else {
         a->first = block;
     }
+
     a->current = block;
     a->pos = 0;
     return block;
 }
 
 void* arena_alloc(struct arena* a, size_t size) {
-    // Align to 8 bytes
-    size = (size + 7) & ~7;
+    if (!a) return NULL;
 
-    if (a->current == NULL) {
+    // Align to 8 bytes
+    size = (size + 7u) & ~7u;
+
+    if (size == 0) size = 8;
+
+    if (!a->current) {
         if (a->first) {
             a->current = a->first;
             a->pos = 0;
         } else {
-            arena_add_block(a);
+            arena_add_block(a, size);
         }
     }
 
-    if (a->pos + size > a->block_size) {
-        if (a->current->next) {
+    if (a->pos + size > a->current->size) {
+        if (a->current->next && size <= a->current->next->size) {
             a->current = a->current->next;
             a->pos = 0;
         } else {
-            arena_add_block(a);
+            arena_add_block(a, size);
         }
     }
 
-    void* ptr = a->current->data + a->pos;
+    void* ptr = (void*)(a->current->data + a->pos);
     a->pos += size;
     a->current->used = a->pos;
     return ptr;
 }
 
 char* arena_strndup(struct arena* a, const char* s, size_t n) {
-    char* res = arena_alloc(a, n + 1);
+    if (!s) return NULL;
+    char* res = (char*)arena_alloc(a, n + 1);
     memcpy(res, s, n);
     res[n] = '\0';
     return res;
 }
 
+char* arena_strdup(struct arena* a, const char* s) {
+    if (!s) return NULL;
+    return arena_strndup(a, s, strlen(s));
+}
+
 void arena_reset(struct arena* a) {
+    if (!a) return;
+
     a->current = a->first;
     a->pos = 0;
-    // We don't strictly need to zero out 'used' in all blocks here,
-    // as arena_alloc will reset it when it moves to a block.
-    // But for sanity, let's keep it consistent.
+
     arena_block_t* b = a->first;
     while (b) {
         b->used = 0;
@@ -84,42 +117,55 @@ void arena_reset(struct arena* a) {
 }
 
 void arena_destroy(struct arena* a) {
+    if (!a) return;
+
     arena_block_t* block = a->first;
     while (block) {
         arena_block_t* next = block->next;
         free(block);
         block = next;
     }
+
     a->first = NULL;
     a->current = NULL;
     a->pos = 0;
+    a->block_size = 0;
 }
 
-// Small vector
+/* -----------------------------
+ * Small vector
+ * ----------------------------- */
+
 void small_vec_init(small_vec_t* v) {
     v->items = v->inline_storage;
     v->length = 0;
     v->capacity = SMALL_VEC_INLINE_CAP;
 }
 
+static void small_vec_grow(small_vec_t* v, size_t min_cap) {
+    size_t new_cap = v->capacity ? v->capacity : SMALL_VEC_INLINE_CAP;
+    while (new_cap < min_cap) new_cap *= 2;
+
+    void** new_items;
+    if (v->items == v->inline_storage) {
+        new_items = (void**)malloc(new_cap * sizeof(void*));
+        if (new_items) memcpy(new_items, v->inline_storage, v->length * sizeof(void*));
+    } else {
+        new_items = (void**)realloc(v->items, new_cap * sizeof(void*));
+    }
+
+    if (!new_items) {
+        LOG_ERROR("small_vec allocation failed");
+        abort();
+    }
+
+    v->items = new_items;
+    v->capacity = new_cap;
+}
+
 void small_vec_push(small_vec_t* v, void* item) {
     if (v->length == v->capacity) {
-        size_t new_cap = v->capacity * 2;
-        void** new_items;
-        if (v->items == v->inline_storage) {
-            new_items = malloc(new_cap * sizeof(void*));
-            if (new_items) {
-                memcpy(new_items, v->inline_storage, v->length * sizeof(void*));
-            }
-        } else {
-            new_items = realloc(v->items, new_cap * sizeof(void*));
-        }
-        if (!new_items) {
-            LOG_ERROR("small_vec allocation failed");
-            abort();
-        }
-        v->items = new_items;
-        v->capacity = new_cap;
+        small_vec_grow(v, v->capacity ? (v->capacity * 2) : SMALL_VEC_INLINE_CAP);
     }
     v->items[v->length++] = item;
 }
@@ -129,20 +175,26 @@ void* small_vec_pop(small_vec_t* v) {
     return v->items[--v->length];
 }
 
+void* small_vec_get(const small_vec_t* v, size_t idx) {
+    if (!v || idx >= v->length) return NULL;
+    return v->items[idx];
+}
+
 void small_vec_clear(small_vec_t* v) { v->length = 0; }
 
 void small_vec_destroy(small_vec_t* v) {
-    if (v->items != v->inline_storage) {
-        free(v->items);
-    }
+    if (v->items != v->inline_storage) free(v->items);
     v->items = v->inline_storage;
     v->length = 0;
     v->capacity = SMALL_VEC_INLINE_CAP;
 }
 
-// Hash map utilities
+/* -----------------------------
+ * Hash map
+ * ----------------------------- */
+
 static inline uint32_t hash_key(uint64_t key) {
-    // Simple mixing (MurmurHash3 mixer for 64-bit)
+    // MurmurHash3 finalizer for 64-bit keys -> 32-bit hash
     key ^= key >> 33;
     key *= 0xff51afd7ed558ccdULL;
     key ^= key >> 33;
@@ -151,28 +203,48 @@ static inline uint32_t hash_key(uint64_t key) {
     return (uint32_t)key;
 }
 
+static inline size_t probe_next(size_t idx, size_t mask) { return (idx + 1) & mask; }
+
+static size_t round_up_pow2(size_t n) {
+    if (n < 16) return 16;
+    n--;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+#if SIZE_MAX > 0xffffffffu
+    n |= n >> 32;
+#endif
+    n++;
+    return n;
+}
+
 static void hash_map_resize(hash_map_t* map, size_t new_capacity) {
-    hash_map_entry_t* new_entries = calloc(new_capacity, sizeof(hash_map_entry_t));
+    new_capacity = round_up_pow2(new_capacity);
+
+    hash_map_entry_t* new_entries = (hash_map_entry_t*)calloc(new_capacity, sizeof(hash_map_entry_t));
     if (!new_entries) {
         LOG_ERROR("hash_map allocation failed");
         abort();
     }
 
-    for (size_t i = 0; i < map->capacity; i++) {
-        hash_map_entry_t* entry = &map->entries[i];
-        if (entry->key != 0) {  // 0 is reserved as empty/XCB_NONE replacement
-            size_t idx = entry->hash & (new_capacity - 1);
-            while (new_entries[idx].key != 0) {
-                idx = (idx + 1) & (new_capacity - 1);
+    if (map->entries && map->capacity) {
+        for (size_t i = 0; i < map->capacity; i++) {
+            hash_map_entry_t* entry = &map->entries[i];
+            if (entry->key != 0) {
+                size_t mask = new_capacity - 1;
+                size_t idx = entry->hash & mask;
+                while (new_entries[idx].key != 0) idx = probe_next(idx, mask);
+                new_entries[idx] = *entry;
             }
-            new_entries[idx] = *entry;
         }
     }
 
     free(map->entries);
     map->entries = new_entries;
     map->capacity = new_capacity;
-    map->max_load = new_capacity * 3 / 4;
+    map->max_load = (new_capacity * 3) / 4;
 }
 
 void hash_map_init(hash_map_t* map) {
@@ -192,19 +264,22 @@ void hash_map_destroy(hash_map_t* map) {
 
 bool hash_map_insert(hash_map_t* map, uint64_t key, void* value) {
     assert(key != 0 && "key=0 is reserved for hash_map_t");
-    if (map->size >= map->max_load) {
-        size_t new_cap = map->capacity ? map->capacity * 2 : 16;
+
+    if (map->capacity == 0 || map->size >= map->max_load) {
+        size_t new_cap = map->capacity ? (map->capacity * 2) : 16;
         hash_map_resize(map, new_cap);
     }
 
     uint32_t hash = hash_key(key);
-    size_t idx = hash & (map->capacity - 1);
+    size_t mask = map->capacity - 1;
+    size_t idx = hash & mask;
+
     while (map->entries[idx].key != 0) {
         if (map->entries[idx].key == key) {
             map->entries[idx].value = value;
             return true;
         }
-        idx = (idx + 1) & (map->capacity - 1);
+        idx = probe_next(idx, mask);
     }
 
     map->entries[idx].key = key;
@@ -216,23 +291,23 @@ bool hash_map_insert(hash_map_t* map, uint64_t key, void* value) {
 
 void* hash_map_get(const hash_map_t* map, uint64_t key) {
     assert(key != 0 && "key=0 is reserved for hash_map_t");
-    if (map->capacity == 0) return NULL;
+    if (!map || map->capacity == 0) return NULL;
+
     uint32_t hash = hash_key(key);
-    size_t idx = hash & (map->capacity - 1);
+    size_t mask = map->capacity - 1;
+    size_t idx = hash & mask;
+
     while (map->entries[idx].key != 0) {
-        if (map->entries[idx].key == key) {
-            return map->entries[idx].value;
-        }
-        idx = (idx + 1) & (map->capacity - 1);
+        if (map->entries[idx].key == key) return map->entries[idx].value;
+        idx = probe_next(idx, mask);
     }
+
     return NULL;
 }
 
-static inline size_t probe_next(size_t idx, size_t mask) { return (idx + 1) & mask; }
-
 bool hash_map_remove(hash_map_t* map, uint64_t key) {
     assert(key != 0 && "key=0 is reserved for hash_map_t");
-    if (map->capacity == 0) return false;
+    if (!map || map->capacity == 0) return false;
 
     size_t mask = map->capacity - 1;
     uint32_t hash = hash_key(key);
@@ -258,6 +333,7 @@ bool hash_map_remove(hash_map_t* map, uint64_t key) {
                     map->entries[hole] = map->entries[j];
                     hole = j;
                 }
+
                 j = probe_next(j, mask);
             }
 
@@ -268,9 +344,11 @@ bool hash_map_remove(hash_map_t* map, uint64_t key) {
             map->size--;
             return true;
         }
+
         idx = probe_next(idx, mask);
     }
+
     return false;
 }
 
-size_t hash_map_size(const hash_map_t* map) { return map->size; }
+size_t hash_map_size(const hash_map_t* map) { return map ? map->size : 0; }

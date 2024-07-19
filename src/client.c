@@ -20,6 +20,7 @@ bool should_focus_on_map(const client_hot_t* hot) {
         hot->type == WINDOW_TYPE_POPUP_MENU || hot->type == WINDOW_TYPE_TOOLTIP) {
         return false;
     }
+
     // Dialogs and transients may steal focus
     if (hot->type == WINDOW_TYPE_DIALOG) return true;
     if (hot->transient_for != HANDLE_INVALID) return true;
@@ -33,7 +34,8 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     }
 
     // Allocate slot
-    void *hot_ptr, *cold_ptr;
+    void* hot_ptr;
+    void* cold_ptr;
     handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
     if (h == HANDLE_INVALID) {
         LOG_ERROR("Failed to allocate client slot for window %u", win);
@@ -46,27 +48,52 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->self = h;
     hot->xid = win;
     hot->state = STATE_NEW;
+    hot->manage_phase = MANAGE_PHASE1;
+
+    hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
+
     hot->layer = LAYER_NORMAL;
     hot->base_layer = LAYER_NORMAL;
+
     hot->state_above = false;
     hot->state_below = false;
+
     hot->focus_override = -1;
+
     hot->maximized_horz = false;
     hot->maximized_vert = false;
     hot->saved_maximize_valid = false;
     hot->saved_maximized_horz = false;
     hot->saved_maximized_vert = false;
+
     hot->last_cursor_dir = -1;
+
     render_init(&hot->render_ctx);
+
     hot->icon_surface = NULL;
     hot->visual_type = NULL;
+    hot->visual_id = s->root_visual;
     hot->depth = 0;
+
     hot->damage = XCB_NONE;
     dirty_region_reset(&hot->damage_region);
-    hot->pending_replies = 15;  // Attrs, Geom, Class, Hints, NormalHints, Transient, Type, Protocols, Name, NetName,
-                                // NetState, Desktop, Strut, StrutPartial, Icon
+
+    hot->ignore_unmap = 1;
     hot->override_redirect = false;
     hot->manage_aborted = false;
+
+    hot->user_time = 0;
+    hot->user_time_window = XCB_NONE;
+    hot->sync_enabled = false;
+    hot->sync_counter = 0;
+    hot->icon_geometry_valid = false;
+
+    // Phase 1 cookie budget
+    // Attrs, Geom, Class, Hints, NormalHints, Transient, Type, Protocols,
+    // NetName, Name, NetIconName, IconName, NetState, Desktop,
+    // Strut, StrutPartial, Icon, PID, UserTime, UserTimeWindow,
+    // SyncCounter, IconGeometry, MotifHints
+    hot->pending_replies = 23;
 
     cold->can_focus = true;
     arena_init(&cold->string_arena, 512);
@@ -79,7 +106,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     // Register mapping so we can find it
     hash_map_insert(&s->window_to_client, win, handle_to_ptr(h));
 
-    // 1. GetWindowAttributes (to check override_redirect)
+    // 1. GetWindowAttributes (override_redirect, visual)
     uint32_t c1 = xcb_get_window_attributes(s->conn, win).sequence;
     cookie_jar_push(&s->cookie_jar, c1, COOKIE_GET_WINDOW_ATTRIBUTES, h, win, wm_handle_reply);
 
@@ -87,69 +114,110 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     uint32_t c2 = xcb_get_geometry(s->conn, win).sequence;
     cookie_jar_push(&s->cookie_jar, c2, COOKIE_GET_GEOMETRY, h, win, wm_handle_reply);
 
-    // 3. GetProperty (WM_CLASS)
+    // 3. WM_CLASS
     uint32_t c3 = xcb_get_property(s->conn, 0, win, atoms.WM_CLASS, XCB_ATOM_STRING, 0, 1024).sequence;
     cookie_jar_push(&s->cookie_jar, c3, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_CLASS,
                     wm_handle_reply);
 
-    // 4. GetProperty (WM_HINTS)
+    // 4. WM_HINTS
     uint32_t c4 = xcb_get_property(s->conn, 0, win, atoms.WM_HINTS, atoms.WM_HINTS, 0, 32).sequence;
     cookie_jar_push(&s->cookie_jar, c4, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_HINTS,
                     wm_handle_reply);
 
-    // 5. GetProperty (WM_NORMAL_HINTS)
+    // 5. WM_NORMAL_HINTS
     uint32_t c5 = xcb_get_property(s->conn, 0, win, atoms.WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 0, 32).sequence;
     cookie_jar_push(&s->cookie_jar, c5, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_NORMAL_HINTS,
                     wm_handle_reply);
 
-    // 6. GetProperty (WM_TRANSIENT_FOR)
+    // 6. WM_TRANSIENT_FOR
     uint32_t c6 = xcb_get_property(s->conn, 0, win, atoms.WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 0, 1).sequence;
     cookie_jar_push(&s->cookie_jar, c6, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_TRANSIENT_FOR,
                     wm_handle_reply);
 
-    // 7. GetProperty (_NET_WM_WINDOW_TYPE)
+    // 7. _NET_WM_WINDOW_TYPE
     uint32_t c7 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_WINDOW_TYPE, XCB_ATOM_ATOM, 0, 32).sequence;
     cookie_jar_push(&s->cookie_jar, c7, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_WINDOW_TYPE,
                     wm_handle_reply);
 
-    // 8. GetProperty (WM_PROTOCOLS)
+    // 8. WM_PROTOCOLS
     uint32_t c8 = xcb_get_property(s->conn, 0, win, atoms.WM_PROTOCOLS, XCB_ATOM_ATOM, 0, 32).sequence;
     cookie_jar_push(&s->cookie_jar, c8, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_PROTOCOLS,
                     wm_handle_reply);
 
-    // 9. GetProperty (_NET_WM_NAME)
+    // 9. _NET_WM_NAME (UTF8)
     uint32_t c9 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_NAME, atoms.UTF8_STRING, 0, 1024).sequence;
     cookie_jar_push(&s->cookie_jar, c9, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_NAME,
                     wm_handle_reply);
 
-    // 10. GetProperty (WM_NAME)
+    // 10. WM_NAME
     uint32_t c10 = xcb_get_property(s->conn, 0, win, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
     cookie_jar_push(&s->cookie_jar, c10, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_NAME,
                     wm_handle_reply);
 
-    // 11. GetProperty (_NET_WM_STATE)
-    uint32_t c11 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STATE, XCB_ATOM_ATOM, 0, 32).sequence;
-    cookie_jar_push(&s->cookie_jar, c11, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STATE,
+    // 11. _NET_WM_ICON_NAME (UTF8)
+    uint32_t c11 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON_NAME, atoms.UTF8_STRING, 0, 1024).sequence;
+    cookie_jar_push(&s->cookie_jar, c11, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON_NAME,
                     wm_handle_reply);
 
-    // 12. GetProperty (_NET_WM_DESKTOP)
-    uint32_t c12 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c12, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_DESKTOP,
+    // 12. WM_ICON_NAME
+    uint32_t c12 = xcb_get_property(s->conn, 0, win, atoms.WM_ICON_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
+    cookie_jar_push(&s->cookie_jar, c12, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_ICON_NAME,
                     wm_handle_reply);
 
-    // 13. GetProperty (_NET_WM_STRUT)
-    uint32_t c13 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
-    cookie_jar_push(&s->cookie_jar, c13, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT,
+    // 13. _NET_WM_STATE
+    uint32_t c13 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STATE, XCB_ATOM_ATOM, 0, 32).sequence;
+    cookie_jar_push(&s->cookie_jar, c13, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STATE,
                     wm_handle_reply);
 
-    // 14. GetProperty (_NET_WM_STRUT_PARTIAL)
-    uint32_t c14 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
-    cookie_jar_push(&s->cookie_jar, c14, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT_PARTIAL,
+    // 14. _NET_WM_DESKTOP
+    uint32_t c14 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 0, 1).sequence;
+    cookie_jar_push(&s->cookie_jar, c14, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_DESKTOP,
                     wm_handle_reply);
 
-    // 15. GetProperty (_NET_WM_ICON)
-    uint32_t c15 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 16384).sequence;
-    cookie_jar_push(&s->cookie_jar, c15, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON,
+    // 15. _NET_WM_STRUT
+    uint32_t c15 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
+    cookie_jar_push(&s->cookie_jar, c15, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT,
+                    wm_handle_reply);
+
+    // 16. _NET_WM_STRUT_PARTIAL
+    uint32_t c16 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
+    cookie_jar_push(&s->cookie_jar, c16, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT_PARTIAL,
+                    wm_handle_reply);
+
+    // 17. _NET_WM_ICON
+    uint32_t c17 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 16384).sequence;
+    cookie_jar_push(&s->cookie_jar, c17, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON,
+                    wm_handle_reply);
+
+    // 18. _NET_WM_PID
+    uint32_t c18 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_PID, XCB_ATOM_CARDINAL, 0, 1).sequence;
+    cookie_jar_push(&s->cookie_jar, c18, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_PID,
+                    wm_handle_reply);
+
+    // 19. _NET_WM_USER_TIME
+    uint32_t c19 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_USER_TIME, XCB_ATOM_CARDINAL, 0, 1).sequence;
+    cookie_jar_push(&s->cookie_jar, c19, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_USER_TIME,
+                    wm_handle_reply);
+
+    // 20. _NET_WM_USER_TIME_WINDOW
+    uint32_t c20 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_USER_TIME_WINDOW, XCB_ATOM_WINDOW, 0, 1).sequence;
+    cookie_jar_push(&s->cookie_jar, c20, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_USER_TIME_WINDOW,
+                    wm_handle_reply);
+
+    // 21. _NET_WM_SYNC_REQUEST_COUNTER
+    uint32_t c21 =
+        xcb_get_property(s->conn, 0, win, atoms._NET_WM_SYNC_REQUEST_COUNTER, XCB_ATOM_CARDINAL, 0, 1).sequence;
+    cookie_jar_push(&s->cookie_jar, c21, COOKIE_GET_PROPERTY, h,
+                    ((uint64_t)win << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, wm_handle_reply);
+
+    // 22. _NET_WM_ICON_GEOMETRY
+    uint32_t c22 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON_GEOMETRY, XCB_ATOM_CARDINAL, 0, 4).sequence;
+    cookie_jar_push(&s->cookie_jar, c22, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON_GEOMETRY,
+                    wm_handle_reply);
+
+    // 23. _MOTIF_WM_HINTS
+    uint32_t c23 = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, atoms._MOTIF_WM_HINTS, 0, 5).sequence;
+    cookie_jar_push(&s->cookie_jar, c23, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._MOTIF_WM_HINTS,
                     wm_handle_reply);
 
     LOG_DEBUG("Started management for window %u (handle %lx)", win, h);
@@ -176,6 +244,7 @@ static void client_apply_rules(server_t* s, handle_t h) {
 
         if (matched) {
             LOG_INFO("Rule matched for window %u", hot->xid);
+
             if (r->desktop != -2) {
                 if (r->desktop == -1) {
                     hot->desktop = -1;
@@ -185,12 +254,14 @@ static void client_apply_rules(server_t* s, handle_t h) {
                     hot->sticky = false;
                 }
             }
+
             if (r->layer != -1) {
                 hot->base_layer = (uint8_t)r->layer;
                 if (hot->layer != LAYER_FULLSCREEN) {
                     hot->layer = client_layer_from_state(hot);
                 }
             }
+
             if (r->focus != -1) hot->focus_override = r->focus;
             if (r->placement != PLACEMENT_DEFAULT) hot->placement = (uint8_t)r->placement;
         }
@@ -210,15 +281,16 @@ void client_finish_manage(server_t* s, handle_t h) {
     wm_place_window(s, h);
 
     // 1. Create frame
-    // Openbox-like simple frame
     rect_t geom = hot->desired;
+
     uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
-    // Set background to inactive color initially
     uint32_t values[3];
+
+    // Set background to inactive color initially
     values[0] = 0x333333;
-    values[1] = XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT |
-                XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_POINTER_MOTION |
-                XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW;
+
+    values[1] = XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_EXPOSURE |
+                XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW;
 
     uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
     uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
@@ -238,11 +310,14 @@ void client_finish_manage(server_t* s, handle_t h) {
     // Register frame mapping
     hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));
 
-    // 2. Add to SaveSet (Crash safety)
+    // 2. Add to SaveSet (crash safety)
     xcb_change_save_set(s->conn, XCB_SET_MODE_INSERT, hot->xid);
 
     // 3. Reparent
     xcb_reparent_window(s->conn, hot->xid, hot->frame, bw, th);
+
+    hot->server = hot->desired;
+    wm_send_synthetic_configure(s, h);
 
     // Set _NET_FRAME_EXTENTS (before mapping)
     uint32_t extents[4] = {bw, bw, th + bw, bw};
@@ -252,6 +327,7 @@ void client_finish_manage(server_t* s, handle_t h) {
     // Set _NET_WM_ALLOWED_ACTIONS (before mapping)
     xcb_atom_t actions[16];
     uint32_t num_actions = 0;
+
     actions[num_actions++] = atoms._NET_WM_ACTION_MOVE;
     actions[num_actions++] = atoms._NET_WM_ACTION_MINIMIZE;
     actions[num_actions++] = atoms._NET_WM_ACTION_STICK;
@@ -273,28 +349,31 @@ void client_finish_manage(server_t* s, handle_t h) {
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_ALLOWED_ACTIONS, XCB_ATOM_ATOM, 32,
                         num_actions, actions);
 
-    // 4. Map if visible on current desktop
-    bool visible = hot->sticky || (hot->desktop == (int32_t)s->current_desktop);
+    // 4. Map if visible on current desktop and not requested to start iconic
+    bool visible = (hot->sticky || (hot->desktop == (int32_t)s->current_desktop)) &&
+                   (hot->initial_state != XCB_ICCCM_WM_STATE_ICONIC);
+
     if (visible) {
         xcb_map_window(s->conn, hot->xid);
         xcb_map_window(s->conn, hot->frame);
         hot->state = STATE_MAPPED;
 
-        // Set WM_STATE to NormalState (required by some toolkits like Qt)
         uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                             state_vals);
     } else {
         hot->state = STATE_UNMAPPED;
-        // Set WM_STATE to IconicState
+
         uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                             state_vals);
     }
+
     hot->dirty |= DIRTY_STATE;
 
     // Subscribe to client events
-    uint32_t client_events = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_FOCUS_CHANGE;
+    uint32_t client_events = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_ENTER_WINDOW |
+                             XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
     xcb_change_window_attributes(s->conn, hot->xid, XCB_CW_EVENT_MASK, &client_events);
 
     if (s->damage_supported) {
@@ -316,7 +395,7 @@ void client_finish_manage(server_t* s, handle_t h) {
     // Add to focus history
     list_insert(&hot->focus_node, &s->focus_history, s->focus_history.next);
 
-    // Focus new window if visible and allowed (dialogs/transients) or if nothing is focused
+    // Focus new window if visible and allowed or if nothing is focused
     if (visible && (s->focused_client == HANDLE_INVALID || should_focus_on_map(hot))) {
         wm_set_focus(s, h);
     }
@@ -324,12 +403,12 @@ void client_finish_manage(server_t* s, handle_t h) {
     // Draw initial decorations
     frame_redraw(s, h, FRAME_REDRAW_ALL);
 
-    // Publish initial desktop if not already set by client
+    // Publish initial desktop
     uint32_t desk_prop = (uint32_t)hot->desktop;
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
                         &desk_prop);
 
-    // Mark client list as dirty
+    // Mark root properties dirty
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_WORKAREA;
 
     LOG_INFO("Managed window %u as client %lx (frame %u)", hot->xid, h, hot->frame);
@@ -345,7 +424,7 @@ void client_unmanage(server_t* s, handle_t h) {
 
     LOG_INFO("Unmanaging client %lx (window %u, destroyed=%d)", h, hot->xid, destroyed);
 
-    // 0. Remove from stacking
+    // Remove from stacking
     stack_remove(s, h);
 
     // Unlink from parent
@@ -357,12 +436,10 @@ void client_unmanage(server_t* s, handle_t h) {
     // Unlink children
     while (!list_empty(&hot->transients_head)) {
         list_node_t* node = hot->transients_head.next;
-        // offsetof trick to get child
         client_hot_t* child = (client_hot_t*)((char*)node - offsetof(client_hot_t, transient_sibling));
         child->transient_for = HANDLE_INVALID;
         list_remove(node);
         list_init(node);
-        // Note: we don't need to update child's state other than transient_for handle
     }
 
     // Remove from focus history
@@ -375,7 +452,7 @@ void client_unmanage(server_t* s, handle_t h) {
     if (s->focused_client == h) {
         handle_t next_h = HANDLE_INVALID;
 
-        // 1. Prefer parent if still mapped
+        // Prefer parent if still mapped
         if (hot->transient_for != HANDLE_INVALID) {
             client_hot_t* parent = server_chot(s, hot->transient_for);
             if (parent && parent->state == STATE_MAPPED) {
@@ -383,7 +460,7 @@ void client_unmanage(server_t* s, handle_t h) {
             }
         }
 
-        // 2. Fallback to MRU
+        // Fallback to MRU
         if (next_h == HANDLE_INVALID) {
             list_node_t* node = s->focus_history.next;
             while (node != &s->focus_history) {
@@ -399,12 +476,11 @@ void client_unmanage(server_t* s, handle_t h) {
         wm_set_focus(s, next_h);
     }
 
-    // 1. Remove from SaveSet
+    // Remove from SaveSet
     xcb_change_save_set(s->conn, XCB_SET_MODE_DELETE, hot->xid);
 
-    // 2. Reparent back to root (if window still exists)
+    // Reparent back to root if window still exists
     if (!destroyed) {
-        // Calculate root coordinates? For now just 0,0 or keep frame position.
         xcb_reparent_window(s->conn, hot->xid, s->root, hot->server.x, hot->server.y);
     }
 
@@ -414,24 +490,26 @@ void client_unmanage(server_t* s, handle_t h) {
         dirty_region_reset(&hot->damage_region);
     }
 
-    // 3. Destroy frame
+    // Destroy frame
     if (hot->frame != XCB_NONE) {
         xcb_destroy_window(s->conn, hot->frame);
     }
 
-    // 4. Cleanup maps
-    if (hot->xid != XCB_NONE) hash_map_remove(&s->window_to_client, hot->xid);
+    // Cleanup maps and properties
+    if (hot->xid != XCB_NONE) {
+        xcb_delete_property(s->conn, hot->xid, atoms.WM_STATE);
+        hash_map_remove(&s->window_to_client, hot->xid);
+    }
     if (hot->frame != XCB_NONE) hash_map_remove(&s->frame_to_client, hot->frame);
 
-    // 5. Free cold data
+    // Free cold data
     arena_destroy(&cold->string_arena);
     render_free(&hot->render_ctx);
     if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
 
-    // 6. Free slot
+    // Free slot
     slotmap_free(&s->clients, h);
 
-    // Mark client list as dirty
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_WORKAREA;
 }
 
@@ -442,6 +520,7 @@ void client_close(server_t* s, handle_t h) {
 
     if (cold->protocols & PROTOCOL_DELETE_WINDOW) {
         LOG_DEBUG("Sending WM_DELETE_WINDOW to client %lx", h);
+
         xcb_client_message_event_t ev;
         memset(&ev, 0, sizeof(ev));
         ev.response_type = XCB_CLIENT_MESSAGE;
@@ -458,37 +537,45 @@ void client_close(server_t* s, handle_t h) {
     }
 }
 
-void client_constrain_size(const size_hints_t* s, uint16_t* w, uint16_t* h) {
-    // 1. Min/Max size
-    if (s->min_w > 0 && *w < (uint16_t)s->min_w) *w = (uint16_t)s->min_w;
-    if (s->min_h > 0 && *h < (uint16_t)s->min_h) *h = (uint16_t)s->min_h;
-
-    if (s->max_w > 0 && *w > (uint16_t)s->max_w) *w = (uint16_t)s->max_w;
-    if (s->max_h > 0 && *h > (uint16_t)s->max_h) *h = (uint16_t)s->max_h;
-
-    // 2. Aspect ratio
-    if (s->min_aspect_den > 0 && s->min_aspect_num > 0) {
-        if ((int32_t)(*w) * s->min_aspect_den < (int32_t)(*h) * s->min_aspect_num) {
-            *w = (uint16_t)((int32_t)(*h) * s->min_aspect_num / s->min_aspect_den);
-        }
-    }
-    if (s->max_aspect_den > 0 && s->max_aspect_num > 0) {
-        if ((int32_t)(*w) * s->max_aspect_den > (int32_t)(*h) * s->max_aspect_num) {
-            *h = (uint16_t)((int32_t)(*w) * s->max_aspect_den / s->max_aspect_num);
-        }
+void client_constrain_size(const size_hints_t* s, uint32_t flags, uint16_t* w, uint16_t* h) {
+    // Min/Max size
+    if (flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
+        if (s->min_w > 0 && *w < (uint16_t)s->min_w) *w = (uint16_t)s->min_w;
+        if (s->min_h > 0 && *h < (uint16_t)s->min_h) *h = (uint16_t)s->min_h;
     }
 
-    // 3. Resize increments
-    if (s->inc_w > 1) {
-        int32_t base_w = (s->base_w > 0) ? s->base_w : (s->min_w > 0 ? s->min_w : 0);
-        if (*w > base_w) {
-            *w = (uint16_t)(base_w + ((*w - base_w) / s->inc_w) * s->inc_w);
+    if (flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) {
+        if (s->max_w > 0 && *w > (uint16_t)s->max_w) *w = (uint16_t)s->max_w;
+        if (s->max_h > 0 && *h > (uint16_t)s->max_h) *h = (uint16_t)s->max_h;
+    }
+
+    // Aspect ratio
+    if (flags & XCB_ICCCM_SIZE_HINT_P_ASPECT) {
+        if (s->min_aspect_den > 0 && s->min_aspect_num > 0) {
+            if ((int32_t)(*w) * s->min_aspect_den < (int32_t)(*h) * s->min_aspect_num) {
+                *w = (uint16_t)((int32_t)(*h) * s->min_aspect_num / s->min_aspect_den);
+            }
+        }
+        if (s->max_aspect_den > 0 && s->max_aspect_num > 0) {
+            if ((int32_t)(*w) * s->max_aspect_den > (int32_t)(*h) * s->max_aspect_num) {
+                *h = (uint16_t)((int32_t)(*w) * s->max_aspect_den / s->max_aspect_num);
+            }
         }
     }
-    if (s->inc_h > 1) {
-        int32_t base_h = (s->base_h > 0) ? s->base_h : (s->min_h > 0 ? s->min_h : 0);
-        if (*h > base_h) {
-            *h = (uint16_t)(base_h + ((*h - base_h) / s->inc_h) * s->inc_h);
+
+    // Resize increments
+    if (flags & XCB_ICCCM_SIZE_HINT_P_RESIZE_INC) {
+        if (s->inc_w > 1) {
+            int32_t base_w = (flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE) ? s->base_w : (s->min_w > 0 ? s->min_w : 0);
+            if (*w > base_w) {
+                *w = (uint16_t)(base_w + ((*w - base_w) / s->inc_w) * s->inc_w);
+            }
+        }
+        if (s->inc_h > 1) {
+            int32_t base_h = (flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE) ? s->base_h : (s->min_h > 0 ? s->min_h : 0);
+            if (*h > base_h) {
+                *h = (uint16_t)(base_h + ((*h - base_h) / s->inc_h) * s->inc_h);
+            }
         }
     }
 }
@@ -498,7 +585,7 @@ void client_setup_grabs(server_t* s, handle_t h) {
     if (!hot) return;
 
     // Grab buttons 1, 2, 3 for click-to-focus and Alt-move/resize
-    // We use SYNC mode for the pointer to allow interception of clicks.
+    // We use SYNC mode for the pointer to allow interception of clicks
     uint16_t buttons[] = {1, 2, 3};
     for (int i = 0; i < 3; i++) {
         xcb_grab_button(s->conn, 0, hot->xid, XCB_EVENT_MASK_BUTTON_PRESS, XCB_GRAB_MODE_SYNC, XCB_GRAB_MODE_ASYNC,

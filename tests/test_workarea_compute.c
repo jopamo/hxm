@@ -7,8 +7,6 @@
 #include "event.h"
 #include "wm.h"
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 void test_workarea_compute() {
     server_t s;
     memset(&s, 0, sizeof(s));

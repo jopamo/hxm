@@ -13,21 +13,32 @@ struct atoms {
     xcb_atom_t WM_STATE;
     xcb_atom_t WM_CLASS;
     xcb_atom_t WM_NAME;
+    xcb_atom_t WM_ICON_NAME;
     xcb_atom_t WM_HINTS;
     xcb_atom_t WM_NORMAL_HINTS;
     xcb_atom_t WM_TRANSIENT_FOR;
+    xcb_atom_t _MOTIF_WM_HINTS;
+    xcb_atom_t _NET_WM_SYNC_REQUEST;
 
     xcb_atom_t _NET_SUPPORTED;
     xcb_atom_t _NET_CLIENT_LIST;
     xcb_atom_t _NET_CLIENT_LIST_STACKING;
     xcb_atom_t _NET_ACTIVE_WINDOW;
+
     xcb_atom_t _NET_WM_NAME;
+    xcb_atom_t _NET_WM_ICON_NAME;
     xcb_atom_t _NET_WM_STATE;
     xcb_atom_t _NET_WM_WINDOW_TYPE;
     xcb_atom_t _NET_WM_STRUT;
     xcb_atom_t _NET_WM_STRUT_PARTIAL;
     xcb_atom_t _NET_WORKAREA;
     xcb_atom_t _NET_WM_PID;
+
+    xcb_atom_t _NET_WM_USER_TIME;
+    xcb_atom_t _NET_WM_USER_TIME_WINDOW;
+    xcb_atom_t _NET_WM_SYNC_REQUEST_COUNTER;
+    xcb_atom_t _NET_WM_ICON_GEOMETRY;
+
     xcb_atom_t _NET_WM_STATE_FULLSCREEN;
     xcb_atom_t _NET_WM_STATE_ABOVE;
     xcb_atom_t _NET_WM_STATE_BELOW;
@@ -37,6 +48,11 @@ struct atoms {
     xcb_atom_t _NET_WM_STATE_MAXIMIZED_HORZ;
     xcb_atom_t _NET_WM_STATE_MAXIMIZED_VERT;
     xcb_atom_t _NET_WM_STATE_FOCUSED;
+    xcb_atom_t _NET_WM_STATE_MODAL;
+    xcb_atom_t _NET_WM_STATE_SHADED;
+    xcb_atom_t _NET_WM_STATE_SKIP_TASKBAR;
+    xcb_atom_t _NET_WM_STATE_SKIP_PAGER;
+
     xcb_atom_t _NET_WM_WINDOW_TYPE_DOCK;
     xcb_atom_t _NET_WM_WINDOW_TYPE_DIALOG;
     xcb_atom_t _NET_WM_WINDOW_TYPE_NOTIFICATION;
@@ -49,16 +65,19 @@ struct atoms {
     xcb_atom_t _NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
     xcb_atom_t _NET_WM_WINDOW_TYPE_POPUP_MENU;
     xcb_atom_t _NET_WM_WINDOW_TYPE_TOOLTIP;
+
     xcb_atom_t _NET_SUPPORTING_WM_CHECK;
     xcb_atom_t _NET_DESKTOP_VIEWPORT;
     xcb_atom_t _NET_NUMBER_OF_DESKTOPS;
     xcb_atom_t _NET_CURRENT_DESKTOP;
     xcb_atom_t _NET_DESKTOP_NAMES;
     xcb_atom_t _NET_WM_DESKTOP;
+
     xcb_atom_t _NET_WM_ICON;
     xcb_atom_t _NET_CLOSE_WINDOW;
     xcb_atom_t _NET_DESKTOP_GEOMETRY;
     xcb_atom_t _NET_FRAME_EXTENTS;
+
     xcb_atom_t _NET_WM_ALLOWED_ACTIONS;
     xcb_atom_t _NET_WM_ACTION_MOVE;
     xcb_atom_t _NET_WM_ACTION_RESIZE;

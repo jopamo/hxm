@@ -25,6 +25,10 @@ typedef struct client_state_set {
     bool urgent;
     bool max_horz;
     bool max_vert;
+    bool modal;
+    bool shaded;
+    bool skip_taskbar;
+    bool skip_pager;
 } client_state_set_t;
 
 void wm_client_apply_state_set(server_t* s, handle_t h, const client_state_set_t* set);
@@ -72,5 +76,7 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
 void wm_flush_dirty(server_t* s);
 void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err);
 void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t prop);
+void wm_send_synthetic_configure(server_t* s, handle_t h);
+void wm_client_refresh_title(server_t* s, handle_t h);
 
 #endif  // WM_H

@@ -17,8 +17,6 @@ extern char stub_last_event[32];
 extern int stub_kill_client_count;
 extern uint32_t stub_last_kill_client_resource;
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 void test_icccm_protocols() {
     server_t s;
     memset(&s, 0, sizeof(s));
