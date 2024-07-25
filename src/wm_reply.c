@@ -317,7 +317,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 }
 
             } else if (atom == atoms._MOTIF_WM_HINTS) {
-                if (xcb_get_property_value_length(r) >= (int)(3 * sizeof(uint32_t))) {
+                if (r && r->format == 32 && xcb_get_property_value_length(r) >= (int)(3 * sizeof(uint32_t))) {
                     uint32_t* hints = (uint32_t*)xcb_get_property_value(r);
                     uint32_t flags = hints[0];
                     uint32_t decorations = hints[2];
@@ -329,7 +329,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                                                                         : (decorations & MWM_DECOR_TITLE);
 
                         bool was_undecorated = (hot->flags & CLIENT_FLAG_UNDECORATED) != 0;
-                        bool now_undecorated = (!want_border && !want_title);
+                        // We only support fully decorated vs undecorated frames.
+                        bool now_undecorated = !(want_border && want_title);
 
                         if (now_undecorated) {
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
@@ -338,6 +339,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         }
 
                         if (was_undecorated != now_undecorated) {
+                            hot->dirty |= DIRTY_GEOM;
                             changed = true;
                         }
                     }

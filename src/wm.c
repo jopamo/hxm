@@ -22,6 +22,27 @@
 
 // Small helpers
 
+// Motif hints (subset)
+#define MWM_HINTS_DECORATIONS (1L << 1)
+#define MWM_DECOR_ALL (1L << 0)
+#define MWM_DECOR_BORDER (1L << 1)
+#define MWM_DECOR_TITLE (1L << 3)
+
+enum {
+    NET_WM_MOVERESIZE_SIZE_TOPLEFT = 0,
+    NET_WM_MOVERESIZE_SIZE_TOP = 1,
+    NET_WM_MOVERESIZE_SIZE_TOPRIGHT = 2,
+    NET_WM_MOVERESIZE_SIZE_RIGHT = 3,
+    NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT = 4,
+    NET_WM_MOVERESIZE_SIZE_BOTTOM = 5,
+    NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT = 6,
+    NET_WM_MOVERESIZE_SIZE_LEFT = 7,
+    NET_WM_MOVERESIZE_MOVE = 8,
+    NET_WM_MOVERESIZE_SIZE_KEYBOARD = 9,
+    NET_WM_MOVERESIZE_MOVE_KEYBOARD = 10,
+    NET_WM_MOVERESIZE_CANCEL = 11,
+};
+
 static uint32_t clean_mods(uint16_t state) {
     // Mask out NumLock/ScrollLock if they interfere (common in WMs)
     return state & ~(XCB_MOD_MASK_2 | XCB_MOD_MASK_5 | XCB_MOD_MASK_LOCK);
@@ -69,6 +90,51 @@ static bool should_raise_on_click(client_hot_t* c, xcb_button_t button) {
 
 static void wm_client_set_maximize(server_t* s, client_hot_t* hot, bool max_horz, bool max_vert);
 
+static bool wm_is_above_in_layer(const server_t* s, const client_hot_t* a, const client_hot_t* b) {
+    if (!a || !b) return false;
+    if (a->layer != b->layer) return false;
+
+    const list_node_t* head = &s->layers[a->layer];
+    bool seen_b = false;
+    for (const list_node_t* node = head->next; node != head; node = node->next) {
+        const client_hot_t* cur = (const client_hot_t*)((const char*)node - offsetof(client_hot_t, stacking_node));
+        if (cur == a) return seen_b;
+        if (cur == b) seen_b = true;
+    }
+    return false;
+}
+
+static bool wm_window_wants_undecorated(server_t* s, xcb_window_t win) {
+    xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5);
+    xcb_get_property_reply_t* r = xcb_get_property_reply(s->conn, ck, NULL);
+    if (!r) return false;
+
+    bool undecorated = false;
+    if (r->format == 32 && xcb_get_property_value_length(r) >= (int)(3 * sizeof(uint32_t))) {
+        uint32_t* hints = (uint32_t*)xcb_get_property_value(r);
+        uint32_t flags = hints[0];
+        uint32_t decorations = hints[2];
+        if (flags & MWM_HINTS_DECORATIONS) {
+            bool want_border =
+                (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_BORDER) : (decorations & MWM_DECOR_BORDER);
+            bool want_title =
+                (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_TITLE) : (decorations & MWM_DECOR_TITLE);
+            undecorated = !(want_border && want_title);
+        }
+    }
+
+    free(r);
+    return undecorated;
+}
+
+static void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecorated) {
+    uint32_t bw = undecorated ? 0 : s->config.theme.border_width;
+    uint32_t th = undecorated ? 0 : s->config.theme.title_height;
+    uint32_t extents[4] = {bw, bw, th + bw, bw};
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, win, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4,
+                        extents);
+}
+
 void wm_publish_desktop_props(server_t* s) {
     xcb_connection_t* conn = s->conn;
     xcb_window_t root = s->root;
@@ -81,40 +147,74 @@ void wm_publish_desktop_props(server_t* s) {
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
                         &s->current_desktop);
 
-    size_t name_bytes = 0;
-    for (uint32_t i = 0; i < s->desktop_count; i++) {
-        const char* name = NULL;
-        char fallback[32];
-        if (s->config.desktop_names && i < s->config.desktop_names_count) {
-            name = s->config.desktop_names[i];
+    xcb_window_t* vroots = calloc(s->desktop_count, sizeof(*vroots));
+    if (vroots) {
+        for (uint32_t i = 0; i < s->desktop_count; i++) {
+            vroots[i] = root;
         }
-        if (!name || name[0] == '\0') {
-            snprintf(fallback, sizeof(fallback), "%u", i + 1);
-            name = fallback;
-        }
-        name_bytes += strlen(name) + 1;
+        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_VIRTUAL_ROOTS, XCB_ATOM_WINDOW, 32,
+                            s->desktop_count, vroots);
+        free(vroots);
     }
 
-    char* buf = malloc(name_bytes);
-    if (buf) {
-        size_t offset = 0;
-        for (uint32_t i = 0; i < s->desktop_count; i++) {
+    bool publish_names = s->config.desktop_names && s->config.desktop_names_count > 0;
+    if (!publish_names) {
+        xcb_get_property_cookie_t ck =
+            xcb_get_property(conn, 0, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 0, 1024);
+        xcb_get_property_reply_t* r = xcb_get_property_reply(conn, ck, NULL);
+        if (!r || xcb_get_property_value_length(r) == 0) {
+            publish_names = true;
+        }
+        if (r) free(r);
+    }
+
+    if (publish_names) {
+        uint32_t name_count = (s->config.desktop_names && s->config.desktop_names_count > 0)
+                                  ? s->config.desktop_names_count
+                                  : s->desktop_count;
+        size_t name_bytes = 0;
+        for (uint32_t i = 0; i < name_count; i++) {
             const char* name = NULL;
             char fallback[32];
             if (s->config.desktop_names && i < s->config.desktop_names_count) {
                 name = s->config.desktop_names[i];
             }
-            if (!name || name[0] == '\0') {
-                snprintf(fallback, sizeof(fallback), "%u", i + 1);
-                name = fallback;
+            if (!name) {
+                if (s->config.desktop_names && s->config.desktop_names_count > 0) {
+                    name = "";
+                } else {
+                    snprintf(fallback, sizeof(fallback), "%u", i + 1);
+                    name = fallback;
+                }
             }
-            size_t len = strlen(name) + 1;
-            memcpy(buf + offset, name, len);
-            offset += len;
+            name_bytes += strlen(name) + 1;
         }
-        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 8,
-                            (uint32_t)name_bytes, buf);
-        free(buf);
+
+        char* buf = malloc(name_bytes);
+        if (buf) {
+            size_t offset = 0;
+            for (uint32_t i = 0; i < name_count; i++) {
+                const char* name = NULL;
+                char fallback[32];
+                if (s->config.desktop_names && i < s->config.desktop_names_count) {
+                    name = s->config.desktop_names[i];
+                }
+                if (!name) {
+                    if (s->config.desktop_names && s->config.desktop_names_count > 0) {
+                        name = "";
+                    } else {
+                        snprintf(fallback, sizeof(fallback), "%u", i + 1);
+                        name = fallback;
+                    }
+                }
+                size_t len = strlen(name) + 1;
+                memcpy(buf + offset, name, len);
+                offset += len;
+            }
+            xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 8,
+                                (uint32_t)name_bytes, buf);
+            free(buf);
+        }
     }
 
     uint32_t* viewport = calloc(s->desktop_count * 2, sizeof(uint32_t));
@@ -309,15 +409,18 @@ void wm_become(server_t* s) {
         atoms._NET_WM_STRUT_PARTIAL,
         atoms._NET_NUMBER_OF_DESKTOPS,
         atoms._NET_CURRENT_DESKTOP,
+        atoms._NET_VIRTUAL_ROOTS,
         atoms._NET_WM_DESKTOP,
         atoms._NET_WORKAREA,
         atoms._NET_DESKTOP_NAMES,
         atoms._NET_DESKTOP_VIEWPORT,
+        atoms._NET_SHOWING_DESKTOP,
         atoms._NET_WM_ICON,
         atoms._NET_CLOSE_WINDOW,
         atoms._NET_WM_PID,
         atoms._NET_DESKTOP_GEOMETRY,
         atoms._NET_FRAME_EXTENTS,
+        atoms._NET_REQUEST_FRAME_EXTENTS,
         atoms._NET_WM_ALLOWED_ACTIONS,
         atoms._NET_WM_ACTION_MOVE,
         atoms._NET_WM_ACTION_RESIZE,
@@ -330,6 +433,9 @@ void wm_become(server_t* s) {
         atoms._NET_WM_ACTION_CLOSE,
         atoms._NET_WM_ACTION_ABOVE,
         atoms._NET_WM_ACTION_BELOW,
+        atoms._NET_WM_MOVERESIZE,
+        atoms._NET_MOVERESIZE_WINDOW,
+        atoms._NET_RESTACK_WINDOW,
     };
 
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_SUPPORTED, XCB_ATOM_ATOM, 32,
@@ -658,7 +764,7 @@ void wm_flush_dirty(server_t* s) {
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_HINTS,
                             wm_handle_reply);
 
-            c = xcb_get_property(s->conn, 0, hot->xid, atoms._MOTIF_WM_HINTS, atoms._MOTIF_WM_HINTS, 0, 5).sequence;
+            c = xcb_get_property(s->conn, 0, hot->xid, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
                             ((uint64_t)hot->xid << 32) | atoms._MOTIF_WM_HINTS, wm_handle_reply);
 
@@ -993,6 +1099,65 @@ static void wm_update_cursor(server_t* s, xcb_window_t win, int dir) {
     xcb_change_window_attributes(s->conn, win, XCB_CW_CURSOR, &c);
 }
 
+static bool wm_query_pointer_root(server_t* s, int16_t* out_x, int16_t* out_y) {
+    xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
+    xcb_query_pointer_reply_t* rep = xcb_query_pointer_reply(s->conn, ck, NULL);
+    if (!rep) return false;
+    if (out_x) *out_x = rep->root_x;
+    if (out_y) *out_y = rep->root_y;
+    free(rep);
+    return true;
+}
+
+static void wm_cancel_interaction(server_t* s) {
+    if (s->interaction_mode == INTERACTION_NONE) return;
+    s->interaction_mode = INTERACTION_NONE;
+    s->interaction_resize_dir = RESIZE_NONE;
+    xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
+    LOG_INFO("Ended interaction");
+}
+
+static void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir,
+                                 int16_t root_x, int16_t root_y) {
+    s->interaction_mode = start_move ? INTERACTION_MOVE : INTERACTION_RESIZE;
+    s->interaction_resize_dir = resize_dir;
+    s->interaction_window = hot->frame;
+
+    s->interaction_start_x = hot->server.x;
+    s->interaction_start_y = hot->server.y;
+    s->interaction_start_w = hot->server.w;
+    s->interaction_start_h = hot->server.h;
+
+    s->interaction_pointer_x = root_x;
+    s->interaction_pointer_y = root_y;
+
+    xcb_cursor_t cursor = XCB_NONE;
+    if (start_move) {
+        cursor = s->cursor_move;
+    } else if (resize_dir == RESIZE_TOP)
+        cursor = s->cursor_resize_top;
+    else if (resize_dir == RESIZE_BOTTOM)
+        cursor = s->cursor_resize_bottom;
+    else if (resize_dir == RESIZE_LEFT)
+        cursor = s->cursor_resize_left;
+    else if (resize_dir == RESIZE_RIGHT)
+        cursor = s->cursor_resize_right;
+    else if (resize_dir == (RESIZE_TOP | RESIZE_LEFT))
+        cursor = s->cursor_resize_top_left;
+    else if (resize_dir == (RESIZE_TOP | RESIZE_RIGHT))
+        cursor = s->cursor_resize_top_right;
+    else if (resize_dir == (RESIZE_BOTTOM | RESIZE_LEFT))
+        cursor = s->cursor_resize_bottom_left;
+    else if (resize_dir == (RESIZE_BOTTOM | RESIZE_RIGHT))
+        cursor = s->cursor_resize_bottom_right;
+
+    xcb_grab_pointer(s->conn, 0, s->root,
+                     XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_BUTTON_MOTION | XCB_EVENT_MASK_POINTER_MOTION,
+                     XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, cursor, XCB_CURRENT_TIME);
+
+    LOG_INFO("Started interactive %s for client %lx (dir=%d)", start_move ? "MOVE" : "RESIZE", h, resize_dir);
+}
+
 // Mouse interaction
 
 void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
@@ -1088,45 +1253,7 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
         return;
     }
 
-    s->interaction_mode = start_move ? INTERACTION_MOVE : INTERACTION_RESIZE;
-    s->interaction_resize_dir = resize_dir;
-    s->interaction_window = hot->frame;
-
-    s->interaction_start_x = hot->server.x;
-    s->interaction_start_y = hot->server.y;
-    s->interaction_start_w = hot->server.w;
-    s->interaction_start_h = hot->server.h;
-
-    s->interaction_pointer_x = ev->root_x;
-    s->interaction_pointer_y = ev->root_y;
-
-    xcb_cursor_t cursor = XCB_NONE;
-    if (start_move) {
-        cursor = s->cursor_move;
-    } else if (start_resize) {
-        if (resize_dir == RESIZE_TOP)
-            cursor = s->cursor_resize_top;
-        else if (resize_dir == RESIZE_BOTTOM)
-            cursor = s->cursor_resize_bottom;
-        else if (resize_dir == RESIZE_LEFT)
-            cursor = s->cursor_resize_left;
-        else if (resize_dir == RESIZE_RIGHT)
-            cursor = s->cursor_resize_right;
-        else if (resize_dir == (RESIZE_TOP | RESIZE_LEFT))
-            cursor = s->cursor_resize_top_left;
-        else if (resize_dir == (RESIZE_TOP | RESIZE_RIGHT))
-            cursor = s->cursor_resize_top_right;
-        else if (resize_dir == (RESIZE_BOTTOM | RESIZE_LEFT))
-            cursor = s->cursor_resize_bottom_left;
-        else if (resize_dir == (RESIZE_BOTTOM | RESIZE_RIGHT))
-            cursor = s->cursor_resize_bottom_right;
-    }
-
-    xcb_grab_pointer(s->conn, 0, s->root,
-                     XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_BUTTON_MOTION | XCB_EVENT_MASK_POINTER_MOTION,
-                     XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, cursor, XCB_CURRENT_TIME);
-
-    LOG_INFO("Started interactive %s for client %lx (dir=%d)", start_move ? "MOVE" : "RESIZE", h, resize_dir);
+    wm_start_interaction(s, h, hot, start_move, resize_dir, ev->root_x, ev->root_y);
 
     xcb_allow_events(s->conn, XCB_ALLOW_ASYNC_POINTER, ev->time);
 }
@@ -1139,12 +1266,7 @@ void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
 
     (void)ev;
 
-    if (s->interaction_mode == INTERACTION_NONE) return;
-
-    s->interaction_mode = INTERACTION_NONE;
-    s->interaction_resize_dir = RESIZE_NONE;
-    xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
-    LOG_INFO("Ended interaction");
+    wm_cancel_interaction(s);
 }
 
 void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
@@ -1403,6 +1525,26 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         return;
     }
 
+    if (ev->type == atoms._NET_DESKTOP_GEOMETRY) {
+        if (ev->window != s->root || ev->format != 32) return;
+        xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+        uint32_t geometry[] = {screen->width_in_pixels, screen->height_in_pixels};
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32,
+                            2, geometry);
+        return;
+    }
+
+    if (ev->type == atoms._NET_DESKTOP_VIEWPORT) {
+        if (ev->window != s->root || ev->format != 32) return;
+        uint32_t* viewport = calloc(s->desktop_count * 2, sizeof(uint32_t));
+        if (viewport) {
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_VIEWPORT, XCB_ATOM_CARDINAL,
+                                32, s->desktop_count * 2, viewport);
+            free(viewport);
+        }
+        return;
+    }
+
     if (ev->type == atoms._NET_NUMBER_OF_DESKTOPS) {
         uint32_t requested = ev->data.data32[0];
         if (requested == 0) requested = 1;
@@ -1471,8 +1613,244 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         return;
     }
 
-    if (ev->type == atoms._NET_CLOSE_WINDOW) {
+    if (ev->type == atoms._NET_REQUEST_FRAME_EXTENTS) {
+        xcb_window_t target = ev->window;
+        if (target == s->root) return;
+
+        bool undecorated = false;
+        handle_t h = server_get_client_by_window(s, target);
+        if (h != HANDLE_INVALID) {
+            client_hot_t* hot = server_chot(s, h);
+            if (hot) undecorated = (hot->flags & CLIENT_FLAG_UNDECORATED) != 0;
+        } else {
+            undecorated = wm_window_wants_undecorated(s, target);
+        }
+
+        wm_set_frame_extents_for_window(s, target, undecorated);
+        return;
+    }
+
+    if (ev->type == atoms._NET_RESTACK_WINDOW) {
+        if (ev->format != 32) return;
         handle_t h = server_get_client_by_window(s, ev->window);
+        if (h == HANDLE_INVALID) return;
+        client_hot_t* hot = server_chot(s, h);
+        if (!hot) return;
+
+        xcb_window_t sibling_win = (xcb_window_t)ev->data.data32[1];
+        uint32_t detail = ev->data.data32[2];
+        handle_t sibling_h = (sibling_win != XCB_NONE) ? server_get_client_by_window(s, sibling_win) : HANDLE_INVALID;
+        client_hot_t* sib = (sibling_h != HANDLE_INVALID) ? server_chot(s, sibling_h) : NULL;
+        bool have_sibling = (sib != NULL);
+        bool same_layer = have_sibling && hot->layer == sib->layer;
+
+        switch (detail) {
+            case XCB_STACK_MODE_ABOVE:
+                if (have_sibling) {
+                    stack_place_above(s, h, sibling_h);
+                } else {
+                    stack_raise(s, h);
+                }
+                break;
+            case XCB_STACK_MODE_BELOW:
+                if (have_sibling) {
+                    stack_place_below(s, h, sibling_h);
+                } else {
+                    stack_lower(s, h);
+                }
+                break;
+            case XCB_STACK_MODE_TOP_IF:
+                if (!have_sibling || !same_layer || !wm_is_above_in_layer(s, hot, sib)) {
+                    if (have_sibling)
+                        stack_place_above(s, h, sibling_h);
+                    else
+                        stack_raise(s, h);
+                }
+                break;
+            case XCB_STACK_MODE_BOTTOM_IF:
+                if (!have_sibling || !same_layer) {
+                    stack_lower(s, h);
+                } else if (wm_is_above_in_layer(s, hot, sib)) {
+                    stack_place_below(s, h, sibling_h);
+                }
+                break;
+            case XCB_STACK_MODE_OPPOSITE:
+                if (have_sibling && same_layer) {
+                    if (wm_is_above_in_layer(s, hot, sib)) {
+                        stack_place_below(s, h, sibling_h);
+                    } else {
+                        stack_place_above(s, h, sibling_h);
+                    }
+                } else {
+                    stack_raise(s, h);
+                }
+                break;
+            default:
+                break;
+        }
+        return;
+    }
+
+    if (ev->type == atoms._NET_MOVERESIZE_WINDOW) {
+        if (ev->format != 32) return;
+
+        xcb_window_t target = ev->window;
+        uint32_t flags = ev->data.data32[0];
+        uint32_t gravity = flags & 0xFFu;
+        bool has_x = (flags & (1u << 8)) != 0;
+        bool has_y = (flags & (1u << 9)) != 0;
+        bool has_w = (flags & (1u << 10)) != 0;
+        bool has_h = (flags & (1u << 11)) != 0;
+
+        int32_t x = (int32_t)ev->data.data32[1];
+        int32_t y = (int32_t)ev->data.data32[2];
+        uint32_t w = ev->data.data32[3];
+        uint32_t h_val = ev->data.data32[4];
+
+        handle_t h = server_get_client_by_window(s, target);
+        if (h == HANDLE_INVALID) {
+            uint16_t mask = 0;
+            uint32_t values[4];
+            int i = 0;
+            if (has_x) {
+                mask |= XCB_CONFIG_WINDOW_X;
+                values[i++] = (uint32_t)x;
+            }
+            if (has_y) {
+                mask |= XCB_CONFIG_WINDOW_Y;
+                values[i++] = (uint32_t)y;
+            }
+            if (has_w) {
+                mask |= XCB_CONFIG_WINDOW_WIDTH;
+                values[i++] = w;
+            }
+            if (has_h) {
+                mask |= XCB_CONFIG_WINDOW_HEIGHT;
+                values[i++] = h_val;
+            }
+            if (mask) xcb_configure_window(s->conn, target, mask, values);
+            return;
+        }
+
+        client_hot_t* hot = server_chot(s, h);
+        if (!hot) return;
+
+        bool use_frame_coords = (gravity == 10);
+        uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
+        uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+
+        pending_config_t pc = {0};
+        if (has_x) {
+            int32_t adj_x = use_frame_coords ? x : (x - (int32_t)bw);
+            pc.x = (int16_t)adj_x;
+            pc.mask |= XCB_CONFIG_WINDOW_X;
+        }
+        if (has_y) {
+            int32_t adj_y = use_frame_coords ? y : (y - (int32_t)th);
+            pc.y = (int16_t)adj_y;
+            pc.mask |= XCB_CONFIG_WINDOW_Y;
+        }
+        if (has_w) {
+            pc.width = (uint16_t)w;
+            pc.mask |= XCB_CONFIG_WINDOW_WIDTH;
+        }
+        if (has_h) {
+            pc.height = (uint16_t)h_val;
+            pc.mask |= XCB_CONFIG_WINDOW_HEIGHT;
+        }
+
+        if (pc.mask) wm_handle_configure_request(s, h, &pc);
+        return;
+    }
+
+    if (ev->type == atoms._NET_WM_MOVERESIZE) {
+        if (ev->format != 32) return;
+        handle_t h = server_get_client_by_window(s, ev->window);
+        if (h == HANDLE_INVALID) return;
+        client_hot_t* hot = server_chot(s, h);
+        if (!hot) return;
+
+        uint32_t direction = ev->data.data32[2];
+        if (direction == NET_WM_MOVERESIZE_CANCEL) {
+            wm_cancel_interaction(s);
+            return;
+        }
+
+        bool use_pointer_query =
+            (direction == NET_WM_MOVERESIZE_SIZE_KEYBOARD || direction == NET_WM_MOVERESIZE_MOVE_KEYBOARD);
+
+        bool start_move = false;
+        int resize_dir = RESIZE_NONE;
+
+        switch (direction) {
+            case NET_WM_MOVERESIZE_MOVE:
+            case NET_WM_MOVERESIZE_MOVE_KEYBOARD:
+                start_move = true;
+                break;
+            case NET_WM_MOVERESIZE_SIZE_TOPLEFT:
+                resize_dir = RESIZE_TOP | RESIZE_LEFT;
+                break;
+            case NET_WM_MOVERESIZE_SIZE_TOP:
+                resize_dir = RESIZE_TOP;
+                break;
+            case NET_WM_MOVERESIZE_SIZE_TOPRIGHT:
+                resize_dir = RESIZE_TOP | RESIZE_RIGHT;
+                break;
+            case NET_WM_MOVERESIZE_SIZE_RIGHT:
+                resize_dir = RESIZE_RIGHT;
+                break;
+            case NET_WM_MOVERESIZE_SIZE_BOTTOMRIGHT:
+                resize_dir = RESIZE_BOTTOM | RESIZE_RIGHT;
+                break;
+            case NET_WM_MOVERESIZE_SIZE_BOTTOM:
+                resize_dir = RESIZE_BOTTOM;
+                break;
+            case NET_WM_MOVERESIZE_SIZE_BOTTOMLEFT:
+                resize_dir = RESIZE_BOTTOM | RESIZE_LEFT;
+                break;
+            case NET_WM_MOVERESIZE_SIZE_LEFT:
+                resize_dir = RESIZE_LEFT;
+                break;
+            case NET_WM_MOVERESIZE_SIZE_KEYBOARD:
+                resize_dir = RESIZE_BOTTOM | RESIZE_RIGHT;
+                break;
+            default:
+                return;
+        }
+
+        if (!start_move && resize_dir == RESIZE_NONE) return;
+
+        if (s->focused_client != h && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP &&
+            hot->type != WINDOW_TYPE_NOTIFICATION && hot->type != WINDOW_TYPE_MENU &&
+            hot->type != WINDOW_TYPE_DROPDOWN_MENU && hot->type != WINDOW_TYPE_POPUP_MENU &&
+            hot->type != WINDOW_TYPE_TOOLTIP) {
+            wm_set_focus(s, h);
+            stack_raise(s, h);
+        }
+
+        if (s->interaction_mode != INTERACTION_NONE) {
+            wm_cancel_interaction(s);
+        }
+
+        int16_t root_x = (int16_t)ev->data.data32[0];
+        int16_t root_y = (int16_t)ev->data.data32[1];
+        if (use_pointer_query) {
+            if (!wm_query_pointer_root(s, &root_x, &root_y)) {
+                root_x = hot->server.x;
+                root_y = hot->server.y;
+            }
+        }
+
+        wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y);
+        return;
+    }
+
+    if (ev->type == atoms._NET_CLOSE_WINDOW) {
+        xcb_window_t target = ev->window;
+        if (target == s->root && ev->format == 32) {
+            target = (xcb_window_t)ev->data.data32[0];
+        }
+        handle_t h = server_get_client_by_window(s, target);
         if (h != HANDLE_INVALID) {
             LOG_INFO("Client requested close via _NET_CLOSE_WINDOW");
             client_close(s, h);

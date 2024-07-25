@@ -216,7 +216,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
                     wm_handle_reply);
 
     // 23. _MOTIF_WM_HINTS
-    uint32_t c23 = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, atoms._MOTIF_WM_HINTS, 0, 5).sequence;
+    uint32_t c23 = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5).sequence;
     cookie_jar_push(&s->cookie_jar, c23, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._MOTIF_WM_HINTS,
                     wm_handle_reply);
 

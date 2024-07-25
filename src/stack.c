@@ -114,6 +114,24 @@ void stack_place_above(server_t* s, handle_t h, handle_t sibling_h) {
     stack_restack(s, h);
 }
 
+void stack_place_below(server_t* s, handle_t h, handle_t sibling_h) {
+    client_hot_t* c = server_chot(s, h);
+    client_hot_t* sib = server_chot(s, sibling_h);
+    if (!c || !sib) return;
+
+    if (c->layer != sib->layer) {
+        stack_lower(s, h);
+        return;
+    }
+
+    stack_remove(s, h);
+
+    list_insert(&c->stacking_node, sib->stacking_node.prev, &sib->stacking_node);
+    s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+
+    stack_restack(s, h);
+}
+
 // Find the XID of the window immediately below 'h' in the stacking order
 static xcb_window_t find_window_below(server_t* s, client_hot_t* c) {
     // 1. Check same layer, previous node

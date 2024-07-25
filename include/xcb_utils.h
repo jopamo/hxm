@@ -70,6 +70,7 @@ struct atoms {
     xcb_atom_t _NET_DESKTOP_VIEWPORT;
     xcb_atom_t _NET_NUMBER_OF_DESKTOPS;
     xcb_atom_t _NET_CURRENT_DESKTOP;
+    xcb_atom_t _NET_VIRTUAL_ROOTS;
     xcb_atom_t _NET_DESKTOP_NAMES;
     xcb_atom_t _NET_WM_DESKTOP;
 
@@ -77,6 +78,8 @@ struct atoms {
     xcb_atom_t _NET_CLOSE_WINDOW;
     xcb_atom_t _NET_DESKTOP_GEOMETRY;
     xcb_atom_t _NET_FRAME_EXTENTS;
+    xcb_atom_t _NET_REQUEST_FRAME_EXTENTS;
+    xcb_atom_t _NET_SHOWING_DESKTOP;
 
     xcb_atom_t _NET_WM_ALLOWED_ACTIONS;
     xcb_atom_t _NET_WM_ACTION_MOVE;
@@ -91,6 +94,9 @@ struct atoms {
     xcb_atom_t _NET_WM_ACTION_CLOSE;
     xcb_atom_t _NET_WM_ACTION_ABOVE;
     xcb_atom_t _NET_WM_ACTION_BELOW;
+    xcb_atom_t _NET_WM_MOVERESIZE;
+    xcb_atom_t _NET_MOVERESIZE_WINDOW;
+    xcb_atom_t _NET_RESTACK_WINDOW;
 
     xcb_atom_t UTF8_STRING;
     xcb_atom_t COMPOUND_TEXT;

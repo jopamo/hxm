@@ -67,6 +67,7 @@ void wm_set_focus(server_t* s, handle_t h);
 void stack_raise(server_t* s, handle_t h);
 void stack_lower(server_t* s, handle_t h);
 void stack_place_above(server_t* s, handle_t h, handle_t sibling_h);
+void stack_place_below(server_t* s, handle_t h, handle_t sibling_h);
 void stack_remove(server_t* s, handle_t h);
 void stack_move_to_layer(server_t* s, handle_t h);
 
