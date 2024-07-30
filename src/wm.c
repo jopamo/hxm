@@ -104,6 +104,11 @@ static bool wm_is_above_in_layer(const server_t* s, const client_hot_t* a, const
     return false;
 }
 
+static bool wm_should_hide_for_show_desktop(const client_hot_t* hot) {
+    if (!hot) return false;
+    return hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
+}
+
 static bool wm_window_wants_undecorated(server_t* s, xcb_window_t win) {
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5);
     xcb_get_property_reply_t* r = xcb_get_property_reply(s->conn, ck, NULL);
@@ -133,6 +138,40 @@ static void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool 
     uint32_t extents[4] = {bw, bw, th + bw, bw};
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, win, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4,
                         extents);
+}
+
+static void wm_set_showing_desktop(server_t* s, bool show) {
+    if (!s) return;
+    if (s->showing_desktop == show) return;
+    s->showing_desktop = show;
+
+    uint32_t val = show ? 1u : 0u;
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_SHOWING_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
+                        &val);
+
+    if (show) {
+        for (uint32_t i = 1; i < s->clients.cap; i++) {
+            if (!s->clients.hdr[i].live) continue;
+            handle_t h = handle_make(i, s->clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(s, h);
+            if (!hot || hot->state != STATE_MAPPED) continue;
+            if (!wm_should_hide_for_show_desktop(hot)) continue;
+            hot->show_desktop_hidden = true;
+            wm_client_iconify(s, h);
+        }
+        wm_set_focus(s, HANDLE_INVALID);
+    } else {
+        for (uint32_t i = 1; i < s->clients.cap; i++) {
+            if (!s->clients.hdr[i].live) continue;
+            handle_t h = handle_make(i, s->clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(s, h);
+            if (!hot || !hot->show_desktop_hidden) continue;
+            hot->show_desktop_hidden = false;
+            if (hot->state == STATE_UNMAPPED) {
+                wm_client_restore(s, h);
+            }
+        }
+    }
 }
 
 void wm_publish_desktop_props(server_t* s) {
@@ -382,7 +421,9 @@ void wm_become(server_t* s) {
         atoms._NET_CLIENT_LIST_STACKING,
         atoms._NET_ACTIVE_WINDOW,
         atoms._NET_WM_NAME,
+        atoms._NET_WM_VISIBLE_NAME,
         atoms._NET_WM_STATE,
+        atoms._NET_WM_VISIBLE_ICON_NAME,
         atoms._NET_WM_STATE_FULLSCREEN,
         atoms._NET_WM_STATE_ABOVE,
         atoms._NET_WM_STATE_BELOW,
@@ -507,6 +548,11 @@ void wm_become(server_t* s) {
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CLIENT_LIST_STACKING, XCB_ATOM_WINDOW, 32, 0,
                         NULL);
     xcb_delete_property(conn, root, atoms._NET_ACTIVE_WINDOW);
+    {
+        uint32_t val = 0;
+        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_SHOWING_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
+                            &val);
+    }
 
     xcb_flush(conn);
     LOG_INFO("Became WM on root %u, supporting %u", root, s->supporting_wm_check);
@@ -1525,6 +1571,12 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         return;
     }
 
+    if (ev->type == atoms._NET_SHOWING_DESKTOP) {
+        if (ev->window != s->root || ev->format != 32) return;
+        wm_set_showing_desktop(s, ev->data.data32[0] != 0);
+        return;
+    }
+
     if (ev->type == atoms._NET_DESKTOP_GEOMETRY) {
         if (ev->window != s->root || ev->format != 32) return;
         xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
@@ -2093,6 +2145,20 @@ void wm_client_refresh_title(server_t* s, handle_t h) {
     if (!hot || !cold) return;
 
     cold->title = cold->base_title;
+
+    if (cold->has_net_wm_name && cold->title && cold->title[0] != '\0') {
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_VISIBLE_NAME, atoms.UTF8_STRING, 8,
+                            (uint32_t)strlen(cold->title), cold->title);
+    } else {
+        xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_VISIBLE_NAME);
+    }
+
+    if (cold->has_net_wm_icon_name && cold->base_icon_name && cold->base_icon_name[0] != '\0') {
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_VISIBLE_ICON_NAME,
+                            atoms.UTF8_STRING, 8, (uint32_t)strlen(cold->base_icon_name), cold->base_icon_name);
+    } else {
+        xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_VISIBLE_ICON_NAME);
+    }
 
     hot->dirty |= DIRTY_TITLE | DIRTY_FRAME_STYLE;
 }

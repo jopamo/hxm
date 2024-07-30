@@ -27,6 +27,10 @@ bool should_focus_on_map(const client_hot_t* hot) {
     return false;
 }
 
+static bool should_hide_for_show_desktop(const client_hot_t* hot) {
+    return hot && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
+}
+
 void client_manage_start(server_t* s, xcb_window_t win) {
     if (server_get_client_by_window(s, win) != HANDLE_INVALID) {
         LOG_DEBUG("Already managing window %u", win);
@@ -369,6 +373,13 @@ void client_finish_manage(server_t* s, handle_t h) {
                             state_vals);
     }
 
+    bool hidden_by_show_desktop = false;
+    if (s->showing_desktop && hot->state == STATE_MAPPED && should_hide_for_show_desktop(hot)) {
+        hot->show_desktop_hidden = true;
+        wm_client_iconify(s, h);
+        hidden_by_show_desktop = true;
+    }
+
     hot->dirty |= DIRTY_STATE;
 
     // Subscribe to client events
@@ -385,23 +396,25 @@ void client_finish_manage(server_t* s, handle_t h) {
     // Setup passive grabs for click-to-focus and Alt-move/resize
     client_setup_grabs(s, h);
 
-    // Initial stacking
-    if (hot->transient_for != HANDLE_INVALID) {
-        stack_place_above(s, h, hot->transient_for);
-    } else {
-        stack_raise(s, h);
+    if (!hidden_by_show_desktop) {
+        // Initial stacking
+        if (hot->transient_for != HANDLE_INVALID) {
+            stack_place_above(s, h, hot->transient_for);
+        } else {
+            stack_raise(s, h);
+        }
+
+        // Focus new window if visible and allowed or if nothing is focused
+        if (visible && (s->focused_client == HANDLE_INVALID || should_focus_on_map(hot))) {
+            wm_set_focus(s, h);
+        }
+
+        // Draw initial decorations
+        frame_redraw(s, h, FRAME_REDRAW_ALL);
     }
 
     // Add to focus history
     list_insert(&hot->focus_node, &s->focus_history, s->focus_history.next);
-
-    // Focus new window if visible and allowed or if nothing is focused
-    if (visible && (s->focused_client == HANDLE_INVALID || should_focus_on_map(hot))) {
-        wm_set_focus(s, h);
-    }
-
-    // Draw initial decorations
-    frame_redraw(s, h, FRAME_REDRAW_ALL);
 
     // Publish initial desktop
     uint32_t desk_prop = (uint32_t)hot->desktop;

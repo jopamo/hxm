@@ -139,6 +139,7 @@ typedef struct client_hot {
     int8_t focus_override;  // -1: default, 0: no, 1: yes
     uint8_t placement;      // placement_policy_t
     uint16_t flags;
+    bool show_desktop_hidden;
 
     bool override_redirect;
     bool manage_aborted;

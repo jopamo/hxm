@@ -162,6 +162,7 @@ typedef struct server {
     // Workspaces
     uint32_t desktop_count;
     uint32_t current_desktop;
+    bool showing_desktop;
 
     // Root Menu
     menu_t menu;

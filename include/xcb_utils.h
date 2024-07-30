@@ -26,7 +26,9 @@ struct atoms {
     xcb_atom_t _NET_ACTIVE_WINDOW;
 
     xcb_atom_t _NET_WM_NAME;
+    xcb_atom_t _NET_WM_VISIBLE_NAME;
     xcb_atom_t _NET_WM_ICON_NAME;
+    xcb_atom_t _NET_WM_VISIBLE_ICON_NAME;
     xcb_atom_t _NET_WM_STATE;
     xcb_atom_t _NET_WM_WINDOW_TYPE;
     xcb_atom_t _NET_WM_STRUT;
