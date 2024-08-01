@@ -92,6 +92,8 @@ typedef enum window_type {
     WINDOW_TYPE_DROPDOWN_MENU,
     WINDOW_TYPE_POPUP_MENU,
     WINDOW_TYPE_TOOLTIP,
+    WINDOW_TYPE_COMBO,
+    WINDOW_TYPE_DND,
     WINDOW_TYPE_COUNT
 } window_type_t;
 
@@ -131,7 +133,8 @@ typedef struct client_hot {
     uint8_t base_layer;
     bool state_above;
     bool state_below;
-    uint8_t type;     // window_type_t
+    uint8_t type;  // window_type_t
+    bool type_from_net;
     int32_t desktop;  // -1 for ALL_DESKTOPS
     bool sticky;
     bool maximized_horz;

@@ -446,6 +446,8 @@ void wm_become(server_t* s) {
         atoms._NET_WM_WINDOW_TYPE_DROPDOWN_MENU,
         atoms._NET_WM_WINDOW_TYPE_POPUP_MENU,
         atoms._NET_WM_WINDOW_TYPE_TOOLTIP,
+        atoms._NET_WM_WINDOW_TYPE_COMBO,
+        atoms._NET_WM_WINDOW_TYPE_DND,
         atoms._NET_WM_STRUT,
         atoms._NET_WM_STRUT_PARTIAL,
         atoms._NET_NUMBER_OF_DESKTOPS,
@@ -989,7 +991,7 @@ void wm_cycle_focus(server_t* s, bool forward) {
         if (c->state == STATE_MAPPED && (c->desktop == (int32_t)s->current_desktop || c->sticky) &&
             c->type != WINDOW_TYPE_DOCK && c->type != WINDOW_TYPE_NOTIFICATION && c->type != WINDOW_TYPE_DESKTOP &&
             c->type != WINDOW_TYPE_MENU && c->type != WINDOW_TYPE_DROPDOWN_MENU && c->type != WINDOW_TYPE_POPUP_MENU &&
-            c->type != WINDOW_TYPE_TOOLTIP) {
+            c->type != WINDOW_TYPE_TOOLTIP && c->type != WINDOW_TYPE_COMBO && c->type != WINDOW_TYPE_DND) {
             wm_set_focus(s, c->self);
             stack_raise(s, c->self);
             return;
@@ -1249,7 +1251,7 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
     if (s->focused_client != h && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP &&
         hot->type != WINDOW_TYPE_NOTIFICATION && hot->type != WINDOW_TYPE_MENU &&
         hot->type != WINDOW_TYPE_DROPDOWN_MENU && hot->type != WINDOW_TYPE_POPUP_MENU &&
-        hot->type != WINDOW_TYPE_TOOLTIP) {
+        hot->type != WINDOW_TYPE_TOOLTIP && hot->type != WINDOW_TYPE_COMBO && hot->type != WINDOW_TYPE_DND) {
         wm_set_focus(s, h);
         if (should_raise_on_click(hot, ev->detail)) stack_raise(s, h);
     }
@@ -1875,7 +1877,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         if (s->focused_client != h && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP &&
             hot->type != WINDOW_TYPE_NOTIFICATION && hot->type != WINDOW_TYPE_MENU &&
             hot->type != WINDOW_TYPE_DROPDOWN_MENU && hot->type != WINDOW_TYPE_POPUP_MENU &&
-            hot->type != WINDOW_TYPE_TOOLTIP) {
+            hot->type != WINDOW_TYPE_TOOLTIP && hot->type != WINDOW_TYPE_COMBO && hot->type != WINDOW_TYPE_DND) {
             wm_set_focus(s, h);
             stack_raise(s, h);
         }
@@ -1919,7 +1921,8 @@ void wm_place_window(server_t* s, handle_t h) {
 
     if (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP || hot->type == WINDOW_TYPE_NOTIFICATION ||
         hot->type == WINDOW_TYPE_MENU || hot->type == WINDOW_TYPE_DROPDOWN_MENU ||
-        hot->type == WINDOW_TYPE_POPUP_MENU || hot->type == WINDOW_TYPE_TOOLTIP) {
+        hot->type == WINDOW_TYPE_POPUP_MENU || hot->type == WINDOW_TYPE_TOOLTIP || hot->type == WINDOW_TYPE_COMBO ||
+        hot->type == WINDOW_TYPE_DND) {
         return;
     }
 

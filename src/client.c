@@ -17,7 +17,8 @@ bool should_focus_on_map(const client_hot_t* hot) {
     // Some window types should never get focus on map
     if (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_NOTIFICATION || hot->type == WINDOW_TYPE_DESKTOP ||
         hot->type == WINDOW_TYPE_MENU || hot->type == WINDOW_TYPE_DROPDOWN_MENU ||
-        hot->type == WINDOW_TYPE_POPUP_MENU || hot->type == WINDOW_TYPE_TOOLTIP) {
+        hot->type == WINDOW_TYPE_POPUP_MENU || hot->type == WINDOW_TYPE_TOOLTIP || hot->type == WINDOW_TYPE_COMBO ||
+        hot->type == WINDOW_TYPE_DND) {
         return false;
     }
 
@@ -511,6 +512,10 @@ void client_unmanage(server_t* s, handle_t h) {
     // Cleanup maps and properties
     if (hot->xid != XCB_NONE) {
         xcb_delete_property(s->conn, hot->xid, atoms.WM_STATE);
+        if (!destroyed) {
+            xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_DESKTOP);
+            xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_STATE);
+        }
         hash_map_remove(&s->window_to_client, hot->xid);
     }
     if (hot->frame != XCB_NONE) hash_map_remove(&s->frame_to_client, hot->frame);

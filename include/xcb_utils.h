@@ -67,6 +67,8 @@ struct atoms {
     xcb_atom_t _NET_WM_WINDOW_TYPE_DROPDOWN_MENU;
     xcb_atom_t _NET_WM_WINDOW_TYPE_POPUP_MENU;
     xcb_atom_t _NET_WM_WINDOW_TYPE_TOOLTIP;
+    xcb_atom_t _NET_WM_WINDOW_TYPE_COMBO;
+    xcb_atom_t _NET_WM_WINDOW_TYPE_DND;
 
     xcb_atom_t _NET_SUPPORTING_WM_CHECK;
     xcb_atom_t _NET_DESKTOP_VIEWPORT;

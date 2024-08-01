@@ -6,6 +6,7 @@
 
 #include "bbox.h"
 #include "client.h"
+#include "config.h"
 #include "cookie_jar.h"
 #include "event.h"
 #include "frame.h"
@@ -205,6 +206,39 @@ static void parse_wm_class(client_cold_t* cold, const xcb_get_property_reply_t* 
     }
 }
 
+static bool client_apply_default_type(server_t* s, client_hot_t* hot, client_cold_t* cold) {
+    if (!hot || !cold) return false;
+    if (hot->type_from_net) return false;
+
+    uint8_t prev_type = hot->type;
+    uint8_t prev_layer = hot->layer;
+    uint8_t prev_base = hot->base_layer;
+    uint8_t prev_place = hot->placement;
+
+    if (hot->override_redirect) {
+        hot->type = WINDOW_TYPE_NORMAL;
+        hot->base_layer = LAYER_NORMAL;
+        hot->placement = PLACEMENT_DEFAULT;
+    } else if (cold->transient_for_xid != XCB_NONE) {
+        hot->type = WINDOW_TYPE_DIALOG;
+        hot->base_layer = LAYER_NORMAL;
+        hot->placement = PLACEMENT_CENTER;
+    } else {
+        hot->type = WINDOW_TYPE_NORMAL;
+        hot->base_layer = LAYER_NORMAL;
+        hot->placement = PLACEMENT_DEFAULT;
+    }
+
+    if (hot->layer != LAYER_FULLSCREEN) {
+        hot->layer = client_layer_from_state(hot);
+        if (hot->layer != prev_layer) {
+            hot->dirty |= DIRTY_STATE | DIRTY_STACK;
+        }
+    }
+
+    return hot->type != prev_type || hot->base_layer != prev_base || hot->placement != prev_place;
+}
+
 void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
     if (err) {
         LOG_DEBUG("Cookie %u returned error code %d", slot->sequence, err->error_code);
@@ -254,6 +288,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             if (hot->override_redirect && hot->state == STATE_NEW) {
                 LOG_DEBUG("Window %u is override_redirect, aborting manage", hot->xid);
                 hot->manage_aborted = true;
+            }
+
+            if (client_apply_default_type(s, hot, cold)) {
+                changed = true;
             }
             break;
         }
@@ -432,6 +470,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     }
                 }
 
+                if (client_apply_default_type(s, hot, cold)) {
+                    changed = true;
+                }
+
             } else if (atom == atoms._NET_WM_WINDOW_TYPE) {
                 if (xcb_get_property_value_length(r) > 0) {
                     xcb_atom_t* types = (xcb_atom_t*)xcb_get_property_value(r);
@@ -442,54 +484,78 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                             hot->type = WINDOW_TYPE_DOCK;
                             hot->base_layer = LAYER_ABOVE;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_NOTIFICATION) {
                             hot->type = WINDOW_TYPE_NOTIFICATION;
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DIALOG) {
                             hot->type = WINDOW_TYPE_DIALOG;
                             hot->base_layer = LAYER_NORMAL;
                             hot->placement = PLACEMENT_CENTER;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DESKTOP) {
                             hot->type = WINDOW_TYPE_DESKTOP;
                             hot->base_layer = LAYER_DESKTOP;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_SPLASH) {
                             hot->type = WINDOW_TYPE_SPLASH;
                             hot->base_layer = LAYER_ABOVE;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_TOOLBAR) {
                             hot->type = WINDOW_TYPE_TOOLBAR;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_UTILITY) {
                             hot->type = WINDOW_TYPE_UTILITY;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_MENU) {
                             hot->type = WINDOW_TYPE_MENU;
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DROPDOWN_MENU) {
                             hot->type = WINDOW_TYPE_DROPDOWN_MENU;
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_POPUP_MENU) {
                             hot->type = WINDOW_TYPE_POPUP_MENU;
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_TOOLTIP) {
                             hot->type = WINDOW_TYPE_TOOLTIP;
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            hot->type_from_net = true;
+                            break;
+                        } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_COMBO) {
+                            hot->type = WINDOW_TYPE_COMBO;
+                            hot->base_layer = LAYER_OVERLAY;
+                            hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            hot->type_from_net = true;
+                            break;
+                        } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DND) {
+                            hot->type = WINDOW_TYPE_DND;
+                            hot->base_layer = LAYER_OVERLAY;
+                            hot->flags |= CLIENT_FLAG_UNDECORATED;
+                            hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_NORMAL) {
                             hot->type = WINDOW_TYPE_NORMAL;
+                            hot->type_from_net = true;
                             break;
                         }
                     }
