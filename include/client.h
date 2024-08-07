@@ -194,6 +194,7 @@ typedef struct client_cold {
 
     char* wm_instance;
     char* wm_class;
+    char* wm_client_machine;
     arena_t string_arena;
 
     bool has_net_wm_name;

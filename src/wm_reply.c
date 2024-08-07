@@ -325,6 +325,12 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
             if (atom == atoms.WM_CLASS) {
                 parse_wm_class(cold, r);
+            } else if (atom == atoms.WM_CLIENT_MACHINE) {
+                int len = 0;
+                char* str = prop_get_string(r, &len);
+                if (str) {
+                    cold->wm_client_machine = arena_strndup(&cold->string_arena, str, (size_t)len);
+                }
 
             } else if (atom == atoms._NET_WM_NAME || atom == atoms._NET_WM_ICON_NAME) {
                 parse_net_wm_name_like(s, slot->client, hot, cold, atom, r);
