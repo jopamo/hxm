@@ -97,8 +97,8 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     // Attrs, Geom, Class, ClientMachine, Hints, NormalHints, Transient, Type, Protocols,
     // NetName, Name, NetIconName, IconName, NetState, Desktop,
     // Strut, StrutPartial, Icon, PID, UserTime, UserTimeWindow,
-    // SyncCounter, IconGeometry, MotifHints
-    hot->pending_replies = 24;
+    // SyncCounter, IconGeometry, MotifHints, WindowOpacity
+    hot->pending_replies = 25;
 
     cold->can_focus = true;
     arena_init(&cold->string_arena, 512);
@@ -230,6 +230,11 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     cookie_jar_push(&s->cookie_jar, c24, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._MOTIF_WM_HINTS,
                     wm_handle_reply);
 
+    // 25. _NET_WM_WINDOW_OPACITY
+    uint32_t c25 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 0, 1).sequence;
+    cookie_jar_push(&s->cookie_jar, c25, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_WINDOW_OPACITY,
+                    wm_handle_reply);
+
     LOG_DEBUG("Started management for window %u (handle %lx)", win, h);
 }
 
@@ -333,6 +338,11 @@ void client_finish_manage(server_t* s, handle_t h) {
     uint32_t extents[4] = {bw, bw, th + bw, bw};
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4,
                         extents);
+
+    if (hot->window_opacity_valid) {
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL,
+                            32, 1, &hot->window_opacity);
+    }
 
     // Set _NET_WM_ALLOWED_ACTIONS (before mapping)
     xcb_atom_t actions[16];
@@ -540,6 +550,19 @@ void client_close(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     client_cold_t* cold = server_ccold(s, h);
     if (!hot || !cold || hot->state == STATE_DESTROYED || hot->state == STATE_UNMANAGED) return;
+
+    if (cold->protocols & PROTOCOL_PING) {
+        xcb_client_message_event_t ping;
+        memset(&ping, 0, sizeof(ping));
+        ping.response_type = XCB_CLIENT_MESSAGE;
+        ping.format = 32;
+        ping.window = hot->xid;
+        ping.type = atoms.WM_PROTOCOLS;
+        ping.data.data32[0] = atoms._NET_WM_PING;
+        ping.data.data32[1] = hot->user_time ? hot->user_time : XCB_CURRENT_TIME;
+        ping.data.data32[2] = hot->xid;
+        xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ping);
+    }
 
     if (cold->protocols & PROTOCOL_DELETE_WINDOW) {
         LOG_DEBUG("Sending WM_DELETE_WINDOW to client %lx", h);

@@ -35,7 +35,8 @@ typedef enum client_dirty {
     DIRTY_HINTS = 1u << 4,
     DIRTY_STATE = 1u << 5,
     DIRTY_FRAME_STYLE = 1u << 6,
-    DIRTY_STRUT = 1u << 7
+    DIRTY_STRUT = 1u << 7,
+    DIRTY_OPACITY = 1u << 8
 } client_dirty_t;
 
 typedef enum client_state {
@@ -76,7 +77,8 @@ typedef enum client_flags {
 typedef enum protocol_flags {
     PROTOCOL_DELETE_WINDOW = 1u << 0,
     PROTOCOL_TAKE_FOCUS = 1u << 1,
-    PROTOCOL_SYNC_REQUEST = 1u << 2
+    PROTOCOL_SYNC_REQUEST = 1u << 2,
+    PROTOCOL_PING = 1u << 3
 } protocol_flags_t;
 
 typedef enum window_type {
@@ -176,6 +178,12 @@ typedef struct client_hot {
 
     bool icon_geometry_valid;
     rect_t icon_geometry;
+
+    bool window_opacity_valid;
+    uint32_t window_opacity;
+
+    bool fullscreen_monitors_valid;
+    uint32_t fullscreen_monitors[4];
 } client_hot_t;
 
 static inline uint8_t client_layer_from_state(const client_hot_t* hot) {

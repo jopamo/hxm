@@ -10,6 +10,7 @@ struct atoms {
     xcb_atom_t WM_PROTOCOLS;
     xcb_atom_t WM_DELETE_WINDOW;
     xcb_atom_t WM_TAKE_FOCUS;
+    xcb_atom_t _NET_WM_PING;
     xcb_atom_t WM_STATE;
     xcb_atom_t WM_CLASS;
     xcb_atom_t WM_CLIENT_MACHINE;
@@ -85,6 +86,7 @@ struct atoms {
     xcb_atom_t _NET_FRAME_EXTENTS;
     xcb_atom_t _NET_REQUEST_FRAME_EXTENTS;
     xcb_atom_t _NET_SHOWING_DESKTOP;
+    xcb_atom_t _NET_WM_WINDOW_OPACITY;
 
     xcb_atom_t _NET_WM_ALLOWED_ACTIONS;
     xcb_atom_t _NET_WM_ACTION_MOVE;
@@ -102,6 +104,7 @@ struct atoms {
     xcb_atom_t _NET_WM_MOVERESIZE;
     xcb_atom_t _NET_MOVERESIZE_WINDOW;
     xcb_atom_t _NET_RESTACK_WINDOW;
+    xcb_atom_t _NET_WM_FULLSCREEN_MONITORS;
 
     xcb_atom_t UTF8_STRING;
     xcb_atom_t COMPOUND_TEXT;

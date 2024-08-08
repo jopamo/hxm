@@ -422,6 +422,7 @@ void wm_become(server_t* s) {
         atoms._NET_ACTIVE_WINDOW,
         atoms._NET_WM_NAME,
         atoms._NET_WM_VISIBLE_NAME,
+        atoms._NET_WM_PING,
         atoms._NET_WM_STATE,
         atoms._NET_WM_VISIBLE_ICON_NAME,
         atoms._NET_WM_STATE_FULLSCREEN,
@@ -461,6 +462,7 @@ void wm_become(server_t* s) {
         atoms._NET_WM_ICON,
         atoms._NET_CLOSE_WINDOW,
         atoms._NET_WM_PID,
+        atoms._NET_WM_WINDOW_OPACITY,
         atoms._NET_DESKTOP_GEOMETRY,
         atoms._NET_FRAME_EXTENTS,
         atoms._NET_REQUEST_FRAME_EXTENTS,
@@ -479,6 +481,7 @@ void wm_become(server_t* s) {
         atoms._NET_WM_MOVERESIZE,
         atoms._NET_MOVERESIZE_WINDOW,
         atoms._NET_RESTACK_WINDOW,
+        atoms._NET_WM_FULLSCREEN_MONITORS,
     };
 
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_SUPPORTED, XCB_ATOM_ATOM, 32,
@@ -657,6 +660,8 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
         s->root_dirty |= ROOT_DIRTY_WORKAREA;
+    } else if (ev->atom == atoms._NET_WM_WINDOW_OPACITY) {
+        hot->dirty |= DIRTY_OPACITY;
     } else if (ev->atom == atoms._MOTIF_WM_HINTS) {
         hot->dirty |= DIRTY_HINTS | DIRTY_FRAME_STYLE;
     }
@@ -830,6 +835,15 @@ void wm_flush_dirty(server_t* s) {
                             wm_handle_reply);
 
             hot->dirty &= ~DIRTY_STRUT;
+        }
+
+        if (hot->dirty & DIRTY_OPACITY) {
+            uint32_t c =
+                xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 0, 1).sequence;
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
+                            ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_OPACITY, wm_handle_reply);
+
+            hot->dirty &= ~DIRTY_OPACITY;
         }
 
         if (hot->dirty & DIRTY_FRAME_STYLE) {
@@ -1477,6 +1491,13 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
             hot->layer = LAYER_FULLSCREEN;
             hot->flags |= CLIENT_FLAG_UNDECORATED;
 
+            if (hot->fullscreen_monitors_valid) {
+                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS,
+                                    XCB_ATOM_CARDINAL, 32, 4, hot->fullscreen_monitors);
+            } else {
+                xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS);
+            }
+
             if (s->config.fullscreen_use_workarea) {
                 hot->desired = s->workarea;
             } else {
@@ -1494,6 +1515,7 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
             hot->flags = (hot->flags & ~CLIENT_FLAG_UNDECORATED) | (hot->saved_state_mask & CLIENT_FLAG_UNDECORATED);
             hot->maximized_horz = hot->saved_maximized_horz;
             hot->maximized_vert = hot->saved_maximized_vert;
+            xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS);
             hot->dirty |= DIRTY_GEOM | DIRTY_STATE | DIRTY_STACK;
         }
         return;
@@ -1562,6 +1584,12 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
 }
 
 void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
+    if (ev->type == atoms.WM_PROTOCOLS && ev->window == s->root && ev->format == 32 &&
+        ev->data.data32[0] == atoms._NET_WM_PING) {
+        LOG_DEBUG("Received _NET_WM_PING reply for window %u", ev->data.data32[2]);
+        return;
+    }
+
     if (ev->type == atoms._NET_CURRENT_DESKTOP) {
         uint32_t desktop = ev->data.data32[0];
         if (desktop >= s->desktop_count) {
@@ -1663,6 +1691,26 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
             xcb_atom_t p2 = ev->data.data32[2];
             if (p1 != XCB_ATOM_NONE) wm_client_update_state(s, h, action, p1);
             if (p2 != XCB_ATOM_NONE) wm_client_update_state(s, h, action, p2);
+        }
+        return;
+    }
+
+    if (ev->type == atoms._NET_WM_FULLSCREEN_MONITORS) {
+        if (ev->window != s->root || ev->format != 32) return;
+        handle_t h = server_get_client_by_window(s, ev->window);
+        if (h == HANDLE_INVALID) return;
+        client_hot_t* hot = server_chot(s, h);
+        if (!hot) return;
+
+        hot->fullscreen_monitors[0] = ev->data.data32[0];
+        hot->fullscreen_monitors[1] = ev->data.data32[1];
+        hot->fullscreen_monitors[2] = ev->data.data32[2];
+        hot->fullscreen_monitors[3] = ev->data.data32[3];
+        hot->fullscreen_monitors_valid = true;
+
+        if (hot->layer == LAYER_FULLSCREEN) {
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS,
+                                XCB_ATOM_CARDINAL, 32, 4, hot->fullscreen_monitors);
         }
         return;
     }

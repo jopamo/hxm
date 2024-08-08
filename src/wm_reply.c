@@ -587,6 +587,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         } else if (protocols[i] == atoms._NET_WM_SYNC_REQUEST) {
                             cold->protocols |= PROTOCOL_SYNC_REQUEST;
                             hot->sync_enabled = true;
+                        } else if (protocols[i] == atoms._NET_WM_PING) {
+                            cold->protocols |= PROTOCOL_PING;
                         }
                     }
                 }
@@ -771,6 +773,22 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
                     xcb_sync_counter_t counter = *(xcb_sync_counter_t*)xcb_get_property_value(r);
                     hot->sync_counter = counter;
+                }
+
+            } else if (atom == atoms._NET_WM_WINDOW_OPACITY) {
+                if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
+                    uint32_t val = *(uint32_t*)xcb_get_property_value(r);
+                    hot->window_opacity = val;
+                    hot->window_opacity_valid = true;
+                    if (hot->frame != XCB_NONE) {
+                        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame, atoms._NET_WM_WINDOW_OPACITY,
+                                            XCB_ATOM_CARDINAL, 32, 1, &val);
+                    }
+                } else {
+                    hot->window_opacity_valid = false;
+                    if (hot->frame != XCB_NONE) {
+                        xcb_delete_property(s->conn, hot->frame, atoms._NET_WM_WINDOW_OPACITY);
+                    }
                 }
 
             } else if (atom == atoms._NET_WM_ICON_GEOMETRY) {
