@@ -482,6 +482,7 @@ void wm_become(server_t* s) {
         atoms._NET_MOVERESIZE_WINDOW,
         atoms._NET_RESTACK_WINDOW,
         atoms._NET_WM_FULLSCREEN_MONITORS,
+        atoms._NET_WM_FULL_PLACEMENT,
     };
 
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_SUPPORTED, XCB_ATOM_ATOM, 32,
@@ -1696,7 +1697,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     }
 
     if (ev->type == atoms._NET_WM_FULLSCREEN_MONITORS) {
-        if (ev->window != s->root || ev->format != 32) return;
+        if (ev->format != 32) return;
         handle_t h = server_get_client_by_window(s, ev->window);
         if (h == HANDLE_INVALID) return;
         client_hot_t* hot = server_chot(s, h);
