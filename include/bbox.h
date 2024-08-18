@@ -170,6 +170,25 @@ void bbox_log(enum log_level level, const char* fmt, ...) __attribute__((format(
 #define LOG_WARN(...) bbox_log(LOG_WARN, __VA_ARGS__)
 #define LOG_ERROR(...) bbox_log(LOG_ERROR, __VA_ARGS__)
 
+#ifdef BBOX_DEBUG_TRACE
+#define TRACE_LOG(...) LOG_DEBUG(__VA_ARGS__)
+#define TRACE_WARN(...) LOG_WARN(__VA_ARGS__)
+#define TRACE_ONLY(...) \
+    do {                \
+        __VA_ARGS__;    \
+    } while (0)
+#else
+#define TRACE_LOG(...) \
+    do {               \
+    } while (0)
+#define TRACE_WARN(...) \
+    do {                \
+    } while (0)
+#define TRACE_ONLY(...) \
+    do {                \
+    } while (0)
+#endif
+
 // Perf counters
 struct counters {
     uint64_t events_seen[256];  // X event type index

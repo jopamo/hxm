@@ -144,6 +144,7 @@ static void wm_set_showing_desktop(server_t* s, bool show) {
     if (!s) return;
     if (s->showing_desktop == show) return;
     s->showing_desktop = show;
+    TRACE_LOG("showing_desktop set=%d", show);
 
     uint32_t val = show ? 1u : 0u;
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_SHOWING_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
@@ -157,6 +158,7 @@ static void wm_set_showing_desktop(server_t* s, bool show) {
             if (!hot || hot->state != STATE_MAPPED) continue;
             if (!wm_should_hide_for_show_desktop(hot)) continue;
             hot->show_desktop_hidden = true;
+            TRACE_LOG("showing_desktop hide h=%lx xid=%u", h, hot->xid);
             wm_client_iconify(s, h);
         }
         wm_set_focus(s, HANDLE_INVALID);
@@ -168,6 +170,7 @@ static void wm_set_showing_desktop(server_t* s, bool show) {
             if (!hot || !hot->show_desktop_hidden) continue;
             hot->show_desktop_hidden = false;
             if (hot->state == STATE_UNMAPPED) {
+                TRACE_LOG("showing_desktop restore h=%lx xid=%u", h, hot->xid);
                 wm_client_restore(s, h);
             }
         }
@@ -586,9 +589,13 @@ void wm_adopt_children(server_t* s) {
     free(reply);
 }
 
-void wm_handle_map_request(server_t* s, xcb_map_request_event_t* ev) { client_manage_start(s, ev->window); }
+void wm_handle_map_request(server_t* s, xcb_map_request_event_t* ev) {
+    TRACE_LOG("map_request win=%u parent=%u", ev->window, ev->parent);
+    client_manage_start(s, ev->window);
+}
 
 void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
+    TRACE_LOG("unmap_notify win=%u event=%u from_configure=%u", ev->window, ev->event, ev->from_configure);
     handle_t h = server_get_client_by_window(s, ev->window);
     if (h == HANDLE_INVALID) return;
 
@@ -596,6 +603,7 @@ void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
     if (!hot) return;
 
     if (hot->ignore_unmap > 0) {
+        TRACE_LOG("unmap_notify ignore h=%lx count=%u", h, hot->ignore_unmap);
         hot->ignore_unmap--;
         return;
     }
@@ -604,10 +612,12 @@ void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
     // Applications withdrawing will trigger this.
     if (ev->event != hot->xid && ev->event != hot->frame && ev->event != s->root) return;
 
+    TRACE_LOG("unmap_notify unmanage h=%lx xid=%u frame=%u", h, hot->xid, hot->frame);
     client_unmanage(s, h);
 }
 
 void wm_handle_destroy_notify(server_t* s, xcb_destroy_notify_event_t* ev) {
+    TRACE_LOG("destroy_notify win=%u event=%u", ev->window, ev->event);
     handle_t h = server_get_client_by_window(s, ev->window);
     if (h == HANDLE_INVALID) return;
 
@@ -652,6 +662,7 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
 
+    TRACE_LOG("property_notify h=%lx xid=%u atom=%u state=%u", h, hot->xid, ev->atom, ev->state);
     if (ev->atom == atoms.WM_NAME || ev->atom == atoms._NET_WM_NAME) {
         hot->dirty |= DIRTY_TITLE;
     } else if (ev->atom == atoms.WM_HINTS) {
@@ -747,6 +758,7 @@ void wm_flush_dirty(server_t* s) {
         if (!hot) continue;
 
         if (hot->dirty == DIRTY_NONE) continue;
+        TRACE_LOG("flush_dirty h=%lx xid=%u dirty=0x%x state=%d", h, hot->xid, hot->dirty, hot->state);
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
 
         if (hot->dirty & DIRTY_GEOM) {
@@ -853,11 +865,15 @@ void wm_flush_dirty(server_t* s) {
         }
 
         if (hot->dirty & DIRTY_STACK) {
+            TRACE_LOG("flush_dirty stack_move h=%lx layer=%d", h, hot->layer);
             stack_move_to_layer(s, h);
             hot->dirty &= ~DIRTY_STACK;
         }
 
         if (hot->dirty & DIRTY_STATE) {
+            TRACE_LOG("flush_dirty state h=%lx layer=%d above=%d below=%d sticky=%d max=%d/%d focused=%d", h,
+                      hot->layer, hot->state_above, hot->state_below, hot->sticky, hot->maximized_horz,
+                      hot->maximized_vert, (hot->flags & CLIENT_FLAG_FOCUSED) != 0);
             xcb_atom_t state_atoms[12];
             uint32_t count = 0;
 
@@ -1585,6 +1601,10 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
 }
 
 void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
+    TRACE_ONLY({
+        TRACE_LOG("client_message type=%u window=%u format=%u data=[%u,%u,%u,%u,%u]", ev->type, ev->window, ev->format,
+                  ev->data.data32[0], ev->data.data32[1], ev->data.data32[2], ev->data.data32[3], ev->data.data32[4]);
+    });
     if (ev->type == atoms.WM_PROTOCOLS && ev->window == s->root && ev->format == 32 &&
         ev->data.data32[0] == atoms._NET_WM_PING) {
         LOG_DEBUG("Received _NET_WM_PING reply for window %u", ev->data.data32[2]);
@@ -1593,6 +1613,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
     if (ev->type == atoms._NET_CURRENT_DESKTOP) {
         uint32_t desktop = ev->data.data32[0];
+        TRACE_LOG("_NET_CURRENT_DESKTOP request=%u", desktop);
         if (desktop >= s->desktop_count) {
             LOG_INFO("Client requested switch to desktop %u (out of range)", desktop);
             return;
@@ -1604,12 +1625,14 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
     if (ev->type == atoms._NET_SHOWING_DESKTOP) {
         if (ev->window != s->root || ev->format != 32) return;
+        TRACE_LOG("_NET_SHOWING_DESKTOP request=%u", ev->data.data32[0]);
         wm_set_showing_desktop(s, ev->data.data32[0] != 0);
         return;
     }
 
     if (ev->type == atoms._NET_DESKTOP_GEOMETRY) {
         if (ev->window != s->root || ev->format != 32) return;
+        TRACE_LOG("_NET_DESKTOP_GEOMETRY request=%u,%u", ev->data.data32[0], ev->data.data32[1]);
         xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
         uint32_t geometry[] = {screen->width_in_pixels, screen->height_in_pixels};
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32,
@@ -1619,6 +1642,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
     if (ev->type == atoms._NET_DESKTOP_VIEWPORT) {
         if (ev->window != s->root || ev->format != 32) return;
+        TRACE_LOG("_NET_DESKTOP_VIEWPORT request=%u,%u", ev->data.data32[0], ev->data.data32[1]);
         uint32_t* viewport = calloc(s->desktop_count * 2, sizeof(uint32_t));
         if (viewport) {
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_VIEWPORT, XCB_ATOM_CARDINAL,
@@ -1630,6 +1654,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
     if (ev->type == atoms._NET_NUMBER_OF_DESKTOPS) {
         uint32_t requested = ev->data.data32[0];
+        TRACE_LOG("_NET_NUMBER_OF_DESKTOPS request=%u", requested);
         if (requested == 0) requested = 1;
         if (requested != s->desktop_count) {
             LOG_INFO("Client requested %u desktops", requested);
@@ -1658,6 +1683,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         handle_t h = server_get_client_by_window(s, ev->window);
         if (h != HANDLE_INVALID) {
             uint32_t desktop = ev->data.data32[0];
+            TRACE_LOG("_NET_WM_DESKTOP h=%lx desktop=%u", h, desktop);
             if (desktop != 0xFFFFFFFFu && desktop >= s->desktop_count) {
                 LOG_INFO("Client requested move to desktop %u (out of range)", desktop);
                 return;
@@ -1672,6 +1698,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         if (h != HANDLE_INVALID) {
             client_hot_t* hot = server_chot(s, h);
             if (!hot) return;
+            TRACE_LOG("_NET_ACTIVE_WINDOW h=%lx xid=%u state=%d desktop=%d", h, hot->xid, hot->state, hot->desktop);
             if (!hot->sticky && hot->desktop >= 0 && (uint32_t)hot->desktop != s->current_desktop) {
                 wm_switch_workspace(s, (uint32_t)hot->desktop);
             }
@@ -1690,6 +1717,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
             uint32_t action = ev->data.data32[0];
             xcb_atom_t p1 = ev->data.data32[1];
             xcb_atom_t p2 = ev->data.data32[2];
+            TRACE_LOG("_NET_WM_STATE h=%lx action=%u p1=%u p2=%u", h, action, p1, p2);
             if (p1 != XCB_ATOM_NONE) wm_client_update_state(s, h, action, p1);
             if (p2 != XCB_ATOM_NONE) wm_client_update_state(s, h, action, p2);
         }
@@ -1702,6 +1730,8 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         if (h == HANDLE_INVALID) return;
         client_hot_t* hot = server_chot(s, h);
         if (!hot) return;
+        TRACE_LOG("_NET_WM_FULLSCREEN_MONITORS h=%lx [%u,%u,%u,%u]", h, ev->data.data32[0], ev->data.data32[1],
+                  ev->data.data32[2], ev->data.data32[3]);
 
         hot->fullscreen_monitors[0] = ev->data.data32[0];
         hot->fullscreen_monitors[1] = ev->data.data32[1];
@@ -1729,6 +1759,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
             undecorated = wm_window_wants_undecorated(s, target);
         }
 
+        TRACE_LOG("_NET_REQUEST_FRAME_EXTENTS win=%u undecorated=%d", target, undecorated);
         wm_set_frame_extents_for_window(s, target, undecorated);
         return;
     }
@@ -1742,6 +1773,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
         xcb_window_t sibling_win = (xcb_window_t)ev->data.data32[1];
         uint32_t detail = ev->data.data32[2];
+        TRACE_LOG("_NET_RESTACK_WINDOW h=%lx sibling=%u detail=%u", h, sibling_win, detail);
         handle_t sibling_h = (sibling_win != XCB_NONE) ? server_get_client_by_window(s, sibling_win) : HANDLE_INVALID;
         client_hot_t* sib = (sibling_h != HANDLE_INVALID) ? server_chot(s, sibling_h) : NULL;
         bool have_sibling = (sib != NULL);
@@ -1809,6 +1841,8 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         int32_t y = (int32_t)ev->data.data32[2];
         uint32_t w = ev->data.data32[3];
         uint32_t h_val = ev->data.data32[4];
+        TRACE_LOG("_NET_MOVERESIZE_WINDOW win=%u flags=0x%x gravity=%u x=%d y=%d w=%u h=%u", target, flags, gravity, x,
+                  y, w, h_val);
 
         handle_t h = server_get_client_by_window(s, target);
         if (h == HANDLE_INVALID) {
@@ -1874,6 +1908,8 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         if (!hot) return;
 
         uint32_t direction = ev->data.data32[2];
+        TRACE_LOG("_NET_WM_MOVERESIZE h=%lx dir=%u button=%u source=%u", h, direction, ev->data.data32[3],
+                  ev->data.data32[4]);
         if (direction == NET_WM_MOVERESIZE_CANCEL) {
             wm_cancel_interaction(s);
             return;
@@ -1937,6 +1973,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
         int16_t root_x = (int16_t)ev->data.data32[0];
         int16_t root_y = (int16_t)ev->data.data32[1];
+        TRACE_LOG("_NET_WM_MOVERESIZE start root=%d,%d use_query=%d", root_x, root_y, use_pointer_query);
         if (use_pointer_query) {
             if (!wm_query_pointer_root(s, &root_x, &root_y)) {
                 root_x = hot->server.x;
@@ -1955,6 +1992,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         }
         handle_t h = server_get_client_by_window(s, target);
         if (h != HANDLE_INVALID) {
+            TRACE_LOG("_NET_CLOSE_WINDOW h=%lx target=%u", h, target);
             LOG_INFO("Client requested close via _NET_CLOSE_WINDOW");
             client_close(s, h);
         }
@@ -2042,12 +2080,14 @@ void wm_switch_workspace(server_t* s, uint32_t new_desktop) {
 
         bool visible = (c->desktop == (int32_t)new_desktop) || c->sticky;
         if (visible) {
+            TRACE_LOG("switch_workspace map h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
             xcb_map_window(s->conn, c->frame);
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                 state_vals);
             c->dirty |= DIRTY_STATE;
         } else {
+            TRACE_LOG("switch_workspace unmap h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
             xcb_unmap_window(s->conn, c->frame);
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
@@ -2111,12 +2151,14 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
     } else if (c->state == STATE_MAPPED) {
         bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
         if (visible) {
+            TRACE_LOG("move_workspace map h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
             xcb_map_window(s->conn, c->frame);
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                 state_vals);
             c->dirty |= DIRTY_STATE;
         } else {
+            TRACE_LOG("move_workspace unmap h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
             xcb_unmap_window(s->conn, c->frame);
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
@@ -2157,12 +2199,14 @@ void wm_client_toggle_sticky(server_t* s, handle_t h) {
     if (c->state == STATE_MAPPED) {
         bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
         if (visible) {
+            TRACE_LOG("toggle_sticky map h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
             xcb_map_window(s->conn, c->frame);
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                 state_vals);
             c->dirty |= DIRTY_STATE;
         } else {
+            TRACE_LOG("toggle_sticky unmap h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
             xcb_unmap_window(s->conn, c->frame);
             uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
@@ -2229,6 +2273,7 @@ void wm_client_iconify(server_t* s, handle_t h) {
     if (!hot || hot->state != STATE_MAPPED) return;
 
     LOG_INFO("Iconifying client %u", hot->xid);
+    TRACE_LOG("iconify h=%lx xid=%u frame=%u layer=%d", h, hot->xid, hot->frame, hot->layer);
 
     hot->state = STATE_UNMAPPED;
     xcb_unmap_window(s->conn, hot->frame);
@@ -2258,6 +2303,7 @@ void wm_client_restore(server_t* s, handle_t h) {
     if (!hot || hot->state == STATE_MAPPED) return;
 
     LOG_INFO("Restoring client %u", hot->xid);
+    TRACE_LOG("restore h=%lx xid=%u frame=%u layer=%d", h, hot->xid, hot->frame, hot->layer);
 
     hot->state = STATE_MAPPED;
     xcb_map_window(s->conn, hot->xid);

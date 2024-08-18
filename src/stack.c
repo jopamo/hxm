@@ -7,6 +7,27 @@
 
 static void stack_restack(server_t* s, handle_t h);
 
+#ifdef BBOX_DEBUG_TRACE
+static void debug_dump_layer(const server_t* s, int layer, const char* tag) {
+    if (!s || layer < 0 || layer >= LAYER_COUNT) return;
+    const list_node_t* head = &s->layers[layer];
+    LOG_DEBUG("stack %s layer=%d head=%p next=%p prev=%p", tag, layer, (void*)head, (void*)head->next,
+              (void*)head->prev);
+    const list_node_t* node = head->next;
+    int guard = 0;
+    while (node != head && guard < 64) {
+        const client_hot_t* c = (const client_hot_t*)((const char*)node - offsetof(client_hot_t, stacking_node));
+        LOG_DEBUG("  [%d] node=%p prev=%p next=%p h=%lx xid=%u frame=%u", guard, (void*)node, (void*)node->prev,
+                  (void*)node->next, c->self, c->xid, c->frame);
+        node = node->next;
+        guard++;
+    }
+    if (node != head) {
+        LOG_WARN("stack %s layer=%d: guard hit at %d, possible loop", tag, layer, guard);
+    }
+}
+#endif
+
 void stack_remove(server_t* s, handle_t h) {
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
@@ -18,9 +39,12 @@ void stack_remove(server_t* s, handle_t h) {
     // client_unmanage calls stack_remove.
     // We should check if it's linked.
     if (c->stacking_node.next && c->stacking_node.next != &c->stacking_node) {
+        TRACE_LOG("stack_remove h=%lx layer=%d node=%p", h, c->layer, (void*)&c->stacking_node);
+        TRACE_ONLY(debug_dump_layer(s, c->layer, "before remove"));
         list_remove(&c->stacking_node);
         list_init(&c->stacking_node);  // Reset to safe state
         s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+        TRACE_ONLY(debug_dump_layer(s, c->layer, "after remove"));
     }
 }
 
@@ -28,12 +52,14 @@ void stack_raise(server_t* s, handle_t h) {
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
 
+    TRACE_LOG("stack_raise h=%lx layer=%d", h, c->layer);
     stack_remove(s, h);
 
     // Insert at tail of layer (top)
     list_node_t* head = &s->layers[c->layer];
     list_insert(&c->stacking_node, head->prev, head);
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+    TRACE_ONLY(debug_dump_layer(s, c->layer, "after raise"));
 
     stack_restack(s, h);
 
@@ -54,11 +80,13 @@ void stack_move_to_layer(server_t* s, handle_t h) {
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
 
+    TRACE_LOG("stack_move_to_layer h=%lx layer=%d", h, c->layer);
     stack_remove(s, h);
 
     list_node_t* head = &s->layers[c->layer];
     list_insert(&c->stacking_node, head->prev, head);
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+    TRACE_ONLY(debug_dump_layer(s, c->layer, "after move"));
 
     stack_restack(s, h);
 }
@@ -67,6 +95,7 @@ void stack_lower(server_t* s, handle_t h) {
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
 
+    TRACE_LOG("stack_lower h=%lx layer=%d", h, c->layer);
     // Lower transients first so they end up above us?
     // Wait. stack_lower puts at HEAD (absolute bottom).
     // If we lower T1, T1 is bottom.
@@ -86,6 +115,7 @@ void stack_lower(server_t* s, handle_t h) {
     list_node_t* head = &s->layers[c->layer];
     list_insert(&c->stacking_node, head, head->next);
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+    TRACE_ONLY(debug_dump_layer(s, c->layer, "after lower"));
 
     stack_restack(s, h);
 }
@@ -95,6 +125,7 @@ void stack_place_above(server_t* s, handle_t h, handle_t sibling_h) {
     client_hot_t* sib = server_chot(s, sibling_h);
     if (!c || !sib) return;
 
+    TRACE_LOG("stack_place_above h=%lx sib=%lx layer=%d", h, sibling_h, c->layer);
     // If layers differ, we can't place "immediately above" in the list sense if they are in different lists.
     // We just raise 'c' in its own layer?
     // Or keep default behavior.
@@ -110,6 +141,7 @@ void stack_place_above(server_t* s, handle_t h, handle_t sibling_h) {
     // prev = sibling, next = sibling->next
     list_insert(&c->stacking_node, &sib->stacking_node, sib->stacking_node.next);
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+    TRACE_ONLY(debug_dump_layer(s, c->layer, "after place_above"));
 
     stack_restack(s, h);
 }
@@ -119,6 +151,7 @@ void stack_place_below(server_t* s, handle_t h, handle_t sibling_h) {
     client_hot_t* sib = server_chot(s, sibling_h);
     if (!c || !sib) return;
 
+    TRACE_LOG("stack_place_below h=%lx sib=%lx layer=%d", h, sibling_h, c->layer);
     if (c->layer != sib->layer) {
         stack_lower(s, h);
         return;
@@ -128,6 +161,7 @@ void stack_place_below(server_t* s, handle_t h, handle_t sibling_h) {
 
     list_insert(&c->stacking_node, sib->stacking_node.prev, &sib->stacking_node);
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+    TRACE_ONLY(debug_dump_layer(s, c->layer, "after place_below"));
 
     stack_restack(s, h);
 }
@@ -212,6 +246,10 @@ static void stack_restack(server_t* s, handle_t h) {
         }
     }
 
+    TRACE_ONLY({
+        uint32_t stack_mode_val = (mask & XCB_CONFIG_WINDOW_SIBLING) ? values[1] : values[0];
+        TRACE_LOG("stack_restack h=%lx frame=%u sibling=%u mode=%u", h, c->frame, sibling, stack_mode_val);
+    });
     xcb_configure_window(s->conn, c->frame, mask, values);
     counters.restacks_applied++;
 }

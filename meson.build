@@ -249,6 +249,13 @@ parity_client = executable('parity_client',
   dependencies: deps,
 )
 
+test_transient_cycle = executable('test_transient_cycle',
+  ['tests/test_transient_cycle.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('transient_cycle', test_transient_cycle)
+
 # Install configuration files
 install_data('data/bbox.desktop', install_dir: get_option('datadir') / 'xsessions')
 install_data('data/bbox.conf', install_dir: get_option('sysconfdir') / 'bbox')

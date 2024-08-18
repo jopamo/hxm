@@ -207,6 +207,7 @@ static void parse_wm_class(client_cold_t* cold, const xcb_get_property_reply_t* 
 }
 
 static bool client_apply_default_type(server_t* s, client_hot_t* hot, client_cold_t* cold) {
+    (void)s;
     if (!hot || !cold) return false;
     if (hot->type_from_net) return false;
 
@@ -237,6 +238,20 @@ static bool client_apply_default_type(server_t* s, client_hot_t* hot, client_col
     }
 
     return hot->type != prev_type || hot->base_layer != prev_base || hot->placement != prev_place;
+}
+
+static bool check_transient_cycle(server_t* s, handle_t child, handle_t parent) {
+    if (child == parent) return true;
+    handle_t curr = parent;
+    int depth = 0;
+    while (curr != HANDLE_INVALID && depth < 32) {
+        if (curr == child) return true;
+        client_hot_t* hot = server_chot(s, curr);
+        if (!hot) break;
+        curr = hot->transient_for;
+        depth++;
+    }
+    return false;
 }
 
 void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
@@ -463,6 +478,13 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     xcb_window_t transient_for_xid = *(xcb_window_t*)xcb_get_property_value(r);
                     cold->transient_for_xid = transient_for_xid;
                     hot->transient_for = server_get_client_by_window(s, transient_for_xid);
+
+                    if (hot->transient_for != HANDLE_INVALID) {
+                        if (check_transient_cycle(s, slot->client, hot->transient_for)) {
+                            LOG_WARN("Ignoring transient_for cycle for client %u", hot->xid);
+                            hot->transient_for = HANDLE_INVALID;
+                        }
+                    }
 
                     if (hot->transient_for != HANDLE_INVALID) {
                         client_hot_t* parent = server_chot(s, hot->transient_for);

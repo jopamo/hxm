@@ -320,6 +320,7 @@ void event_ingest(server_t* s, bool x_ready) {
     buckets_reset(&s->buckets);
     arena_reset(&s->tick_arena);
 
+    TRACE_LOG("event_ingest start x_ready=%d prefetched=%d", x_ready, s->prefetched_event != NULL);
     uint64_t count = 0;
     if (s->prefetched_event) {
         event_ingest_one(s, s->prefetched_event);
@@ -336,6 +337,7 @@ void event_ingest(server_t* s, bool x_ready) {
 
     if (!x_ready) {
         s->buckets.ingested = count;
+        TRACE_LOG("event_ingest done ingested=%lu coalesced=%lu (queued only)", count, s->buckets.coalesced);
         return;
     }
 
@@ -347,6 +349,7 @@ void event_ingest(server_t* s, bool x_ready) {
     }
 
     s->buckets.ingested = count;
+    TRACE_LOG("event_ingest done ingested=%lu coalesced=%lu", count, s->buckets.coalesced);
 }
 
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
@@ -360,6 +363,8 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
             dirty_region_union_rect(region, e->area.x, e->area.y, e->area.width, e->area.height);
             counters.coalesced_drops[type]++;
             s->buckets.coalesced++;
+            TRACE_LOG("coalesce damage drawable=%u area=%dx%d+%d+%d", e->drawable, e->area.width, e->area.height,
+                      e->area.x, e->area.y);
         } else {
             dirty_region_t* copy = arena_alloc(&s->tick_arena, sizeof(*copy));
             *copy = dirty_region_make(e->area.x, e->area.y, e->area.width, e->area.height);
@@ -397,6 +402,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 
         case XCB_CLIENT_MESSAGE: {
             xcb_client_message_event_t* e = (xcb_client_message_event_t*)ev;
+            TRACE_LOG("ingest client_message win=%u type=%u format=%u", e->window, e->type, e->format);
             void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
             memcpy(copy, e, sizeof(*e));
             small_vec_push(&s->buckets.client_messages, copy);
@@ -413,6 +419,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 
         case XCB_MAP_REQUEST: {
             xcb_map_request_event_t* e = (xcb_map_request_event_t*)ev;
+            TRACE_LOG("ingest map_request win=%u parent=%u", e->window, e->parent);
             void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
             memcpy(copy, e, sizeof(*e));
             small_vec_push(&s->buckets.map_requests, copy);
@@ -421,6 +428,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 
         case XCB_UNMAP_NOTIFY: {
             xcb_unmap_notify_event_t* e = (xcb_unmap_notify_event_t*)ev;
+            TRACE_LOG("ingest unmap_notify win=%u event=%u from_configure=%u", e->window, e->event, e->from_configure);
             void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
             memcpy(copy, e, sizeof(*e));
             small_vec_push(&s->buckets.unmap_notifies, copy);
@@ -429,6 +437,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 
         case XCB_DESTROY_NOTIFY: {
             xcb_destroy_notify_event_t* e = (xcb_destroy_notify_event_t*)ev;
+            TRACE_LOG("ingest destroy_notify win=%u event=%u", e->window, e->event);
 
             hash_map_insert(&s->buckets.destroyed_windows, e->window, (void*)1);
             hash_map_remove(&s->buckets.configure_requests, e->window);
@@ -444,6 +453,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 
             pending_config_t* existing = hash_map_get(&s->buckets.configure_requests, e->window);
             if (existing) {
+                TRACE_LOG("coalesce configure_request win=%u mask=0x%x", e->window, e->value_mask);
                 if (e->value_mask & XCB_CONFIG_WINDOW_X) existing->x = e->x;
                 if (e->value_mask & XCB_CONFIG_WINDOW_Y) existing->y = e->y;
                 if (e->value_mask & XCB_CONFIG_WINDOW_WIDTH) existing->width = e->width;
@@ -456,6 +466,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
                 counters.coalesced_drops[type]++;
                 s->buckets.coalesced++;
             } else {
+                TRACE_LOG("ingest configure_request win=%u mask=0x%x", e->window, e->value_mask);
                 pending_config_t* pc = arena_alloc(&s->tick_arena, sizeof(*pc));
                 pc->window = e->window;
                 pc->x = e->x;
@@ -479,6 +490,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
             if (hash_map_get(&s->buckets.configure_notifies, e->window)) {
                 counters.coalesced_drops[type]++;
                 s->buckets.coalesced++;
+                TRACE_LOG("coalesce configure_notify win=%u", e->window);
             }
             hash_map_insert(&s->buckets.configure_notifies, e->window, copy);
             break;
@@ -491,9 +503,11 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
             if (hash_map_get(&s->buckets.property_notifies, key)) {
                 counters.coalesced_drops[type]++;
                 s->buckets.coalesced++;
+                TRACE_LOG("coalesce property_notify win=%u atom=%u", e->window, e->atom);
                 break;
             }
 
+            TRACE_LOG("ingest property_notify win=%u atom=%u state=%u", e->window, e->atom, e->state);
             void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
             memcpy(copy, e, sizeof(*e));
             hash_map_insert(&s->buckets.property_notifies, key, copy);
@@ -545,21 +559,28 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 }
 
 void event_process(server_t* s) {
+    TRACE_LOG("event_process buckets map=%zu unmap=%zu destroy=%zu client=%zu configure=%zu property=%zu",
+              s->buckets.map_requests.length, s->buckets.unmap_notifies.length, s->buckets.destroy_notifies.length,
+              s->buckets.client_messages.length, hash_map_size(&s->buckets.configure_requests),
+              hash_map_size(&s->buckets.property_notifies));
     // 1. lifecycle
     for (size_t i = 0; i < s->buckets.map_requests.length; i++) {
         xcb_map_request_event_t* ev = s->buckets.map_requests.items[i];
         if (hash_map_get(&s->buckets.destroyed_windows, ev->window)) continue;
+        TRACE_LOG("process map_request win=%u", ev->window);
         wm_handle_map_request(s, ev);
     }
 
     for (size_t i = 0; i < s->buckets.unmap_notifies.length; i++) {
         xcb_unmap_notify_event_t* ev = s->buckets.unmap_notifies.items[i];
         if (hash_map_get(&s->buckets.destroyed_windows, ev->window)) continue;
+        TRACE_LOG("process unmap_notify win=%u event=%u", ev->window, ev->event);
         wm_handle_unmap_notify(s, ev);
     }
 
     for (size_t i = 0; i < s->buckets.destroy_notifies.length; i++) {
         xcb_destroy_notify_event_t* ev = s->buckets.destroy_notifies.items[i];
+        TRACE_LOG("process destroy_notify win=%u event=%u", ev->window, ev->event);
         wm_handle_destroy_notify(s, ev);
     }
 
@@ -605,6 +626,7 @@ void event_process(server_t* s) {
     // 5. client messages (EWMH/ICCCM)
     for (size_t i = 0; i < s->buckets.client_messages.length; i++) {
         xcb_client_message_event_t* ev = s->buckets.client_messages.items[i];
+        TRACE_LOG("process client_message win=%u type=%u", ev->window, ev->type);
         wm_handle_client_message(s, ev);
     }
 
