@@ -138,8 +138,8 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     // Attrs, Geom, Class, ClientMachine, Hints, NormalHints, Transient, Type, Protocols,
     // NetName, Name, NetIconName, IconName, NetState, Desktop,
     // Strut, StrutPartial, Icon, PID, UserTime, UserTimeWindow,
-    // SyncCounter, IconGeometry, MotifHints, WindowOpacity
-    hot->pending_replies = 25;
+    // SyncCounter, IconGeometry, MotifHints, GtkFrameExtents, WindowOpacity
+    hot->pending_replies = 26;
 
     cold->can_focus = true;
     arena_init(&cold->string_arena, 512);
@@ -274,9 +274,14 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     cookie_jar_push(&s->cookie_jar, c24, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._MOTIF_WM_HINTS,
                     wm_handle_reply);
 
-    // 25. _NET_WM_WINDOW_OPACITY
-    uint32_t c25 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c25, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_WINDOW_OPACITY,
+    // 25. _GTK_FRAME_EXTENTS
+    uint32_t c25 = xcb_get_property(s->conn, 0, win, atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 0, 4).sequence;
+    cookie_jar_push(&s->cookie_jar, c25, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._GTK_FRAME_EXTENTS,
+                    wm_handle_reply);
+
+    // 26. _NET_WM_WINDOW_OPACITY
+    uint32_t c26 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 0, 1).sequence;
+    cookie_jar_push(&s->cookie_jar, c26, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_WINDOW_OPACITY,
                     wm_handle_reply);
 
     LOG_DEBUG("Started management for window %u (handle %lx)", win, h);

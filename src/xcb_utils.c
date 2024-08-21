@@ -21,6 +21,7 @@ static const char* atom_names[] = {
     "WM_NORMAL_HINTS",
     "WM_TRANSIENT_FOR",
     "_MOTIF_WM_HINTS",
+    "_GTK_FRAME_EXTENTS",
     "_NET_WM_SYNC_REQUEST",
 
     "_NET_SUPPORTED",

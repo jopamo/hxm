@@ -145,6 +145,9 @@ typedef struct client_hot {
     uint8_t placement;      // placement_policy_t
     uint16_t flags;
     bool show_desktop_hidden;
+    bool motif_decorations_set;
+    bool motif_undecorated;
+    bool gtk_frame_extents_set;
 
     bool override_redirect;
     bool manage_aborted;

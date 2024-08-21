@@ -110,6 +110,17 @@ static bool wm_should_hide_for_show_desktop(const client_hot_t* hot) {
 }
 
 static bool wm_window_wants_undecorated(server_t* s, xcb_window_t win) {
+    if (atoms._GTK_FRAME_EXTENTS != XCB_ATOM_NONE) {
+        xcb_get_property_cookie_t ck =
+            xcb_get_property(s->conn, 0, win, atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 0, 4);
+        xcb_get_property_reply_t* r = xcb_get_property_reply(s->conn, ck, NULL);
+        if (r) {
+            bool has_extents = (r->format == 32 && xcb_get_property_value_length(r) >= (int)(4 * sizeof(uint32_t)));
+            free(r);
+            if (has_extents) return true;
+        }
+    }
+
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5);
     xcb_get_property_reply_t* r = xcb_get_property_reply(s->conn, ck, NULL);
     if (!r) return false;
@@ -676,6 +687,8 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
         hot->dirty |= DIRTY_OPACITY;
     } else if (ev->atom == atoms._MOTIF_WM_HINTS) {
         hot->dirty |= DIRTY_HINTS | DIRTY_FRAME_STYLE;
+    } else if (ev->atom == atoms._GTK_FRAME_EXTENTS) {
+        hot->dirty |= DIRTY_HINTS | DIRTY_FRAME_STYLE;
     }
 }
 
@@ -833,6 +846,10 @@ void wm_flush_dirty(server_t* s) {
             c = xcb_get_property(s->conn, 0, hot->xid, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
                             ((uint64_t)hot->xid << 32) | atoms._MOTIF_WM_HINTS, wm_handle_reply);
+
+            c = xcb_get_property(s->conn, 0, hot->xid, atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 0, 4).sequence;
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
+                            ((uint64_t)hot->xid << 32) | atoms._GTK_FRAME_EXTENTS, wm_handle_reply);
 
             hot->dirty &= ~DIRTY_HINTS;
         }

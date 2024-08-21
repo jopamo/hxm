@@ -98,6 +98,50 @@ static void client_update_effective_strut(client_hot_t* hot) {
     }
 }
 
+static bool client_type_forces_undecorated(uint8_t type) {
+    switch (type) {
+        case WINDOW_TYPE_DOCK:
+        case WINDOW_TYPE_NOTIFICATION:
+        case WINDOW_TYPE_DESKTOP:
+        case WINDOW_TYPE_MENU:
+        case WINDOW_TYPE_DROPDOWN_MENU:
+        case WINDOW_TYPE_POPUP_MENU:
+        case WINDOW_TYPE_TOOLTIP:
+        case WINDOW_TYPE_COMBO:
+        case WINDOW_TYPE_DND:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool client_should_be_undecorated(const client_hot_t* hot) {
+    if (!hot) return false;
+    if (hot->layer == LAYER_FULLSCREEN) return true;
+    if (client_type_forces_undecorated(hot->type)) return true;
+    if (hot->gtk_frame_extents_set) return true;
+    if (hot->motif_decorations_set) return hot->motif_undecorated;
+    return false;
+}
+
+static bool client_apply_decoration_hints(client_hot_t* hot) {
+    bool was_undecorated = (hot->flags & CLIENT_FLAG_UNDECORATED) != 0;
+    bool now_undecorated = client_should_be_undecorated(hot);
+
+    if (now_undecorated) {
+        hot->flags |= CLIENT_FLAG_UNDECORATED;
+    } else {
+        hot->flags &= ~CLIENT_FLAG_UNDECORATED;
+    }
+
+    if (was_undecorated != now_undecorated) {
+        hot->dirty |= DIRTY_GEOM;
+        return true;
+    }
+
+    return false;
+}
+
 static void abort_manage(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     client_cold_t* cold = server_ccold(s, h);
@@ -376,6 +420,9 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 }
 
             } else if (atom == atoms._MOTIF_WM_HINTS) {
+                bool decorations_set = false;
+                bool undecorated = false;
+
                 if (r && r->format == 32 && xcb_get_property_value_length(r) >= (int)(3 * sizeof(uint32_t))) {
                     uint32_t* hints = (uint32_t*)xcb_get_property_value(r);
                     uint32_t flags = hints[0];
@@ -387,22 +434,21 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         bool want_title = (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_TITLE)
                                                                         : (decorations & MWM_DECOR_TITLE);
 
-                        bool was_undecorated = (hot->flags & CLIENT_FLAG_UNDECORATED) != 0;
                         // We only support fully decorated vs undecorated frames.
-                        bool now_undecorated = !(want_border && want_title);
-
-                        if (now_undecorated) {
-                            hot->flags |= CLIENT_FLAG_UNDECORATED;
-                        } else {
-                            hot->flags &= ~CLIENT_FLAG_UNDECORATED;
-                        }
-
-                        if (was_undecorated != now_undecorated) {
-                            hot->dirty |= DIRTY_GEOM;
-                            changed = true;
-                        }
+                        decorations_set = true;
+                        undecorated = !(want_border && want_title);
                     }
                 }
+
+                hot->motif_decorations_set = decorations_set;
+                hot->motif_undecorated = undecorated;
+                if (client_apply_decoration_hints(hot)) changed = true;
+
+            } else if (atom == atoms._GTK_FRAME_EXTENTS) {
+                bool has_extents =
+                    (r && r->format == 32 && xcb_get_property_value_length(r) >= (int)(4 * sizeof(uint32_t)));
+                hot->gtk_frame_extents_set = has_extents;
+                if (client_apply_decoration_hints(hot)) changed = true;
 
             } else if (atom == atoms._NET_WM_STATE) {
                 if (prop_is_empty(r)) {
