@@ -155,6 +155,9 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hash_map_insert(&s->window_to_client, win, handle_to_ptr(h));
     TRACE_LOG("manage_start window_to_client[%u]=%lx", win, h);
 
+    uint32_t early_events = XCB_EVENT_MASK_PROPERTY_CHANGE;
+    xcb_change_window_attributes(s->conn, win, XCB_CW_EVENT_MASK, &early_events);
+
     // 1. GetWindowAttributes (override_redirect, visual)
     uint32_t c1 = xcb_get_window_attributes(s->conn, win).sequence;
     cookie_jar_push(&s->cookie_jar, c1, COOKIE_GET_WINDOW_ATTRIBUTES, h, win, wm_handle_reply);
