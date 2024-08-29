@@ -1318,6 +1318,10 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
             resize_dir = RESIZE_BOTTOM | RESIZE_RIGHT;  // Default to BR for Alt-Resize
         }
     } else if (is_frame && ev->detail == 1) {
+        if (hot->flags & CLIENT_FLAG_UNDECORATED) {
+            xcb_allow_events(s->conn, XCB_ALLOW_REPLAY_POINTER, ev->time);
+            return;
+        }
         // Click on frame: check for buttons first
         frame_button_t btn = frame_get_button_at(s, h, ev->event_x, ev->event_y);
         if (btn != FRAME_BUTTON_NONE) {
