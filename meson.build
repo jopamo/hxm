@@ -256,6 +256,13 @@ test_transient_cycle = executable('test_transient_cycle',
 )
 test('transient_cycle', test_transient_cycle)
 
+test_gtk_extents = executable('test_gtk_extents',
+  ['tests/test_gtk_extents.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('gtk_extents', test_gtk_extents)
+
 # Install configuration files
 install_data('data/bbox.desktop', install_dir: get_option('datadir') / 'xsessions')
 install_data('data/bbox.conf', install_dir: get_option('sysconfdir') / 'bbox')

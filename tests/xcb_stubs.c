@@ -118,6 +118,13 @@ int stub_unmap_window_count = 0;
 xcb_window_t stub_last_mapped_window = 0;
 xcb_window_t stub_last_unmapped_window = 0;
 
+xcb_window_t stub_last_config_window = 0;
+uint16_t stub_last_config_mask = 0;
+int32_t stub_last_config_x = 0;
+int32_t stub_last_config_y = 0;
+uint32_t stub_last_config_w = 0;
+uint32_t stub_last_config_h = 0;
+
 int stub_send_event_count = 0;
 xcb_window_t stub_last_send_event_destination = 0;
 char stub_last_event[32];  // Enough for ClientMessage
@@ -143,9 +150,16 @@ xcb_void_cookie_t xcb_unmap_window(xcb_connection_t* c, xcb_window_t window) {
 xcb_void_cookie_t xcb_configure_window(xcb_connection_t* c, xcb_window_t window, uint16_t value_mask,
                                        const void* value_list) {
     (void)c;
-    (void)window;
-    (void)value_mask;
-    (void)value_list;
+    stub_last_config_window = window;
+    stub_last_config_mask = value_mask;
+
+    const uint32_t* values = (const uint32_t*)value_list;
+    int i = 0;
+    if (value_mask & XCB_CONFIG_WINDOW_X) stub_last_config_x = (int32_t)values[i++];
+    if (value_mask & XCB_CONFIG_WINDOW_Y) stub_last_config_y = (int32_t)values[i++];
+    if (value_mask & XCB_CONFIG_WINDOW_WIDTH) stub_last_config_w = values[i++];
+    if (value_mask & XCB_CONFIG_WINDOW_HEIGHT) stub_last_config_h = values[i++];
+
     return (xcb_void_cookie_t){0};
 }
 

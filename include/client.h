@@ -148,6 +148,9 @@ typedef struct client_hot {
     bool motif_decorations_set;
     bool motif_undecorated;
     bool gtk_frame_extents_set;
+    struct {
+        uint32_t left, right, top, bottom;
+    } gtk_extents;
 
     bool override_redirect;
     bool manage_aborted;

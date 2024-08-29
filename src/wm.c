@@ -646,6 +646,19 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     if (ev->mask & XCB_CONFIG_WINDOW_WIDTH) hot->desired.w = ev->width;
     if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT) hot->desired.h = ev->height;
 
+    if (hot->gtk_frame_extents_set) {
+        if (ev->mask & XCB_CONFIG_WINDOW_X) hot->desired.x += (int16_t)hot->gtk_extents.left;
+        if (ev->mask & XCB_CONFIG_WINDOW_Y) hot->desired.y += (int16_t)hot->gtk_extents.top;
+        if (ev->mask & XCB_CONFIG_WINDOW_WIDTH) {
+            uint32_t h_ext = hot->gtk_extents.left + hot->gtk_extents.right;
+            hot->desired.w = (hot->desired.w > h_ext) ? (hot->desired.w - (uint16_t)h_ext) : 1;
+        }
+        if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT) {
+            uint32_t v_ext = hot->gtk_extents.top + hot->gtk_extents.bottom;
+            hot->desired.h = (hot->desired.h > v_ext) ? (hot->desired.h - (uint16_t)v_ext) : 1;
+        }
+    }
+
     client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
     hot->dirty |= DIRTY_GEOM;
 
@@ -778,11 +791,36 @@ void wm_flush_dirty(server_t* s) {
             uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
             uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
 
+            int32_t frame_x = hot->desired.x;
+            int32_t frame_y = hot->desired.y;
+            uint32_t frame_w = hot->desired.w;
+            uint32_t frame_h = hot->desired.h;
+
+            int32_t client_x = bw;
+            int32_t client_y = th;
+            uint32_t client_w = hot->desired.w;
+            uint32_t client_h = hot->desired.h;
+
+            if (hot->gtk_frame_extents_set) {
+                frame_x -= (int32_t)hot->gtk_extents.left;
+                frame_y -= (int32_t)hot->gtk_extents.top;
+                frame_w += hot->gtk_extents.left + hot->gtk_extents.right;
+                frame_h += hot->gtk_extents.top + hot->gtk_extents.bottom;
+
+                client_x = 0;
+                client_y = 0;
+                client_w = frame_w;
+                client_h = frame_h;
+            } else {
+                frame_w += 2 * bw;
+                frame_h += th + bw;
+            }
+
             uint32_t frame_values[4];
-            frame_values[0] = (uint32_t)hot->desired.x;
-            frame_values[1] = (uint32_t)hot->desired.y;
-            frame_values[2] = (uint32_t)(hot->desired.w + 2 * bw);
-            frame_values[3] = (uint32_t)(hot->desired.h + th + bw);
+            frame_values[0] = (uint32_t)frame_x;
+            frame_values[1] = (uint32_t)frame_y;
+            frame_values[2] = frame_w;
+            frame_values[3] = frame_h;
 
             xcb_configure_window(
                 s->conn, hot->frame,
@@ -790,10 +828,10 @@ void wm_flush_dirty(server_t* s) {
                 frame_values);
 
             uint32_t client_values[4];
-            client_values[0] = (uint32_t)bw;
-            client_values[1] = (uint32_t)th;
-            client_values[2] = (uint32_t)hot->desired.w;
-            client_values[3] = (uint32_t)hot->desired.h;
+            client_values[0] = (uint32_t)client_x;
+            client_values[1] = (uint32_t)client_y;
+            client_values[2] = client_w;
+            client_values[3] = client_h;
 
             xcb_configure_window(
                 s->conn, hot->xid,
@@ -806,7 +844,10 @@ void wm_flush_dirty(server_t* s) {
                                 32, 4, extents);
 
             // Update server state immediately to ensure redraw uses correct geometry
-            hot->server = hot->desired;
+            hot->server.x = (int16_t)frame_x;
+            hot->server.y = (int16_t)frame_y;
+            hot->server.w = (uint16_t)client_w;
+            hot->server.h = (uint16_t)client_h;
 
             wm_send_synthetic_configure(s, h);
 

@@ -448,6 +448,24 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 bool has_extents =
                     (r && r->format == 32 && xcb_get_property_value_length(r) >= (int)(4 * sizeof(uint32_t)));
                 hot->gtk_frame_extents_set = has_extents;
+                if (has_extents) {
+                    uint32_t* extents = (uint32_t*)xcb_get_property_value(r);
+                    hot->gtk_extents.left = extents[0];
+                    hot->gtk_extents.right = extents[1];
+                    hot->gtk_extents.top = extents[2];
+                    hot->gtk_extents.bottom = extents[3];
+
+                    if (hot->manage_phase != MANAGE_DONE) {
+                        hot->desired.x += (int16_t)extents[0];
+                        hot->desired.y += (int16_t)extents[2];
+                        uint32_t h_ext = extents[0] + extents[1];
+                        uint32_t v_ext = extents[2] + extents[3];
+                        hot->desired.w = (hot->desired.w > h_ext) ? (hot->desired.w - (uint16_t)h_ext) : 1;
+                        hot->desired.h = (hot->desired.h > v_ext) ? (hot->desired.h - (uint16_t)v_ext) : 1;
+                    }
+                } else {
+                    memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
+                }
                 if (client_apply_decoration_hints(hot)) changed = true;
 
             } else if (atom == atoms._NET_WM_STATE) {
