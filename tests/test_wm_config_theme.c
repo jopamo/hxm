@@ -26,6 +26,7 @@ void test_theme_parser() {
 
     bool loaded = theme_load(&theme, "test_themerc");
     assert(loaded);
+    (void)loaded;
     assert(theme.border_width == 10);
     assert(theme.title_height == 25);
     assert(theme.handle_height == 8);

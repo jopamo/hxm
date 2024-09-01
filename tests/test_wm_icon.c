@@ -72,6 +72,7 @@ void test_wm_icon() {
     assert(p[1] == 0xFF00FF00);
     assert(p[2] == 0xFFFF0000);
     assert(p[3] == 0xFFFFFFFF);
+    (void)p;
 
     printf("test_wm_icon passed\n");
 

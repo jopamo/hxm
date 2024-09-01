@@ -17,6 +17,9 @@ void test_idempotent_unmanage() {
     s.root_visual_type = xcb_get_visualtype(NULL, 0);
     s.conn = (xcb_connection_t*)malloc(1);
 
+    list_init(&s.focus_history);
+    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
     void *hot_ptr, *cold_ptr;
@@ -52,6 +55,9 @@ void test_destroy_unmanage_race() {
     s.root_depth = 24;
     s.root_visual_type = xcb_get_visualtype(NULL, 0);
     s.conn = (xcb_connection_t*)malloc(1);
+
+    list_init(&s.focus_history);
+    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
