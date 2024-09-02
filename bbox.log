@@ -1,0 +1,161 @@
+[20:51:16.847 INFO] bbox starting
+[20:51:16.856 INFO] Loaded config from /tmp/tmp.vjXLzNezO6/.config/bbox/bbox.conf
+[20:51:16.856 INFO] Theme file not found: /tmp/tmp.vjXLzNezO6/.config/bbox/themerc
+[20:51:16.856 INFO] Theme file not found: /tmp/tmp.vjXLzNezO6/.config/bbox/themerc
+[20:51:16.856 INFO] Theme file not found: /etc/bbox/themerc
+[20:51:16.856 INFO] Became WM on root 67, supporting 4194306
+[20:51:16.856 INFO] Adopting existing windows...
+[20:51:16.856 INFO] Server initialized
+[20:51:16.856 INFO] Starting event loop
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 16
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 16
+DEBUG: Ingested event type 16
+DEBUG: Ingested event type 20
+DEBUG: Ingested MapRequest for win 2097152
+[20:51:16.861 WARN] Cookie 197 timed out, dropping
+[20:51:16.861 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:16.861 WARN] Cookie 198 timed out, dropping
+[20:51:16.861 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:16.861 INFO] Finishing management for window 2097152
+[20:51:16.862 INFO] Managed window 2097152 as client 100000001 (frame 4194319)
+[20:51:16.862 INFO] Updating _NET_CLIENT_LIST with 1 clients
+DEBUG: Ingested event type 16
+DEBUG: Ingested event type 21
+DEBUG: Ingested event type 21
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 19
+DEBUG: Ingested event type 19
+DEBUG: Ingested event type 12
+DEBUG: Ingested event type 12
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 90
+DEBUG: Ingested event type 9
+DEBUG: Ingested event type 14
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 14
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 14
+DEBUG: Ingested event type 33
+[20:51:18.368 INFO] Received _NET_WM_DESKTOP for window 2097152 (handle 100000001), target 1
+[20:51:18.368 INFO] Moving client 2097152 to desktop 1 (follow=0)
+[20:51:18.369 INFO] Updating _NET_CLIENT_LIST with 1 clients
+DEBUG: Ingested event type 18
+DEBUG: Ingested event type 10
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 14
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+[20:51:19.376 INFO] Restart requested
+[20:51:19.376 INFO] Restarting bbox...
+[20:51:19.376 INFO] Unmanaging client 100000001 (window 2097152, destroyed=0)
+[20:51:19.386 INFO] bbox starting
+[20:51:19.387 INFO] Loaded config from /tmp/tmp.vjXLzNezO6/.config/bbox/bbox.conf
+[20:51:19.387 INFO] Theme file not found: /tmp/tmp.vjXLzNezO6/.config/bbox/themerc
+[20:51:19.387 INFO] Theme file not found: /tmp/tmp.vjXLzNezO6/.config/bbox/themerc
+[20:51:19.387 INFO] Theme file not found: /etc/bbox/themerc
+[20:51:19.387 INFO] Became WM on root 67, supporting 4194306
+[20:51:19.387 INFO] Adopting existing windows...
+[20:51:19.387 INFO] Server initialized
+[20:51:19.387 INFO] Starting event loop
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 16
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 28
+DEBUG: Ingested event type 16
+[20:51:19.387 INFO] Adopting window 2097152 (map_state 2)
+[20:51:19.387 WARN] Cookie 172 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 1 client 2097152
+[20:51:19.387 WARN] Cookie 173 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 2 client 2097152
+[20:51:19.387 WARN] Cookie 174 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 175 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 176 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 177 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 178 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 179 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 180 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 181 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 182 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 183 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 184 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 185 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.387 WARN] Cookie 186 timed out, dropping
+[20:51:19.387 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 187 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 188 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 189 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 190 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 191 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 192 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 193 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 194 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 195 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 196 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+[20:51:19.388 WARN] Cookie 197 timed out, dropping
+[20:51:19.388 WARN] NULL reply for cookie type 3 client 2097152
+DEBUG: Ingested event type 18
+DEBUG: Ingested event type 17
+[20:51:21.385 INFO] Shutting down

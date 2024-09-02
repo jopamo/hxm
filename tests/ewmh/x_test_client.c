@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <xcb/xcb.h>
 
 static void die(const char* msg) {
@@ -83,8 +84,27 @@ int main(int argc, char** argv) {
         uint32_t values[] = {screen->white_pixel, XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_PROPERTY_CHANGE};
         xcb_create_window(conn, XCB_COPY_FROM_PARENT, win, root, 0, 0, 100, 100, 1, XCB_WINDOW_CLASS_INPUT_OUTPUT,
                           screen->root_visual, mask, values);
+        xcb_set_close_down_mode(conn, XCB_CLOSE_DOWN_RETAIN_PERMANENT);
         xcb_flush(conn);
         printf("%" PRIu32 "\n", win);
+        xcb_disconnect(conn);
+        return 0;
+    }
+
+    if (strcmp(cmd, "create-window-and-sleep") == 0) {
+        if (argc != 3) usage();
+        uint32_t sec = parse_u32(argv[2]);
+
+        xcb_window_t win = xcb_generate_id(conn);
+        uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
+        uint32_t values[] = {screen->white_pixel, XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_PROPERTY_CHANGE};
+        xcb_create_window(conn, XCB_COPY_FROM_PARENT, win, root, 0, 0, 100, 100, 1, XCB_WINDOW_CLASS_INPUT_OUTPUT,
+                          screen->root_visual, mask, values);
+        xcb_map_window(conn, win);
+        xcb_flush(conn);
+        printf("%" PRIu32 "\n", win);
+        fflush(stdout);
+        sleep(sec);
         xcb_disconnect(conn);
         return 0;
     }
@@ -101,7 +121,7 @@ int main(int argc, char** argv) {
     if (strcmp(cmd, "get-root-cardinals") == 0) {
         if (argc != 3) usage();
         xcb_atom_t atom = get_atom(conn, argv[2]);
-        xcb_get_property_cookie_t ck = xcb_get_property(conn, 0, root, atom, XCB_ATOM_CARDINAL, 0, UINT32_MAX);
+        xcb_get_property_cookie_t ck = xcb_get_property(conn, 0, root, atom, XCB_ATOM_ANY, 0, UINT32_MAX);
         xcb_get_property_reply_t* rep = xcb_get_property_reply(conn, ck, NULL);
         if (!rep) die("property reply failed");
         int len = xcb_get_property_value_length(rep) / 4;
@@ -116,9 +136,18 @@ int main(int argc, char** argv) {
         if (argc != 4) usage();
         xcb_window_t win = (xcb_window_t)parse_u32(argv[2]);
         xcb_atom_t atom = get_atom(conn, argv[3]);
-        xcb_get_property_cookie_t ck = xcb_get_property(conn, 0, win, atom, XCB_ATOM_CARDINAL, 0, UINT32_MAX);
-        xcb_get_property_reply_t* rep = xcb_get_property_reply(conn, ck, NULL);
-        if (!rep) die("property reply failed");
+        xcb_get_property_cookie_t ck = xcb_get_property(conn, 0, win, atom, XCB_ATOM_ANY, 0, UINT32_MAX);
+        xcb_generic_error_t* err = NULL;
+        xcb_get_property_reply_t* rep = xcb_get_property_reply(conn, ck, &err);
+        if (!rep) {
+            if (err) {
+                fprintf(stderr, "x_test_client: property reply error %d\n", err->error_code);
+                free(err);
+            } else {
+                fprintf(stderr, "x_test_client: property reply failed (IO error?)\n");
+            }
+            exit(1);
+        }
         int len = xcb_get_property_value_length(rep) / 4;
         uint32_t* vals = (uint32_t*)xcb_get_property_value(rep);
         print_cardinal_json(vals, len);
@@ -211,9 +240,23 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 5; i++) {
             ev.data.data32[i] = parse_u32(argv[4 + i]);
         }
-        xcb_send_event(conn, 0, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT,
-                       (const char*)&ev);
+        xcb_void_cookie_t ck = xcb_send_event(
+            conn, 0, root, XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT, (const char*)&ev);
+        xcb_generic_error_t* err = xcb_request_check(conn, ck);
+        if (err) {
+            fprintf(stderr, "x_test_client: send_event failed: %d\n", err->error_code);
+            free(err);
+            exit(1);
+        }
         xcb_flush(conn);
+        xcb_disconnect(conn);
+        return 0;
+    }
+
+    if (strcmp(cmd, "sleep") == 0) {
+        if (argc != 3) usage();
+        uint32_t sec = parse_u32(argv[2]);
+        sleep(sec);
         xcb_disconnect(conn);
         return 0;
     }

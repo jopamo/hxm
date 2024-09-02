@@ -167,7 +167,12 @@ typedef struct server {
     // Root Menu
     menu_t menu;
 
-    // Configuration
+    // State
+    bool running;
+    bool restarting;
+    int exit_code;
+
+    // Config
     config_t config;
     bool is_test;
 } server_t;

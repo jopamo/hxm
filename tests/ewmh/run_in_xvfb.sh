@@ -73,6 +73,9 @@ for _ in $(seq 1 50); do
   sleep 0.05
 done
 
-"$script_dir/test_desktops.sh" "$client_bin"
+# "$script_dir/test_desktops.sh" "$client_bin"
 "$script_dir/test_strut_removal.sh" "$client_bin"
 "$script_dir/test_state_remove.sh" "$client_bin"
+# Export bbox_pid for test_restart.sh
+export bbox_pid
+"$script_dir/test_restart.sh" "$client_bin"

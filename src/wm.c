@@ -1150,18 +1150,10 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
             case ACTION_EXEC:
                 if (b->exec_cmd) spawn(b->exec_cmd);
                 break;
-            case ACTION_RESTART: {
-                LOG_INFO("Restarting bbox...");
-                char path[1024];
-                ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
-                if (len != -1) {
-                    path[len] = '\0';
-                    char* args[] = {path, NULL};
-                    execv(path, args);
-                }
-                LOG_ERROR("Failed to restart: %s", strerror(errno));
+            case ACTION_RESTART:
+                LOG_INFO("Triggering restart...");
+                g_restart_pending = 1;
                 break;
-            }
             case ACTION_EXIT:
                 exit(0);
                 break;

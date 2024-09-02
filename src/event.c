@@ -354,6 +354,7 @@ void event_ingest(server_t* s, bool x_ready) {
 
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
     uint8_t type = ev->response_type & ~0x80;
+    fprintf(stderr, "DEBUG: Ingested event type %u\n", type);
     counters.events_seen[type]++;
 
     if (s->damage_supported && type == (uint8_t)(s->damage_event_base + XCB_DAMAGE_NOTIFY)) {
@@ -843,6 +844,7 @@ void server_run(server_t* s) {
 
         if (g_restart_pending) {
             LOG_INFO("Restarting bbox...");
+            s->restarting = true;
             char path[1024];
             ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
             if (len != -1) {

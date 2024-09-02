@@ -616,7 +616,7 @@ void client_unmanage(server_t* s, handle_t h) {
     // Cleanup maps and properties
     if (hot->xid != XCB_NONE) {
         xcb_delete_property(s->conn, hot->xid, atoms.WM_STATE);
-        if (!destroyed) {
+        if (!destroyed && !s->restarting) {
             xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_DESKTOP);
             xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_STATE);
         }
