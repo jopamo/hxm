@@ -1,5 +1,6 @@
 #include "cookie_jar.h"
 
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -173,7 +174,7 @@ void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s
             }
 
             // Not ready, check timeout
-            if (now - slot->timestamp_ns > COOKIE_JAR_TIMEOUT_NS) {
+            if (now > slot->timestamp_ns && now - slot->timestamp_ns > COOKIE_JAR_TIMEOUT_NS) {
                 cookie_slot_t local = *slot;
                 cookie_jar_remove(cj, idx);
 

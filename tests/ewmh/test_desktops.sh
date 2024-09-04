@@ -56,7 +56,6 @@ wait_for_root_value _NET_CURRENT_DESKTOP 1
 
 win=$("$client" create-window)
 "$client" map-window "$win"
-sleep 2.0
 
 "$client" send-client-message "$win" _NET_WM_DESKTOP 2 1 0 0 0
 wait_for_window_value "$win" _NET_WM_DESKTOP 2
