@@ -263,6 +263,13 @@ test_gtk_extents = executable('test_gtk_extents',
 )
 test('gtk_extents', test_gtk_extents)
 
+test_gtk_extents_update = executable('test_gtk_extents_update',
+  ['tests/test_gtk_extents_update.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('gtk_extents_update', test_gtk_extents_update)
+
 # Install configuration files
 install_data('data/bbox.desktop', install_dir: get_option('datadir') / 'xsessions')
 install_data('data/bbox.conf', install_dir: get_option('sysconfdir') / 'bbox')
