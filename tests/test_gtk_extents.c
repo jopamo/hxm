@@ -14,6 +14,7 @@ extern int32_t stub_last_config_x;
 extern int32_t stub_last_config_y;
 extern uint32_t stub_last_config_w;
 extern uint32_t stub_last_config_h;
+extern int stub_configure_window_count;
 
 void test_gtk_extents_inflation() {
     server_t s;
@@ -54,6 +55,7 @@ void test_gtk_extents_inflation() {
 
     // Flush
     stub_last_config_window = 0;
+    stub_configure_window_count = 0;
     wm_flush_dirty(&s);
 
     // wm_flush_dirty configures frame FIRST, then client.
@@ -70,6 +72,7 @@ void test_gtk_extents_inflation() {
     assert(stub_last_config_y == 0);
     assert(stub_last_config_w == 420);
     assert(stub_last_config_h == 340);
+    assert(stub_configure_window_count == 2);
 
     printf("test_gtk_extents_inflation (client) passed\n");
 

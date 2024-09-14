@@ -270,6 +270,41 @@ test_gtk_extents_update = executable('test_gtk_extents_update',
 )
 test('gtk_extents_update', test_gtk_extents_update)
 
+test_gtk_decorations = executable('test_gtk_decorations',
+  ['tests/test_gtk_decorations.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('gtk_decorations', test_gtk_decorations)
+
+test_stacking = executable('test_stacking',
+  ['tests/test_stacking.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('stacking', test_stacking)
+
+test_dirty_region = executable('test_dirty_region',
+  ['tests/test_dirty_region.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('dirty_region', test_dirty_region)
+
+test_cookie_jar = executable('test_cookie_jar',
+  ['tests/test_cookie_jar.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('cookie_jar', test_cookie_jar)
+
+test_ewmh_check = executable('test_ewmh_check',
+  ['tests/test_ewmh_check.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('ewmh_check', test_ewmh_check)
+
 # Install configuration files
 install_data('data/bbox.desktop', install_dir: get_option('datadir') / 'xsessions')
 install_data('data/bbox.conf', install_dir: get_option('sysconfdir') / 'bbox')

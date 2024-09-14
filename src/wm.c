@@ -545,6 +545,9 @@ void wm_become(server_t* s) {
     // Also set on root for completeness (some pagers check root)
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_WM_PID, XCB_ATOM_CARDINAL, 32, 1, &pid);
 
+    // Map the window so it is "viewable" as required by some tools
+    xcb_map_window(conn, s->supporting_wm_check);
+
     // _NET_DESKTOP_GEOMETRY
     xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
     uint32_t geometry[] = {screen->width_in_pixels, screen->height_in_pixels};

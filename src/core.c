@@ -35,7 +35,7 @@ void counters_dump(void) {
     }
 }
 
-uint64_t monotonic_time_ns(void) {
+__attribute__((weak)) uint64_t monotonic_time_ns(void) {
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
         return 0;
