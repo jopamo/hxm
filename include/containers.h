@@ -26,6 +26,7 @@ struct arena {
 void arena_init(struct arena* a, size_t block_size);
 void* arena_alloc(struct arena* a, size_t size);
 char* arena_strndup(struct arena* a, const char* s, size_t n);
+char* arena_strdup(struct arena* a, const char* s);
 void arena_reset(struct arena* a);
 void arena_destroy(struct arena* a);
 
@@ -42,6 +43,7 @@ typedef struct small_vec {
 void small_vec_init(small_vec_t* v);
 void small_vec_push(small_vec_t* v, void* item);
 void* small_vec_pop(small_vec_t* v);
+void* small_vec_get(const small_vec_t* v, size_t idx);
 void small_vec_clear(small_vec_t* v);
 void small_vec_destroy(small_vec_t* v);
 

@@ -117,6 +117,13 @@ test_workspaces = executable('test_workspaces',
 )
 test('workspaces', test_workspaces)
 
+test_containers = executable('test_containers',
+  ['tests/test_containers.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('containers', test_containers)
+
 test_icccm = executable('test_icccm',
   ['tests/test_icccm.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
