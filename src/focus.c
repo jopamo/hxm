@@ -1,3 +1,7 @@
+/* src/focus.c
+ * Window focus handling and history
+ */
+
 #include <stdlib.h>
 
 #include "bbox.h"

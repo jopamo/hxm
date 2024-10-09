@@ -1,3 +1,7 @@
+/* src/config.c
+ * Configuration file parsing and handling
+ */
+
 #include "config.h"
 
 #include <X11/keysym.h>

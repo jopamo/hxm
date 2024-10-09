@@ -1,3 +1,7 @@
+/* src/render.c
+ * Rendering primitives and color management
+ */
+
 #include "render.h"
 
 #include <math.h>

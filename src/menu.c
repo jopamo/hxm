@@ -1,3 +1,7 @@
+/* src/menu.c
+ * Menu rendering and interaction
+ */
+
 #include "menu.h"
 
 #include <X11/keysym.h>

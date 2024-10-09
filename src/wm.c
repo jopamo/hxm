@@ -1,3 +1,7 @@
+/* src/wm.c
+ * Window manager core logic
+ */
+
 #include "wm.h"
 
 #include <X11/cursorfont.h>
@@ -162,11 +166,11 @@ static void wm_set_showing_desktop(server_t* s, bool show) {
                         &val);
 
     if (show) {
-        for (uint32_t i = 1; i < s->clients.cap; i++) {
-            if (!s->clients.hdr[i].live) continue;
-            handle_t h = handle_make(i, s->clients.hdr[i].gen);
-            client_hot_t* hot = server_chot(s, h);
-            if (!hot || hot->state != STATE_MAPPED) continue;
+        for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+            if (!slotmap_is_used_idx(&s->clients, i)) continue;
+            handle_t h = slotmap_handle_at(&s->clients, i);
+            client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+            if (hot->state != STATE_MAPPED) continue;
             if (!wm_should_hide_for_show_desktop(hot)) continue;
             hot->show_desktop_hidden = true;
             TRACE_LOG("showing_desktop hide h=%lx xid=%u", h, hot->xid);
@@ -174,11 +178,11 @@ static void wm_set_showing_desktop(server_t* s, bool show) {
         }
         wm_set_focus(s, HANDLE_INVALID);
     } else {
-        for (uint32_t i = 1; i < s->clients.cap; i++) {
-            if (!s->clients.hdr[i].live) continue;
-            handle_t h = handle_make(i, s->clients.hdr[i].gen);
-            client_hot_t* hot = server_chot(s, h);
-            if (!hot || !hot->show_desktop_hidden) continue;
+        for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+            if (!slotmap_is_used_idx(&s->clients, i)) continue;
+            handle_t h = slotmap_handle_at(&s->clients, i);
+            client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+            if (!hot->show_desktop_hidden) continue;
             hot->show_desktop_hidden = false;
             if (hot->state == STATE_UNMAPPED) {
                 TRACE_LOG("showing_desktop restore h=%lx xid=%u", h, hot->xid);
@@ -284,12 +288,10 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
     xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
     int32_t l = 0, r = (int32_t)screen->width_in_pixels, t = 0, b = (int32_t)screen->height_in_pixels;
 
-    for (uint32_t i = 1; i < s->clients.cap; i++) {
-        if (!s->clients.hdr[i].live) continue;
+    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+        if (!slotmap_is_used_idx(&s->clients, i)) continue;
 
-        handle_t h = handle_make(i, s->clients.hdr[i].gen);
-        client_hot_t* c = server_chot(s, h);
-        if (!c) continue;
+        client_hot_t* c = (client_hot_t*)slotmap_hot_at(&s->clients, i);
         if (c->state != STATE_MAPPED) continue;
 
         if ((int32_t)c->strut.left > l) l = (int32_t)c->strut.left;
@@ -329,11 +331,9 @@ static void wm_publish_workarea(server_t* s, const rect_t* wa) {
     if (!changed) return;
 
     // Re-apply workarea-dependent geometry for maximized/fullscreen windows.
-    for (uint32_t i = 1; i < s->clients.cap; i++) {
-        if (!s->clients.hdr[i].live) continue;
-        handle_t h = handle_make(i, s->clients.hdr[i].gen);
-        client_hot_t* hot = server_chot(s, h);
-        if (!hot) continue;
+    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+        if (!slotmap_is_used_idx(&s->clients, i)) continue;
+        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
 
         if (hot->layer == LAYER_FULLSCREEN && s->config.fullscreen_use_workarea) {
@@ -779,12 +779,11 @@ void wm_send_synthetic_configure(server_t* s, handle_t h) {
 }
 
 void wm_flush_dirty(server_t* s) {
-    for (uint32_t i = 1; i < s->clients.cap; i++) {
-        if (!s->clients.hdr[i].live) continue;
+    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+        if (!slotmap_is_used_idx(&s->clients, i)) continue;
 
-        handle_t h = handle_make(i, s->clients.hdr[i].gen);
-        client_hot_t* hot = server_chot(s, h);
-        if (!hot) continue;
+        handle_t h = slotmap_handle_at(&s->clients, i);
+        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
 
         if (hot->dirty == DIRTY_NONE) continue;
         TRACE_LOG("flush_dirty h=%lx xid=%u dirty=0x%x state=%d", h, hot->xid, hot->dirty, hot->state);
@@ -1002,21 +1001,16 @@ void wm_flush_dirty(server_t* s) {
     }
 
     if (s->root_dirty & (ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING)) {
-        uint32_t count = 0;
-        for (uint32_t i = 1; i < s->clients.cap; i++) {
-            if (s->clients.hdr[i].live) count++;
-        }
+        uint32_t count = slotmap_count(&s->clients);
 
         xcb_window_t* wins = count ? malloc(count * sizeof(xcb_window_t)) : NULL;
         if (wins || count == 0) {
             if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST) {
                 if (count) {
                     uint32_t idx = 0;
-                    for (uint32_t i = 1; i < s->clients.cap; i++) {
-                        if (!s->clients.hdr[i].live) continue;
-                        handle_t hh = handle_make(i, s->clients.hdr[i].gen);
-                        client_hot_t* hot = server_chot(s, hh);
-                        if (!hot) continue;
+                    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+                        if (!slotmap_is_used_idx(&s->clients, i)) continue;
+                        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
                         wins[idx++] = hot->xid;
                     }
                     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST,
@@ -1718,11 +1712,10 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
             s->desktop_count = requested;
             if (s->current_desktop >= s->desktop_count) s->current_desktop = 0;
 
-            for (uint32_t i = 1; i < s->clients.cap; i++) {
-                if (!s->clients.hdr[i].live) continue;
-                handle_t h = handle_make(i, s->clients.hdr[i].gen);
-                client_hot_t* hot = server_chot(s, h);
-                if (!hot || hot->sticky) continue;
+            for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+                if (!slotmap_is_used_idx(&s->clients, i)) continue;
+                client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+                if (hot->sticky) continue;
                 if (hot->desktop >= (int32_t)s->desktop_count) {
                     hot->desktop = (int32_t)s->current_desktop;
                     uint32_t prop_val = (uint32_t)hot->desktop;

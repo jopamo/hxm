@@ -1,3 +1,7 @@
+/* src/event.c
+ * Event loop and signal handling
+ */
+
 #include "event.h"
 
 #include <errno.h>
@@ -102,7 +106,33 @@ void server_init(server_t* s) {
 
     // Initialize workspace state from config
     s->desktop_count = s->config.desktop_count ? s->config.desktop_count : 1;
+
+    // Restore current desktop
     s->current_desktop = 0;
+    xcb_get_property_cookie_t ck =
+        xcb_get_property(s->conn, 0, s->root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 0, 1);
+    xcb_get_property_reply_t* r = xcb_get_property_reply(s->conn, ck, NULL);
+    if (r) {
+        if (r->type == XCB_ATOM_CARDINAL && r->format == 32 && xcb_get_property_value_length(r) >= 4) {
+            uint32_t val = *(uint32_t*)xcb_get_property_value(r);
+            if (val < s->desktop_count) {
+                s->current_desktop = val;
+            }
+        }
+        free(r);
+    }
+
+    // Restore active window (focus)
+    s->initial_focus = XCB_NONE;
+    ck = xcb_get_property(s->conn, 0, s->root, atoms._NET_ACTIVE_WINDOW, XCB_ATOM_WINDOW, 0, 1);
+    r = xcb_get_property_reply(s->conn, ck, NULL);
+    if (r) {
+        if (r->type == XCB_ATOM_WINDOW && r->format == 32 && xcb_get_property_value_length(r) >= 4) {
+            s->initial_focus = *(xcb_window_t*)xcb_get_property_value(r);
+            LOG_INFO("Restoring focus to window %u", s->initial_focus);
+        }
+        free(r);
+    }
 
     // Cookie jar for async request/reply handling
     cookie_jar_init(&s->cookie_jar);
@@ -170,6 +200,13 @@ void server_init(server_t* s) {
     LOG_INFO("Server initialized");
 }
 
+static void cleanup_client_visitor(void* hot, void* cold, handle_t h, void* user) {
+    (void)hot;
+    (void)cold;
+    server_t* s = (server_t*)user;
+    client_unmanage(s, h);
+}
+
 void server_cleanup(server_t* s) {
     if (s->prefetched_event) {
         free(s->prefetched_event);
@@ -177,13 +214,7 @@ void server_cleanup(server_t* s) {
     }
 
     // Unmanage all clients (reparent back to root)
-    if (s->clients.hdr) {
-        for (uint32_t i = 1; i < s->clients.cap; i++) {
-            if (!s->clients.hdr[i].live) continue;
-            handle_t h = handle_make(i, s->clients.hdr[i].gen);
-            client_unmanage(s, h);
-        }
-    }
+    slotmap_for_each_used(&s->clients, cleanup_client_visitor, s);
 
     if (s->keysyms) xcb_key_symbols_free(s->keysyms);
 
@@ -784,11 +815,10 @@ static void apply_reload(server_t* s) {
 
     wm_setup_keys(s);
 
-    for (uint32_t i = 1; i < s->clients.cap; i++) {
-        if (!s->clients.hdr[i].live) continue;
-        handle_t h = handle_make(i, s->clients.hdr[i].gen);
-        client_hot_t* hot = server_chot(s, h);
-        if (hot) hot->dirty |= DIRTY_FRAME_STYLE | DIRTY_GEOM;
+    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+        if (!slotmap_is_used_idx(&s->clients, i)) continue;
+        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+        hot->dirty |= DIRTY_FRAME_STYLE | DIRTY_GEOM;
     }
 
     wm_publish_desktop_props(s);

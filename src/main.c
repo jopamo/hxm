@@ -1,3 +1,7 @@
+/* src/main.c
+ * Main entry point and initialization
+ */
+
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>

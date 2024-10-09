@@ -27,6 +27,17 @@ echo "Client list: $json"
 "$client" send-client-message "$win" _NET_WM_DESKTOP 1 2 0 0 0
 sleep 1.0
 
+# Switch current desktop to 1
+"$client" send-client-message 0 _NET_CURRENT_DESKTOP 1 0 0 0 0
+sleep 0.5
+json=$("$client" get-root-cardinals _NET_CURRENT_DESKTOP)
+cur=$(echo "$json" | grep -o '[0-9]*' | head -n 1)
+if [ "$cur" != "1" ]; then
+  echo "Failed to switch to desktop 1. Got: $cur"
+  kill "$client_pid" || true
+  exit 1
+fi
+
 # Verify desktop is 1
 json=$("$client" get-window-cardinals "$win" _NET_WM_DESKTOP)
 val=$(echo "$json" | grep -o '[0-9]*' | head -n 1)
@@ -37,7 +48,7 @@ if [ "$val" != "1" ]; then
   exit 1
 fi
 
-echo "Window on desktop 1. Restarting bbox..."
+echo "Window on desktop 1. Current desktop 1. Restarting bbox..."
 
 if [ -z "${bbox_pid:-}" ]; then
   echo "bbox_pid not found"
@@ -48,16 +59,31 @@ fi
 kill -USR2 "$bbox_pid"
 sleep 2.0
 
+# Verify current desktop is still 1
+json=$("$client" get-root-cardinals _NET_CURRENT_DESKTOP)
+cur=$(echo "$json" | grep -o '[0-9]*' | head -n 1)
+if [ "$cur" != "1" ]; then
+  echo "Failed to preserve current desktop 1 after restart. Got: $cur"
+  kill "$client_pid" || true
+  exit 1
+fi
+
 # Verify desktop is still 1
 json=$("$client" get-window-cardinals "$win" _NET_WM_DESKTOP)
 val=$(echo "$json" | grep -o '[0-9]*' | head -n 1)
 
-# Clean up client
-kill "$client_pid" || true
-rm -f "$out"
-
 if [ "$val" != "1" ]; then
   echo "Failed to preserve desktop 1 after restart. Got: $val"
+  kill "$client_pid" || true
+  exit 1
+fi
+
+# Verify focus restoration
+json=$("$client" get-root-cardinals _NET_ACTIVE_WINDOW)
+val=$(echo "$json" | grep -o '[0-9]*' | head -n 1)
+if [ "$val" != "$win" ]; then
+  echo "Failed to restore focus to $win. Got: $val"
+  kill "$client_pid" || true
   exit 1
 fi
 

@@ -1,3 +1,7 @@
+/* src/containers.c
+ * Container layout and management
+ */
+
 #include "containers.h"
 
 #include <assert.h>

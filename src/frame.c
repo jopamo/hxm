@@ -1,3 +1,7 @@
+/* src/frame.c
+ * Window frame decoration and management
+ */
+
 #include "frame.h"
 
 #include <X11/cursorfont.h>

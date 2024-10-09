@@ -1,3 +1,7 @@
+/* src/xcb_utils.c
+ * XCB utility functions and atom management
+ */
+
 #include "xcb_utils.h"
 
 #include <stdlib.h>

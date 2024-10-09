@@ -17,6 +17,7 @@
 
 #define STUB_MAX_MAPPED 256
 #define STUB_MAX_PROP_BYTES 4096
+#define STUB_MAX_CONFIG_CALLS 64
 
 // XID generator
 static uint32_t stub_xid_counter = 100;
@@ -69,6 +70,23 @@ uint32_t stub_last_config_stack_mode = 0;
 uint32_t stub_last_config_border_width = 0;
 int stub_configure_window_count = 0;
 
+typedef struct stub_config_call {
+    xcb_window_t win;
+    uint16_t mask;
+
+    int32_t x;
+    int32_t y;
+    uint32_t w;
+    uint32_t h;
+
+    uint32_t border_width;
+    xcb_window_t sibling;
+    uint32_t stack_mode;
+} stub_config_call_t;
+
+stub_config_call_t stub_config_calls[STUB_MAX_CONFIG_CALLS];
+int stub_config_calls_len = 0;
+
 // Send event capture
 int stub_send_event_count = 0;
 xcb_window_t stub_last_send_event_destination = 0;
@@ -118,6 +136,9 @@ void xcb_stubs_reset(void) {
     stub_last_config_stack_mode = 0;
     stub_last_config_border_width = 0;
     stub_configure_window_count = 0;
+
+    stub_config_calls_len = 0;
+    memset(stub_config_calls, 0, sizeof(stub_config_calls));
 
     stub_send_event_count = 0;
     stub_last_send_event_destination = 0;
@@ -299,9 +320,17 @@ xcb_void_cookie_t xcb_configure_window(xcb_connection_t* c, xcb_window_t window,
     stub_configure_window_count++;
     stub_last_config_window = window;
     stub_last_config_mask = value_mask;
+
+    // Default fields for this call
     stub_last_config_sibling = 0;
     stub_last_config_stack_mode = 0;
     stub_last_config_border_width = 0;
+
+    // Strict per-call decoding
+    stub_last_config_x = 0;
+    stub_last_config_y = 0;
+    stub_last_config_w = 0;
+    stub_last_config_h = 0;
 
     const uint32_t* values = (const uint32_t*)value_list;
     int i = 0;
@@ -314,12 +343,37 @@ xcb_void_cookie_t xcb_configure_window(xcb_connection_t* c, xcb_window_t window,
     if (value_mask & XCB_CONFIG_WINDOW_SIBLING) stub_last_config_sibling = values[i++];
     if (value_mask & XCB_CONFIG_WINDOW_STACK_MODE) stub_last_config_stack_mode = values[i++];
 
+    // Record history for order-sensitive tests
+    if (stub_config_calls_len < STUB_MAX_CONFIG_CALLS) {
+        stub_config_call_t* call = &stub_config_calls[stub_config_calls_len++];
+
+        call->win = window;
+        call->mask = value_mask;
+
+        call->x = stub_last_config_x;
+        call->y = stub_last_config_y;
+        call->w = stub_last_config_w;
+        call->h = stub_last_config_h;
+
+        call->border_width = stub_last_config_border_width;
+        call->sibling = stub_last_config_sibling;
+        call->stack_mode = stub_last_config_stack_mode;
+    }
+
     return (xcb_void_cookie_t){0};
 }
 
 xcb_void_cookie_t xcb_configure_window_checked(xcb_connection_t* c, xcb_window_t window, uint16_t value_mask,
                                                const void* value_list) {
     return xcb_configure_window(c, window, value_mask, value_list);
+}
+
+// Optional helpers for tests
+int stub_config_calls_count(void) { return stub_config_calls_len; }
+
+const stub_config_call_t* stub_config_call_at(int idx) {
+    if (idx < 0 || idx >= stub_config_calls_len) return NULL;
+    return &stub_config_calls[idx];
 }
 
 // Properties

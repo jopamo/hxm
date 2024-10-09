@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,7 +9,9 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-// External stubs
+// From xcb stubs
+extern void xcb_stubs_reset(void);
+
 extern xcb_window_t stub_last_config_window;
 extern int32_t stub_last_config_x;
 extern int32_t stub_last_config_y;
@@ -16,88 +19,323 @@ extern uint32_t stub_last_config_w;
 extern uint32_t stub_last_config_h;
 extern int stub_configure_window_count;
 
-void test_gtk_extents_inflation() {
+typedef struct stub_config_call {
+    xcb_window_t win;
+    uint16_t mask;
+    int32_t x;
+    int32_t y;
+    uint32_t w;
+    uint32_t h;
+    uint32_t border_width;
+    xcb_window_t sibling;
+    uint32_t stack_mode;
+} stub_config_call_t;
+
+extern stub_config_call_t stub_config_calls[64];
+extern int stub_config_calls_len;
+
+static void reset_config_captures(void) {
+    xcb_stubs_reset();
+    // If you ever want to only reset configure info but not everything,
+    // split a xcb_stubs_reset_config helper later
+}
+
+typedef struct test_server {
     server_t s;
-    memset(&s, 0, sizeof(s));
-    s.is_test = true;
-    s.conn = (xcb_connection_t*)malloc(1);
+    client_hot_t* created[16];
+    size_t created_len;
+} test_server_t;
 
-    // Init config
-    config_init_defaults(&s.config);
-    // Even if we have border width, GTK extents should override/hide it (undecorated)
-    s.config.theme.border_width = 5;
+static void test_server_init(test_server_t* ts) {
+    memset(ts, 0, sizeof(*ts));
 
-    if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+    ts->s.is_test = true;
+    ts->s.conn = (xcb_connection_t*)malloc(1);
+    assert(ts->s.conn);
 
-    void *hot_ptr = NULL, *cold_ptr = NULL;
-    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    config_init_defaults(&ts->s.config);
+
+    bool ok = slotmap_init(&ts->s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t));
+    assert(ok);
+}
+
+static client_hot_t* test_client_add(test_server_t* ts, xcb_window_t xid, xcb_window_t frame) {
+    void* hot_ptr = NULL;
+    void* cold_ptr = NULL;
+
+    handle_t h = slotmap_alloc(&ts->s.clients, &hot_ptr, &cold_ptr);
+    assert(h != HANDLE_INVALID);
+    assert(hot_ptr);
+    assert(cold_ptr);
+
     client_hot_t* hot = (client_hot_t*)hot_ptr;
+    memset(hot, 0, sizeof(*hot));
+
     hot->self = h;
-    hot->xid = 100;
-    hot->frame = 200;
+    hot->xid = xid;
+    hot->frame = frame;
     hot->state = STATE_MAPPED;
 
-    // Set visual geometry
+    // Default geometry
     hot->desired.x = 50;
     hot->desired.y = 50;
     hot->desired.w = 400;
     hot->desired.h = 300;
 
-    // Enable GTK extents
+    assert(ts->created_len < (sizeof(ts->created) / sizeof(ts->created[0])));
+    ts->created[ts->created_len++] = hot;
+
+    return hot;
+}
+
+static void test_server_destroy(test_server_t* ts) {
+    // Free only what we created
+    for (size_t i = 0; i < ts->created_len; i++) {
+        client_hot_t* hot = ts->created[i];
+        if (!hot) continue;
+
+        render_free(&hot->render_ctx);
+        if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+        hot->icon_surface = NULL;
+    }
+
+    slotmap_destroy(&ts->s.clients);
+    config_destroy(&ts->s.config);
+    free(ts->s.conn);
+    ts->s.conn = NULL;
+}
+
+static void assert_call_eq(const stub_config_call_t* c, xcb_window_t win, int32_t x, int32_t y, uint32_t w,
+                           uint32_t h) {
+    assert(c);
+    assert(c->win == win);
+    assert(c->x == x);
+    assert(c->y == y);
+    assert(c->w == w);
+    assert(c->h == h);
+}
+
+static void test_gtk_extents_inflation_order_and_state(void) {
+    test_server_t ts;
+    test_server_init(&ts);
+
+    // Even if we have border width, GTK extents should dominate for undecorated client
+    ts.s.config.theme.border_width = 5;
+
+    client_hot_t* hot = test_client_add(&ts, 100, 200);
+
+    // Set GTK extents
     hot->gtk_frame_extents_set = true;
     hot->gtk_extents.left = 10;
     hot->gtk_extents.right = 10;
     hot->gtk_extents.top = 20;
     hot->gtk_extents.bottom = 20;
 
-    // Mark dirty
     hot->dirty = DIRTY_GEOM;
 
-    // Flush
-    stub_last_config_window = 0;
-    stub_configure_window_count = 0;
-    wm_flush_dirty(&s);
+    reset_config_captures();
+    wm_flush_dirty(&ts.s);
 
-    // wm_flush_dirty configures frame FIRST, then client.
-    // So stub_last_config_* will hold CLIENT configuration.
-    // To check frame, we'd need to instrument stubs better or check order.
-    // However, client is configured LAST.
+    // Expected
+    const int32_t exp_frame_x = 50 - 10;
+    const int32_t exp_frame_y = 50 - 20;
+    const uint32_t exp_w = 400 + 10 + 10;
+    const uint32_t exp_h = 300 + 20 + 20;
 
-    // Check Client (XID) configuration
-    // It should be 0,0 relative to frame, and size inflated.
-    // Inflated size: W = 400 + 10 + 10 = 420. H = 300 + 20 + 20 = 340.
+    // Two configures: frame then client
+    assert(stub_configure_window_count == 2);
+    assert(stub_config_calls_len == 2);
 
-    assert(stub_last_config_window == 100);  // XID
+    assert_call_eq(&stub_config_calls[0], 200, exp_frame_x, exp_frame_y, exp_w, exp_h);
+    assert_call_eq(&stub_config_calls[1], 100, 0, 0, exp_w, exp_h);
+
+    // Last call should be the client
+    assert(stub_last_config_window == 100);
     assert(stub_last_config_x == 0);
     assert(stub_last_config_y == 0);
-    assert(stub_last_config_w == 420);
-    assert(stub_last_config_h == 340);
-    assert(stub_configure_window_count == 2);
+    assert(stub_last_config_w == exp_w);
+    assert(stub_last_config_h == exp_h);
 
-    printf("test_gtk_extents_inflation (client) passed\n");
+    // Server state should reflect frame geometry
+    assert(hot->server.x == exp_frame_x);
+    assert(hot->server.y == exp_frame_y);
+    assert(hot->server.w == exp_w);
+    assert(hot->server.h == exp_h);
 
-    // Note: We can't easily verify frame configuration because the stub overwrites the values.
-    // But since the logic is in the same block, if client is correct, frame calculation is likely correct too.
-    // We can verify hot->server which should match client inflated size.
+    printf("test_gtk_extents_inflation_order_and_state passed\n");
 
-    assert(hot->server.w == 420);
-    assert(hot->server.h == 340);
-    // hot->server.x/y should match FRAME position (inflated).
-    // Frame X = 50 - 10 = 40.
-    // Frame Y = 50 - 20 = 30.
-    assert(hot->server.x == 40);
-    assert(hot->server.y == 30);
-
-    printf("test_gtk_extents_inflation (server state) passed\n");
-
-    render_free(&hot->render_ctx);
-    if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
-    slotmap_destroy(&s.clients);
-    config_destroy(&s.config);
-    free(s.conn);
+    test_server_destroy(&ts);
 }
 
-int main() {
-    test_gtk_extents_inflation();
+static void test_no_gtk_extents_no_inflation(void) {
+    test_server_t ts;
+    test_server_init(&ts);
+
+    ts.s.config.theme.border_width = 5;
+
+    client_hot_t* hot = test_client_add(&ts, 101, 201);
+
+    hot->gtk_frame_extents_set = false;
+    memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
+
+    hot->dirty = DIRTY_GEOM;
+
+    reset_config_captures();
+    wm_flush_dirty(&ts.s);
+
+    const int32_t exp_frame_x = 50;
+    const int32_t exp_frame_y = 50;
+    const uint32_t exp_w = 400;
+    const uint32_t exp_h = 300;
+
+    assert(stub_configure_window_count == 2);
+    assert(stub_config_calls_len == 2);
+
+    assert_call_eq(&stub_config_calls[0], 201, exp_frame_x, exp_frame_y, exp_w, exp_h);
+    assert_call_eq(&stub_config_calls[1], 101, 0, 0, exp_w, exp_h);
+
+    assert(hot->server.x == exp_frame_x);
+    assert(hot->server.y == exp_frame_y);
+    assert(hot->server.w == exp_w);
+    assert(hot->server.h == exp_h);
+
+    printf("test_no_gtk_extents_no_inflation passed\n");
+
+    test_server_destroy(&ts);
+}
+
+static void test_not_dirty_no_configure(void) {
+    test_server_t ts;
+    test_server_init(&ts);
+
+    client_hot_t* hot = test_client_add(&ts, 102, 202);
+
+    hot->gtk_frame_extents_set = true;
+    hot->gtk_extents.left = 7;
+    hot->gtk_extents.right = 9;
+    hot->gtk_extents.top = 11;
+    hot->gtk_extents.bottom = 13;
+
+    hot->dirty = 0;
+
+    reset_config_captures();
+    wm_flush_dirty(&ts.s);
+
+    assert(stub_configure_window_count == 0);
+    assert(stub_config_calls_len == 0);
+
+    printf("test_not_dirty_no_configure passed\n");
+
+    test_server_destroy(&ts);
+}
+
+static void test_idempotent_second_flush_does_nothing(void) {
+    test_server_t ts;
+    test_server_init(&ts);
+
+    client_hot_t* hot = test_client_add(&ts, 103, 203);
+
+    hot->gtk_frame_extents_set = true;
+    hot->gtk_extents.left = 1;
+    hot->gtk_extents.right = 2;
+    hot->gtk_extents.top = 3;
+    hot->gtk_extents.bottom = 4;
+
+    hot->dirty = DIRTY_GEOM;
+
+    reset_config_captures();
+    wm_flush_dirty(&ts.s);
+
+    assert(stub_configure_window_count == 2);
+    assert(stub_config_calls_len == 2);
+
+    reset_config_captures();
+    wm_flush_dirty(&ts.s);
+
+    assert(stub_configure_window_count == 0);
+    assert(stub_config_calls_len == 0);
+
+    printf("test_idempotent_second_flush_does_nothing passed\n");
+
+    test_server_destroy(&ts);
+}
+
+static void test_two_clients_both_configured(void) {
+    test_server_t ts;
+    test_server_init(&ts);
+
+    client_hot_t* a = test_client_add(&ts, 110, 210);
+    client_hot_t* b = test_client_add(&ts, 111, 211);
+
+    a->desired.x = 10;
+    a->desired.y = 20;
+    a->desired.w = 100;
+    a->desired.h = 200;
+    a->gtk_frame_extents_set = true;
+    a->gtk_extents.left = 5;
+    a->gtk_extents.right = 6;
+    a->gtk_extents.top = 7;
+    a->gtk_extents.bottom = 8;
+    a->dirty = DIRTY_GEOM;
+
+    b->desired.x = 30;
+    b->desired.y = 40;
+    b->desired.w = 300;
+    b->desired.h = 400;
+    b->gtk_frame_extents_set = false;
+    memset(&b->gtk_extents, 0, sizeof(b->gtk_extents));
+    b->dirty = DIRTY_GEOM;
+
+    reset_config_captures();
+    wm_flush_dirty(&ts.s);
+
+    assert(stub_configure_window_count == 4);
+    assert(stub_config_calls_len == 4);
+
+    // Find paired calls frame->client for A and B without assuming inter-client order
+    bool found_a = false;
+    bool found_b = false;
+
+    for (int i = 0; i + 1 < stub_config_calls_len; i++) {
+        const stub_config_call_t* c0 = &stub_config_calls[i];
+        const stub_config_call_t* c1 = &stub_config_calls[i + 1];
+
+        if (!found_a && c0->win == 210 && c1->win == 110) {
+            const int32_t fx = 10 - 5;
+            const int32_t fy = 20 - 7;
+            const uint32_t w = 100 + 5 + 6;
+            const uint32_t h = 200 + 7 + 8;
+            assert_call_eq(c0, 210, fx, fy, w, h);
+            assert_call_eq(c1, 110, 0, 0, w, h);
+            found_a = true;
+        }
+
+        if (!found_b && c0->win == 211 && c1->win == 111) {
+            const int32_t fx = 30;
+            const int32_t fy = 40;
+            const uint32_t w = 300;
+            const uint32_t h = 400;
+            assert_call_eq(c0, 211, fx, fy, w, h);
+            assert_call_eq(c1, 111, 0, 0, w, h);
+            found_b = true;
+        }
+    }
+
+    assert(found_a);
+    assert(found_b);
+
+    printf("test_two_clients_both_configured passed\n");
+
+    test_server_destroy(&ts);
+}
+
+int main(void) {
+    test_gtk_extents_inflation_order_and_state();
+    test_no_gtk_extents_no_inflation();
+    test_not_dirty_no_configure();
+    test_idempotent_second_flush_does_nothing();
+    test_two_clients_both_configured();
+
+    printf("all gtk extents / flush dirty tests passed\n");
     return 0;
 }

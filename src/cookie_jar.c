@@ -1,3 +1,7 @@
+/* src/cookie_jar.c
+ * XCB cookie management for async replies
+ */
+
 #include "cookie_jar.h"
 
 #include <inttypes.h>

@@ -157,6 +157,7 @@ typedef struct server {
 
     // Focus
     handle_t focused_client;
+    xcb_window_t initial_focus;
     list_node_t focus_history;  // Global MRU for now
 
     // Workspaces

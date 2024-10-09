@@ -1,3 +1,7 @@
+/* src/wm_reply.c
+ * Window manager reply handling
+ */
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -448,8 +452,11 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 if (client_apply_decoration_hints(hot)) changed = true;
 
             } else if (atom == atoms._GTK_FRAME_EXTENTS) {
-                bool has_extents =
-                    (r && r->format == 32 && xcb_get_property_value_length(r) >= (int)(4 * sizeof(uint32_t)));
+                int val_len = xcb_get_property_value_length(r);
+                bool has_extents = (r && r->format == 32 && val_len >= (int)(4 * sizeof(uint32_t)));
+
+                printf("DEBUG: _GTK_FRAME_EXTENTS reply format=%d value_len_field=%d calc_len=%d has_extents=%d\n",
+                       r ? (int)r->format : -1, r ? (int)r->value_len : -1, val_len, has_extents);
 
                 uint32_t old_left = 0, old_right = 0, old_top = 0, old_bottom = 0;
                 if (hot->gtk_frame_extents_set) {
@@ -466,6 +473,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     hot->gtk_extents.right = extents[1];
                     hot->gtk_extents.top = extents[2];
                     hot->gtk_extents.bottom = extents[3];
+                    fprintf(stderr, "DEBUG: Extents values: %u %u %u %u\n", extents[0], extents[1], extents[2],
+                            extents[3]);
                 } else {
                     memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
                 }

@@ -1,3 +1,7 @@
+/* src/client.c
+ * Client state management and handling
+ */
+
 #include "client.h"
 
 #include <stdlib.h>
@@ -480,10 +484,26 @@ void client_finish_manage(server_t* s, handle_t h) {
             stack_raise(s, h);
         }
 
-        // Focus new window if visible and allowed or if nothing is focused
-        if (visible && (s->focused_client == HANDLE_INVALID || should_focus_on_map(hot))) {
-            TRACE_LOG("finish_manage focus h=%lx", h);
-            wm_set_focus(s, h);
+        // Focus new window if visible
+        if (visible) {
+            bool focus_it = false;
+
+            if (s->initial_focus != XCB_NONE && hot->xid == s->initial_focus) {
+                TRACE_LOG("finish_manage restore focus h=%lx", h);
+                focus_it = true;
+                s->initial_focus = XCB_NONE;  // Consumed
+            } else if (should_focus_on_map(hot)) {
+                // Always focus dialogs/transients/user-interacted
+                focus_it = true;
+            } else if (s->focused_client == HANDLE_INVALID && s->initial_focus == XCB_NONE) {
+                // Only default focus if we aren't waiting for a specific restore
+                focus_it = true;
+            }
+
+            if (focus_it) {
+                TRACE_LOG("finish_manage focus h=%lx", h);
+                wm_set_focus(s, h);
+            }
         }
 
         // Draw initial decorations
@@ -597,8 +617,21 @@ void client_unmanage(server_t* s, handle_t h) {
 
     // Reparent back to root if window still exists
     if (!destroyed) {
-        TRACE_LOG("unmanage reparent xid=%u -> root", hot->xid);
-        xcb_reparent_window(s->conn, hot->xid, s->root, hot->server.x, hot->server.y);
+        int16_t root_x = hot->server.x;
+        int16_t root_y = hot->server.y;
+
+        if (hot->gtk_frame_extents_set) {
+            root_x += (int16_t)hot->gtk_extents.left;
+            root_y += (int16_t)hot->gtk_extents.top;
+        } else {
+            uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
+            uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+            root_x += (int16_t)bw;
+            root_y += (int16_t)th;
+        }
+
+        TRACE_LOG("unmanage reparent xid=%u -> root (%d,%d)", hot->xid, root_x, root_y);
+        xcb_reparent_window(s->conn, hot->xid, s->root, root_x, root_y);
     }
 
     if (hot->damage != XCB_NONE) {
