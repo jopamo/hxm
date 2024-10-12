@@ -18,7 +18,7 @@ void test_idempotent_unmanage() {
     s.conn = (xcb_connection_t*)malloc(1);
 
     list_init(&s.focus_history);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
@@ -28,7 +28,8 @@ void test_idempotent_unmanage() {
     client_cold_t* cold = (client_cold_t*)cold_ptr;
     hot->xid = 123;
     hot->state = STATE_MAPPED;
-    list_init(&hot->stacking_node);
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
     list_init(&hot->transient_sibling);
     list_init(&hot->transients_head);
     list_init(&hot->focus_node);
@@ -57,7 +58,7 @@ void test_destroy_unmanage_race() {
     s.conn = (xcb_connection_t*)malloc(1);
 
     list_init(&s.focus_history);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
@@ -67,7 +68,8 @@ void test_destroy_unmanage_race() {
     client_cold_t* cold = (client_cold_t*)cold_ptr;
     hot->xid = 123;
     hot->state = STATE_MAPPED;
-    list_init(&hot->stacking_node);
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
     list_init(&hot->transient_sibling);
     list_init(&hot->transients_head);
     list_init(&hot->focus_node);

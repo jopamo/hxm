@@ -115,6 +115,8 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->saved_maximize_valid = false;
     hot->saved_maximized_horz = false;
     hot->saved_maximized_vert = false;
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
 
     hot->last_cursor_dir = -1;
 
@@ -146,9 +148,10 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->pending_replies = 26;
 
     cold->can_focus = true;
+    cold->strut_partial_active = false;
+    cold->strut_full_active = false;
     arena_init(&cold->string_arena, 512);
 
-    list_init(&hot->stacking_node);
     list_init(&hot->transient_sibling);
     list_init(&hot->transients_head);
     list_init(&hot->focus_node);

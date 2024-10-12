@@ -118,12 +118,8 @@ typedef struct client_hot {
     bool saved_maximize_valid;
     bool saved_maximized_horz;
     bool saved_maximized_vert;
-
-    strut_t strut;
-    strut_t strut_partial;
-    strut_t strut_full;
-    bool strut_partial_active;
-    bool strut_full_active;
+    int32_t stacking_index;
+    int8_t stacking_layer;
 
     uint32_t dirty;
     uint8_t state;            // client_state_t
@@ -156,7 +152,6 @@ typedef struct client_hot {
     bool manage_aborted;
 
     handle_t transient_for;
-    list_node_t stacking_node;
 
     list_node_t transient_sibling;  // Node in parent's transients_list
     list_node_t transients_head;    // List of clients transient for this one
@@ -217,6 +212,12 @@ typedef struct client_cold {
     uint32_t protocols;
     xcb_window_t transient_for_xid;
     bool can_focus;
+
+    strut_t strut;
+    strut_t strut_partial;
+    strut_t strut_full;
+    bool strut_partial_active;
+    bool strut_full_active;
 
     uint32_t pid;
 } client_cold_t;

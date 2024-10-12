@@ -2,12 +2,13 @@
  * Window stacking order management
  *
  * Model
- *  - Each client lives in exactly one layer list (s->layers[layer])
- *  - Within a layer: head->next is bottom, head->prev is top
+ *  - Each client lives in exactly one layer stack (s->layers[layer])
+ *  - Within a layer: index 0 is bottom, last index is top
  *  - We keep the in-memory order authoritative and push minimal X restacks
  */
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "bbox.h"
 #include "client.h"
@@ -17,39 +18,69 @@
 /* Forward */
 static void stack_restack(server_t* s, handle_t h);
 
-static inline list_node_t* layer_head(server_t* s, int layer) { return &s->layers[layer]; }
-
-static inline bool node_is_linked(const list_node_t* n) {
-    /* Our list nodes are initialized to self-linked sentinels */
-    return n && n->next && n->prev && (n->next != n) && (n->prev != n);
-}
+static inline small_vec_t* layer_vec(server_t* s, int layer) { return &s->layers[layer]; }
 
 static inline void mark_stacking_dirty(server_t* s) { s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING; }
 
-static inline client_hot_t* node_to_client(list_node_t* n) {
-    return (client_hot_t*)((char*)n - offsetof(client_hot_t, stacking_node));
+static inline int stack_current_layer(const client_hot_t* c) {
+    return (c->stacking_layer >= 0) ? (int)c->stacking_layer : (int)c->layer;
+}
+
+static int32_t stack_find_index(const small_vec_t* v, handle_t h) {
+    if (!v) return -1;
+    for (size_t i = 0; i < v->length; i++) {
+        if ((handle_t)(uintptr_t)v->items[i] == h) return (int32_t)i;
+    }
+    return -1;
+}
+
+static void stack_update_indices(server_t* s, const small_vec_t* v, size_t start) {
+    for (size_t i = start; i < v->length; i++) {
+        handle_t h = (handle_t)(uintptr_t)v->items[i];
+        client_hot_t* hot = server_chot(s, h);
+        if (hot) hot->stacking_index = (int32_t)i;
+    }
+}
+
+static void stack_vec_insert(server_t* s, small_vec_t* v, size_t idx, handle_t h) {
+    if (!v) return;
+    if (idx > v->length) idx = v->length;
+    small_vec_push(v, NULL);
+    if (idx + 1 < v->length) {
+        memmove(&v->items[idx + 1], &v->items[idx], (v->length - 1 - idx) * sizeof(void*));
+    }
+    v->items[idx] = (void*)(uintptr_t)h;
+    stack_update_indices(s, v, idx);
+}
+
+static bool stack_vec_remove(server_t* s, small_vec_t* v, size_t idx) {
+    if (!v || idx >= v->length) return false;
+    if (idx + 1 < v->length) {
+        memmove(&v->items[idx], &v->items[idx + 1], (v->length - idx - 1) * sizeof(void*));
+    }
+    v->length--;
+    if (idx < v->length) {
+        stack_update_indices(s, v, idx);
+    }
+    return true;
 }
 
 #ifdef BBOX_DEBUG_TRACE
 static void debug_dump_layer(const server_t* s, int layer, const char* tag) {
     if (!s || layer < 0 || layer >= LAYER_COUNT) return;
 
-    const list_node_t* head = &s->layers[layer];
-    LOG_DEBUG("stack %s layer=%d head=%p next=%p prev=%p", tag, layer, (void*)head, (void*)head->next,
-              (void*)head->prev);
+    const small_vec_t* v = &s->layers[layer];
+    LOG_DEBUG("stack %s layer=%d count=%zu", tag, layer, v->length);
 
-    const list_node_t* node = head->next;
-    int guard = 0;
-    while (node != head && guard < 64) {
-        const client_hot_t* c = (const client_hot_t*)((const char*)node - offsetof(client_hot_t, stacking_node));
-        LOG_DEBUG("  [%d] node=%p prev=%p next=%p h=%lx xid=%u frame=%u", guard, (void*)node, (void*)node->prev,
-                  (void*)node->next, c->self, c->xid, c->frame);
-        node = node->next;
-        guard++;
+    for (size_t i = 0; i < v->length && i < 64; i++) {
+        handle_t h = (handle_t)(uintptr_t)v->items[i];
+        const client_hot_t* c = server_chot((server_t*)s, h);
+        if (!c) continue;
+        LOG_DEBUG("  [%zu] h=%lx xid=%u frame=%u", i, c->self, c->xid, c->frame);
     }
 
-    if (node != head) {
-        LOG_WARN("stack %s layer=%d guard hit at %d, possible loop", tag, layer, guard);
+    if (v->length > 64) {
+        LOG_WARN("stack %s layer=%d guard hit at %d, possible loop", tag, layer, 64);
     }
 }
 #endif
@@ -60,27 +91,38 @@ void stack_remove(server_t* s, handle_t h) {
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
 
-    if (!node_is_linked(&c->stacking_node)) return;
+    int layer = stack_current_layer(c);
+    small_vec_t* v = layer_vec(s, layer);
+    if (!v || v->length == 0) return;
 
-    TRACE_LOG("stack_remove h=%lx layer=%d node=%p", h, c->layer, (void*)&c->stacking_node);
-    TRACE_ONLY(debug_dump_layer(s, c->layer, "before remove"));
+    int32_t idx = c->stacking_index;
+    if (idx < 0 || (size_t)idx >= v->length || (handle_t)(uintptr_t)v->items[idx] != h) {
+        idx = stack_find_index(v, h);
+        if (idx < 0) return;
+    }
 
-    list_remove(&c->stacking_node);
-    list_init(&c->stacking_node);
+    TRACE_LOG("stack_remove h=%lx layer=%d index=%d", h, layer, idx);
+    TRACE_ONLY(debug_dump_layer(s, layer, "before remove"));
+
+    stack_vec_remove(s, v, (size_t)idx);
+    c->stacking_index = -1;
+    c->stacking_layer = -1;
 
     mark_stacking_dirty(s);
-    TRACE_ONLY(debug_dump_layer(s, c->layer, "after remove"));
+    TRACE_ONLY(debug_dump_layer(s, layer, "after remove"));
 }
 
-static void stack_insert_top(server_t* s, client_hot_t* c) {
-    list_node_t* head = layer_head(s, c->layer);
-    list_insert(&c->stacking_node, head->prev, head);
+static void stack_insert_top(server_t* s, client_hot_t* c, int layer) {
+    small_vec_t* v = layer_vec(s, layer);
+    stack_vec_insert(s, v, v->length, c->self);
+    c->stacking_layer = (int8_t)layer;
     mark_stacking_dirty(s);
 }
 
-static void stack_insert_bottom(server_t* s, client_hot_t* c) {
-    list_node_t* head = layer_head(s, c->layer);
-    list_insert(&c->stacking_node, head, head->next);
+static void stack_insert_bottom(server_t* s, client_hot_t* c, int layer) {
+    small_vec_t* v = layer_vec(s, layer);
+    stack_vec_insert(s, v, 0, c->self);
+    c->stacking_layer = (int8_t)layer;
     mark_stacking_dirty(s);
 }
 
@@ -90,11 +132,12 @@ void stack_raise(server_t* s, handle_t h) {
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
 
-    TRACE_LOG("stack_raise h=%lx layer=%d", h, c->layer);
+    int layer = stack_current_layer(c);
+    TRACE_LOG("stack_raise h=%lx layer=%d", h, layer);
 
     stack_remove(s, h);
-    stack_insert_top(s, c);
-    TRACE_ONLY(debug_dump_layer(s, c->layer, "after raise"));
+    stack_insert_top(s, c, layer);
+    TRACE_ONLY(debug_dump_layer(s, layer, "after raise"));
 
     stack_restack(s, h);
 
@@ -123,7 +166,7 @@ void stack_move_to_layer(server_t* s, handle_t h) {
     TRACE_LOG("stack_move_to_layer h=%lx layer=%d", h, c->layer);
 
     stack_remove(s, h);
-    stack_insert_top(s, c);
+    stack_insert_top(s, c, c->layer);
     TRACE_ONLY(debug_dump_layer(s, c->layer, "after move"));
 
     stack_restack(s, h);
@@ -135,7 +178,8 @@ void stack_lower(server_t* s, handle_t h) {
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
 
-    TRACE_LOG("stack_lower h=%lx layer=%d", h, c->layer);
+    int layer = stack_current_layer(c);
+    TRACE_LOG("stack_lower h=%lx layer=%d", h, layer);
 
     /* Lower transients first so they remain above the parent after the parent is lowered */
     list_node_t* node = c->transients_head.next;
@@ -151,8 +195,8 @@ void stack_lower(server_t* s, handle_t h) {
     }
 
     stack_remove(s, h);
-    stack_insert_bottom(s, c);
-    TRACE_ONLY(debug_dump_layer(s, c->layer, "after lower"));
+    stack_insert_bottom(s, c, layer);
+    TRACE_ONLY(debug_dump_layer(s, layer, "after lower"));
 
     stack_restack(s, h);
 }
@@ -164,20 +208,32 @@ void stack_place_above(server_t* s, handle_t h, handle_t sibling_h) {
     client_hot_t* sib = server_chot(s, sibling_h);
     if (!c || !sib) return;
 
-    TRACE_LOG("stack_place_above h=%lx sib=%lx layer=%d", h, sibling_h, c->layer);
+    int layer = stack_current_layer(c);
+    int sib_layer = stack_current_layer(sib);
+    TRACE_LOG("stack_place_above h=%lx sib=%lx layer=%d", h, sibling_h, layer);
 
     /* Different lists means no meaningful "immediately above" */
-    if (c->layer != sib->layer) {
+    if (layer != sib_layer) {
         stack_raise(s, h);
         return;
     }
 
     stack_remove(s, h);
 
+    small_vec_t* v = layer_vec(s, layer);
+    int32_t sib_idx = sib->stacking_index;
+    if (sib_idx < 0 || (size_t)sib_idx >= v->length || (handle_t)(uintptr_t)v->items[sib_idx] != sibling_h) {
+        sib_idx = stack_find_index(v, sibling_h);
+        if (sib_idx < 0) {
+            stack_raise(s, h);
+            return;
+        }
+    }
+
     /* Insert after sibling */
-    list_insert(&c->stacking_node, &sib->stacking_node, sib->stacking_node.next);
+    stack_vec_insert(s, v, (size_t)sib_idx + 1, h);
     mark_stacking_dirty(s);
-    TRACE_ONLY(debug_dump_layer(s, c->layer, "after place_above"));
+    TRACE_ONLY(debug_dump_layer(s, layer, "after place_above"));
 
     stack_restack(s, h);
 }
@@ -189,37 +245,56 @@ void stack_place_below(server_t* s, handle_t h, handle_t sibling_h) {
     client_hot_t* sib = server_chot(s, sibling_h);
     if (!c || !sib) return;
 
-    TRACE_LOG("stack_place_below h=%lx sib=%lx layer=%d", h, sibling_h, c->layer);
+    int layer = stack_current_layer(c);
+    int sib_layer = stack_current_layer(sib);
+    TRACE_LOG("stack_place_below h=%lx sib=%lx layer=%d", h, sibling_h, layer);
 
-    if (c->layer != sib->layer) {
+    if (layer != sib_layer) {
         stack_lower(s, h);
         return;
     }
 
     stack_remove(s, h);
 
+    small_vec_t* v = layer_vec(s, layer);
+    int32_t sib_idx = sib->stacking_index;
+    if (sib_idx < 0 || (size_t)sib_idx >= v->length || (handle_t)(uintptr_t)v->items[sib_idx] != sibling_h) {
+        sib_idx = stack_find_index(v, sibling_h);
+        if (sib_idx < 0) {
+            stack_lower(s, h);
+            return;
+        }
+    }
+
     /* Insert before sibling */
-    list_insert(&c->stacking_node, sib->stacking_node.prev, &sib->stacking_node);
+    stack_vec_insert(s, v, (size_t)sib_idx, h);
     mark_stacking_dirty(s);
-    TRACE_ONLY(debug_dump_layer(s, c->layer, "after place_below"));
+    TRACE_ONLY(debug_dump_layer(s, layer, "after place_below"));
 
     stack_restack(s, h);
 }
 
 static xcb_window_t find_window_below(server_t* s, client_hot_t* c) {
     /* Same layer: previous node is immediately below */
-    const list_node_t* head = layer_head(s, c->layer);
-    if (c->stacking_node.prev != head) {
-        client_hot_t* below = node_to_client(c->stacking_node.prev);
-        return below->frame;
+    int layer = stack_current_layer(c);
+    small_vec_t* v = layer_vec(s, layer);
+    int32_t idx = c->stacking_index;
+    if (idx < 0 || (size_t)idx >= v->length || (handle_t)(uintptr_t)v->items[idx] != c->self) {
+        idx = stack_find_index(v, c->self);
+    }
+    if (idx > 0) {
+        handle_t below_h = (handle_t)(uintptr_t)v->items[idx - 1];
+        client_hot_t* below = server_chot(s, below_h);
+        if (below) return below->frame;
     }
 
     /* Lower layers: topmost of the nearest non-empty lower layer */
-    for (int l = c->layer - 1; l >= 0; l--) {
-        if (!list_empty(layer_head(s, l))) {
-            list_node_t* tail = s->layers[l].prev;
-            client_hot_t* below = node_to_client(tail);
-            return below->frame;
+    for (int l = layer - 1; l >= 0; l--) {
+        small_vec_t* lv = layer_vec(s, l);
+        if (lv->length > 0) {
+            handle_t below_h = (handle_t)(uintptr_t)lv->items[lv->length - 1];
+            client_hot_t* below = server_chot(s, below_h);
+            if (below) return below->frame;
         }
     }
 
@@ -228,18 +303,25 @@ static xcb_window_t find_window_below(server_t* s, client_hot_t* c) {
 
 static xcb_window_t find_window_above(server_t* s, client_hot_t* c) {
     /* Same layer: next node is immediately above */
-    const list_node_t* head = layer_head(s, c->layer);
-    if (c->stacking_node.next != head) {
-        client_hot_t* above = node_to_client(c->stacking_node.next);
-        return above->frame;
+    int layer = stack_current_layer(c);
+    small_vec_t* v = layer_vec(s, layer);
+    int32_t idx = c->stacking_index;
+    if (idx < 0 || (size_t)idx >= v->length || (handle_t)(uintptr_t)v->items[idx] != c->self) {
+        idx = stack_find_index(v, c->self);
+    }
+    if (idx >= 0 && (size_t)(idx + 1) < v->length) {
+        handle_t above_h = (handle_t)(uintptr_t)v->items[idx + 1];
+        client_hot_t* above = server_chot(s, above_h);
+        if (above) return above->frame;
     }
 
     /* Higher layers: bottommost of the nearest non-empty higher layer */
-    for (int l = c->layer + 1; l < LAYER_COUNT; l++) {
-        if (!list_empty(layer_head(s, l))) {
-            list_node_t* first = s->layers[l].next;
-            client_hot_t* above = node_to_client(first);
-            return above->frame;
+    for (int l = layer + 1; l < LAYER_COUNT; l++) {
+        small_vec_t* lv = layer_vec(s, l);
+        if (lv->length > 0) {
+            handle_t above_h = (handle_t)(uintptr_t)lv->items[0];
+            client_hot_t* above = server_chot(s, above_h);
+            if (above) return above->frame;
         }
     }
 

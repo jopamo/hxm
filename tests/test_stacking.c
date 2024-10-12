@@ -23,7 +23,7 @@ static bool init_server(server_t* s) {
     memset(s, 0, sizeof(*s));
     s->is_test = true;
     s->conn = (xcb_connection_t*)malloc(1);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s->layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s->layers[i]);
     if (slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return true;
     free(s->conn);
     return false;
@@ -39,6 +39,9 @@ static void cleanup_server(server_t* s) {
         if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
     }
     slotmap_destroy(&s->clients);
+    for (int i = 0; i < LAYER_COUNT; i++) {
+        small_vec_destroy(&s->layers[i]);
+    }
     free(s->conn);
 }
 
@@ -51,10 +54,19 @@ static handle_t add_client(server_t* s, xcb_window_t xid, xcb_window_t frame, in
     hot->frame = frame;
     hot->layer = layer;
     hot->state = STATE_MAPPED;
-    list_init(&hot->stacking_node);
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
     list_init(&hot->transients_head);
     list_init(&hot->transient_sibling);
     return h;
+}
+
+static void assert_layer_order(const server_t* s, int layer, const handle_t* handles, size_t count) {
+    const small_vec_t* v = &s->layers[layer];
+    assert(v->length == count);
+    for (size_t i = 0; i < count; i++) {
+        assert((handle_t)(uintptr_t)v->items[i] == handles[i]);
+    }
 }
 
 void test_stack_restack_single_and_sibling() {
@@ -78,7 +90,10 @@ void test_stack_restack_single_and_sibling() {
     client_hot_t* b = server_chot(&s, hb);
     stack_raise(&s, hb);
 
-    assert(a->stacking_node.next == &b->stacking_node);
+    {
+        handle_t order[] = {ha, hb};
+        assert_layer_order(&s, LAYER_NORMAL, order, 2);
+    }
     assert(stub_last_config_window == b->frame);
     assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
     assert(stub_last_config_sibling == a->frame);
@@ -86,7 +101,10 @@ void test_stack_restack_single_and_sibling() {
 
     stack_lower(&s, hb);
 
-    assert(b->stacking_node.next == &a->stacking_node);
+    {
+        handle_t order[] = {hb, ha};
+        assert_layer_order(&s, LAYER_NORMAL, order, 2);
+    }
     assert(stub_last_config_window == b->frame);
     assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
     assert(stub_last_config_sibling == a->frame);
@@ -142,8 +160,10 @@ void test_stack_raise_transients_restack_count() {
     stack_raise(&s, hp);
 
     assert(stub_configure_window_count == 3);
-    assert(p->stacking_node.next == &t1->stacking_node);
-    assert(t1->stacking_node.next == &t2->stacking_node);
+    {
+        handle_t order[] = {hp, ht1, ht2};
+        assert_layer_order(&s, LAYER_NORMAL, order, 3);
+    }
 
     printf("test_stack_raise_transients_restack_count passed\n");
 

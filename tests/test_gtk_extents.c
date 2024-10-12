@@ -185,19 +185,22 @@ static void test_no_gtk_extents_no_inflation(void) {
 
     const int32_t exp_frame_x = 50;
     const int32_t exp_frame_y = 50;
-    const uint32_t exp_w = 400;
-    const uint32_t exp_h = 300;
+    const uint32_t exp_frame_w = 400 + 2 * ts.s.config.theme.border_width;
+    const uint32_t exp_frame_h = 300 + ts.s.config.theme.title_height + ts.s.config.theme.border_width;
+    const uint32_t exp_client_w = 400;
+    const uint32_t exp_client_h = 300;
 
     assert(stub_configure_window_count == 2);
     assert(stub_config_calls_len == 2);
 
-    assert_call_eq(&stub_config_calls[0], 201, exp_frame_x, exp_frame_y, exp_w, exp_h);
-    assert_call_eq(&stub_config_calls[1], 101, 0, 0, exp_w, exp_h);
+    assert_call_eq(&stub_config_calls[0], 201, exp_frame_x, exp_frame_y, exp_frame_w, exp_frame_h);
+    assert_call_eq(&stub_config_calls[1], 101, (int32_t)ts.s.config.theme.border_width,
+                   (int32_t)ts.s.config.theme.title_height, exp_client_w, exp_client_h);
 
     assert(hot->server.x == exp_frame_x);
     assert(hot->server.y == exp_frame_y);
-    assert(hot->server.w == exp_w);
-    assert(hot->server.h == exp_h);
+    assert(hot->server.w == exp_client_w);
+    assert(hot->server.h == exp_client_h);
 
     printf("test_no_gtk_extents_no_inflation passed\n");
 
@@ -313,10 +316,11 @@ static void test_two_clients_both_configured(void) {
         if (!found_b && c0->win == 211 && c1->win == 111) {
             const int32_t fx = 30;
             const int32_t fy = 40;
-            const uint32_t w = 300;
-            const uint32_t h = 400;
-            assert_call_eq(c0, 211, fx, fy, w, h);
-            assert_call_eq(c1, 111, 0, 0, w, h);
+            const uint32_t frame_w = 300 + 2 * ts.s.config.theme.border_width;
+            const uint32_t frame_h = 400 + ts.s.config.theme.title_height + ts.s.config.theme.border_width;
+            assert_call_eq(c0, 211, fx, fy, frame_w, frame_h);
+            assert_call_eq(c1, 111, (int32_t)ts.s.config.theme.border_width, (int32_t)ts.s.config.theme.title_height,
+                           300, 400);
             found_b = true;
         }
     }

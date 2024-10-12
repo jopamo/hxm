@@ -175,9 +175,9 @@ void server_init(server_t* s) {
     hash_map_init(&s->window_to_client);
     hash_map_init(&s->frame_to_client);
 
-    // Layer lists and focus ring
+    // Layer stacks and focus ring
     for (int i = 0; i < LAYER_COUNT; i++) {
-        list_init(&s->layers[i]);
+        small_vec_init(&s->layers[i]);
     }
     list_init(&s->focus_history);
     s->focused_client = HANDLE_INVALID;
@@ -247,6 +247,10 @@ void server_cleanup(server_t* s) {
     hash_map_destroy(&s->frame_to_client);
 
     slotmap_destroy(&s->clients);
+
+    for (int i = 0; i < LAYER_COUNT; i++) {
+        small_vec_destroy(&s->layers[i]);
+    }
 
     // Global library cleanup for ASan
     pango_cairo_font_map_set_default(NULL);
@@ -367,6 +371,7 @@ void event_ingest(server_t* s, bool x_ready) {
     }
 
     if (!x_ready) {
+        s->x_poll_immediate = (count >= MAX_EVENTS_PER_TICK);
         s->buckets.ingested = count;
         TRACE_LOG("event_ingest done ingested=%lu coalesced=%lu (queued only)", count, s->buckets.coalesced);
         return;
@@ -379,6 +384,7 @@ void event_ingest(server_t* s, bool x_ready) {
         event_ingest_one(s, ev);
     }
 
+    s->x_poll_immediate = (count >= MAX_EVENTS_PER_TICK);
     s->buckets.ingested = count;
     TRACE_LOG("event_ingest done ingested=%lu coalesced=%lu", count, s->buckets.coalesced);
 }
@@ -897,7 +903,11 @@ void server_run(server_t* s) {
 
         bool x_ready = false;
         if (!reload_applied) {
-            x_ready = server_wait_for_events(s);
+            if (s->x_poll_immediate) {
+                x_ready = true;
+            } else {
+                x_ready = server_wait_for_events(s);
+            }
         }
 
         uint64_t start = monotonic_time_ns();

@@ -23,7 +23,7 @@ void test_focus_on_finish_manage() {
     s.focused_client = HANDLE_INVALID;
     hash_map_init(&s.window_to_client);
     hash_map_init(&s.frame_to_client);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
@@ -42,7 +42,8 @@ void test_focus_on_finish_manage() {
     h1_hot->transient_for = HANDLE_INVALID;
     h1_hot->desktop = 0;
     list_init(&h1_hot->focus_node);
-    list_init(&h1_hot->stacking_node);
+    h1_hot->stacking_index = -1;
+    h1_hot->stacking_layer = -1;
     list_init(&h1_hot->transients_head);
     list_init(&h1_hot->transient_sibling);
 
@@ -67,7 +68,8 @@ void test_focus_on_finish_manage() {
     h2_hot->transient_for = HANDLE_INVALID;
     h2_hot->desktop = 0;
     list_init(&h2_hot->focus_node);
-    list_init(&h2_hot->stacking_node);
+    h2_hot->stacking_index = -1;
+    h2_hot->stacking_layer = -1;
     list_init(&h2_hot->transients_head);
     list_init(&h2_hot->transient_sibling);
 
@@ -88,7 +90,8 @@ void test_focus_on_finish_manage() {
     h3_hot->transient_for = HANDLE_INVALID;
     h3_hot->desktop = 0;
     list_init(&h3_hot->focus_node);
-    list_init(&h3_hot->stacking_node);
+    h3_hot->stacking_index = -1;
+    h3_hot->stacking_layer = -1;
     list_init(&h3_hot->transients_head);
     list_init(&h3_hot->transient_sibling);
 
@@ -123,7 +126,7 @@ void test_mru_cycling() {
     s.focused_client = HANDLE_INVALID;
     hash_map_init(&s.window_to_client);
     hash_map_init(&s.frame_to_client);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
@@ -142,7 +145,8 @@ void test_mru_cycling() {
         hot->focus_override = -1;
         hot->desktop = 0;
         list_init(&hot->focus_node);
-        list_init(&hot->stacking_node);
+        hot->stacking_index = -1;
+        hot->stacking_layer = -1;
         list_init(&hot->transients_head);
         list_init(&hot->transient_sibling);
 
@@ -213,7 +217,7 @@ void test_move_interaction() {
     s.focused_client = HANDLE_INVALID;
     hash_map_init(&s.window_to_client);
     hash_map_init(&s.frame_to_client);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
@@ -230,7 +234,8 @@ void test_move_interaction() {
     hot->server.h = 100;
     hot->desired = hot->server;
     list_init(&hot->focus_node);
-    list_init(&hot->stacking_node);
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
     list_init(&hot->transients_head);
     list_init(&hot->transient_sibling);
 

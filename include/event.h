@@ -152,8 +152,8 @@ typedef struct server {
     hash_map_t window_to_client;  // xcb_window_t -> handle_t (stored via uintptr_t)
     hash_map_t frame_to_client;   // frame xid -> handle_t
 
-    // Stacking layers
-    list_node_t layers[LAYER_COUNT];
+    // Stacking layers (bottom -> top)
+    small_vec_t layers[LAYER_COUNT];
 
     // Focus
     handle_t focused_client;
@@ -172,6 +172,7 @@ typedef struct server {
     bool running;
     bool restarting;
     int exit_code;
+    bool x_poll_immediate;
 
     // Config
     config_t config;

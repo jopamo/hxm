@@ -92,13 +92,13 @@ static uint32_t* prop_get_u32_array(const xcb_get_property_reply_t* r, int min_c
     return (uint32_t*)xcb_get_property_value(r);
 }
 
-static void client_update_effective_strut(client_hot_t* hot) {
-    if (hot->strut_partial_active) {
-        hot->strut = hot->strut_partial;
-    } else if (hot->strut_full_active) {
-        hot->strut = hot->strut_full;
+static void client_update_effective_strut(client_cold_t* cold) {
+    if (cold->strut_partial_active) {
+        cold->strut = cold->strut_partial;
+    } else if (cold->strut_full_active) {
+        cold->strut = cold->strut_full;
     } else {
-        memset(&hot->strut, 0, sizeof(hot->strut));
+        memset(&cold->strut, 0, sizeof(cold->strut));
     }
 }
 
@@ -737,8 +737,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             } else if (atom == atoms._NET_WM_STRUT || atom == atoms._NET_WM_STRUT_PARTIAL) {
                 int len = r ? xcb_get_property_value_length(r) : 0;
                 bool is_partial = (atom == atoms._NET_WM_STRUT_PARTIAL);
-                strut_t* target = is_partial ? &hot->strut_partial : &hot->strut_full;
-                bool* active = is_partial ? &hot->strut_partial_active : &hot->strut_full_active;
+                strut_t* target = is_partial ? &cold->strut_partial : &cold->strut_full;
+                bool* active = is_partial ? &cold->strut_partial_active : &cold->strut_full_active;
 
                 if (len >= 16) {
                     uint32_t* val = prop_get_u32_array(r, 4, NULL);
@@ -766,7 +766,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     *active = false;
                 }
 
-                client_update_effective_strut(hot);
+                client_update_effective_strut(cold);
                 s->root_dirty |= ROOT_DIRTY_WORKAREA;
 
             } else if (atom == atoms.WM_HINTS) {

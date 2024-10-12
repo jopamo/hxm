@@ -42,7 +42,7 @@ void test_frame_extents() {
     hash_map_init(&s.window_to_client);
     hash_map_init(&s.frame_to_client);
     list_init(&s.focus_history);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
@@ -54,7 +54,8 @@ void test_frame_extents() {
     hot->desired.y = 0;
     hot->desired.w = 100;
     hot->desired.h = 100;
-    list_init(&hot->stacking_node);
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
     list_init(&hot->transient_sibling);
     list_init(&hot->transients_head);
     list_init(&hot->focus_node);
@@ -258,7 +259,7 @@ void test_dirty_stack_relayer() {
     s.conn = (xcb_connection_t*)malloc(1);
     s.root = 1;
 
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
@@ -270,20 +271,21 @@ void test_dirty_stack_relayer() {
     hot->frame = 456;
     hot->state = STATE_MAPPED;
     hot->layer = LAYER_NORMAL;
-    list_init(&hot->stacking_node);
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
     list_init(&hot->transient_sibling);
     list_init(&hot->transients_head);
 
-    list_insert(&hot->stacking_node, &s.layers[LAYER_NORMAL], s.layers[LAYER_NORMAL].next);
+    stack_raise(&s, h);
 
     hot->layer = LAYER_ABOVE;
     hot->dirty = DIRTY_STACK;
 
     wm_flush_dirty(&s);
 
-    assert(s.layers[LAYER_NORMAL].next == &s.layers[LAYER_NORMAL]);
-    assert(s.layers[LAYER_ABOVE].next == &hot->stacking_node);
-    assert(s.layers[LAYER_ABOVE].prev == &hot->stacking_node);
+    assert(s.layers[LAYER_NORMAL].length == 0);
+    assert(s.layers[LAYER_ABOVE].length == 1);
+    assert((handle_t)(uintptr_t)s.layers[LAYER_ABOVE].items[0] == h);
 
     printf("test_dirty_stack_relayer passed\n");
 

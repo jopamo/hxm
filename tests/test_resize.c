@@ -27,7 +27,7 @@ void test_resize_logic() {
     // Init list heads
     list_init(&s.focus_history);
     for (int i = 0; i < LAYER_COUNT; i++) {
-        list_init(&s.layers[i]);
+        small_vec_init(&s.layers[i]);
     }
 
     // Init slotmap
@@ -57,7 +57,8 @@ void test_resize_logic() {
     hot->hints.inc_h = 1;
 
     // Init list nodes
-    list_init(&hot->stacking_node);
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
     list_init(&hot->transient_sibling);
     list_init(&hot->transients_head);
     list_init(&hot->focus_node);
@@ -65,8 +66,8 @@ void test_resize_logic() {
     // Add to layer (stack_raise expects it to be in a list or will insert it)
     // Actually stack_raise checks if it's connected.
     // Let's manually insert it into layer 2 (NORMAL)
-    list_insert(&hot->stacking_node, &s.layers[LAYER_NORMAL], s.layers[LAYER_NORMAL].next);
     hot->layer = LAYER_NORMAL;
+    stack_raise(&s, h);
 
     // Init frame map
     hash_map_init(&s.frame_to_client);

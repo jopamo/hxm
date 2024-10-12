@@ -24,7 +24,7 @@ void test_transient_stacking() {
     s.conn = (xcb_connection_t*)malloc(1);
     hash_map_init(&s.window_to_client);
     hash_map_init(&s.frame_to_client);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s.layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
@@ -38,7 +38,8 @@ void test_transient_stacking() {
     hp_hot->state = STATE_MAPPED;
     hp_hot->layer = LAYER_NORMAL;
     list_init(&hp_hot->transients_head);
-    list_init(&hp_hot->stacking_node);
+    hp_hot->stacking_index = -1;
+    hp_hot->stacking_layer = -1;
     stack_raise(&s, hp);
 
     // Allocate Transient
@@ -53,20 +54,23 @@ void test_transient_stacking() {
     ht_hot->transient_for = hp;
     list_init(&ht_hot->transients_head);
     list_init(&ht_hot->transient_sibling);
-    list_init(&ht_hot->stacking_node);
+    ht_hot->stacking_index = -1;
+    ht_hot->stacking_layer = -1;
     list_insert(&ht_hot->transient_sibling, hp_hot->transients_head.prev, &hp_hot->transients_head);
 
     stack_place_above(&s, ht, hp);
 
     // Verify order: P then T
-    assert(hp_hot->stacking_node.next == &ht_hot->stacking_node);
-    assert(ht_hot->stacking_node.prev == &hp_hot->stacking_node);
+    assert(s.layers[LAYER_NORMAL].length == 2);
+    assert((handle_t)(uintptr_t)s.layers[LAYER_NORMAL].items[0] == hp);
+    assert((handle_t)(uintptr_t)s.layers[LAYER_NORMAL].items[1] == ht);
 
     // Raise parent, should raise transient too
     stack_raise(&s, hp);
     // After raise, T should still be above P, and both at the end of the layer list
-    assert(hp_hot->stacking_node.next == &ht_hot->stacking_node);
-    assert(ht_hot->stacking_node.next == &s.layers[LAYER_NORMAL]);
+    assert(s.layers[LAYER_NORMAL].length == 2);
+    assert((handle_t)(uintptr_t)s.layers[LAYER_NORMAL].items[0] == hp);
+    assert((handle_t)(uintptr_t)s.layers[LAYER_NORMAL].items[1] == ht);
 
     printf("test_transient_stacking passed\n");
     printf("test_transient_stacking passed\n");

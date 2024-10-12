@@ -20,7 +20,7 @@ void setup_server(server_t* s) {
     s->desktop_count = 4;
     s->current_desktop = 0;
     list_init(&s->focus_history);
-    for (int i = 0; i < LAYER_COUNT; i++) list_init(&s->layers[i]);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s->layers[i]);
     hash_map_init(&s->window_to_client);
     hash_map_init(&s->frame_to_client);
     config_init_defaults(&s->config);
@@ -64,7 +64,8 @@ void test_rules_matching() {
     hot->desired.w = 400;
     hot->desired.h = 300;
     list_init(&hot->focus_node);
-    list_init(&hot->stacking_node);
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
     list_init(&hot->transients_head);
     list_init(&hot->transient_sibling);
 
