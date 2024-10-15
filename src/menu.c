@@ -51,8 +51,18 @@ static cairo_surface_t* menu_load_icon(const char* path) {
             return NULL;
         }
 
-        RsvgRectangle viewport = {0, 0, 16, 16};
-        cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 16, 16);
+        gdouble width = 0, height = 0;
+        if (!rsvg_handle_get_intrinsic_size_in_pixels(handle, &width, &height)) {
+            width = 16;
+            height = 16;
+        }
+        int w = (int)width;
+        int h = (int)height;
+        if (w <= 0) w = 16;
+        if (h <= 0) h = 16;
+
+        RsvgRectangle viewport = {0.0, 0.0, (double)w, (double)h};
+        cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
         cairo_t* cr = cairo_create(surface);
         rsvg_handle_render_document(handle, cr, &viewport, &error);
         if (error) {
@@ -192,6 +202,9 @@ void menu_show(server_t* s, int16_t x, int16_t y) {
 
     xcb_map_window(s->conn, s->menu.window);
 
+    const uint32_t stack_values[] = {XCB_STACK_MODE_ABOVE};
+    xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_STACK_MODE, stack_values);
+
     xcb_grab_pointer(s->conn, 0, s->root,
                      XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
                      XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
@@ -247,6 +260,9 @@ void menu_show_client_list(server_t* s, int16_t x, int16_t y) {
     xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, values);
 
     xcb_map_window(s->conn, s->menu.window);
+
+    const uint32_t stack_values[] = {XCB_STACK_MODE_ABOVE};
+    xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_STACK_MODE, stack_values);
 
     xcb_grab_pointer(s->conn, 0, s->root,
                      XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
