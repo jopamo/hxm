@@ -27,7 +27,7 @@ void wm_send_synthetic_configure(server_t* s, handle_t h) {
     uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
 
     char buffer[32];
-    memset(buffer, 0, 32);
+    memset(buffer, 0, sizeof(buffer));
     xcb_configure_notify_event_t* ev = (xcb_configure_notify_event_t*)buffer;
 
     ev->response_type = XCB_CONFIGURE_NOTIFY;
@@ -66,7 +66,7 @@ void wm_publish_workarea(server_t* s, const rect_t* wa) {
 
     if (!changed) return;
 
-    // Re-apply workarea-dependent geometry for maximized/fullscreen windows.
+    // Re-apply workarea-dependent geometry for maximized/fullscreen windows
     for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
         if (!slotmap_is_used_idx(&s->clients, i)) continue;
         client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
@@ -81,6 +81,34 @@ void wm_publish_workarea(server_t* s, const rect_t* wa) {
     }
 }
 
+static uint32_t wm_build_client_list_stacking(server_t* s, xcb_window_t* out, uint32_t cap) {
+    if (!s || !out || !cap) return 0;
+
+    uint32_t idx = 0;
+    for (int l = 0; l < LAYER_COUNT; l++) {
+        small_vec_t* v = &s->layers[l];
+        for (size_t i = 0; i < v->length; i++) {
+            handle_t h = ptr_to_handle(v->items[i]);
+            client_hot_t* hot = server_chot(s, h);
+            if (!hot) continue;
+            if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
+            if (idx >= cap) return idx;
+            out[idx++] = hot->xid;
+        }
+    }
+
+    return idx;
+}
+
+/*
+ * EWMH note
+ *  - _NET_CLIENT_LIST is "initial mapping order"
+ *  - _NET_CLIENT_LIST_STACKING is bottom-to-top stacking order
+ *
+ * If you don't maintain a dedicated mapping-order list yet, it's better to publish
+ * only the stacking-correct list for _NET_CLIENT_LIST_STACKING and keep _NET_CLIENT_LIST
+ * as-is (or omit it) instead of incorrectly reusing stacking order.
+ */
 void wm_flush_dirty(server_t* s) {
     for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
         if (!slotmap_is_used_idx(&s->clients, i)) continue;
@@ -185,6 +213,7 @@ void wm_flush_dirty(server_t* s) {
                 xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 0, 32).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
                             ((uint64_t)hot->xid << 32) | atoms.WM_NORMAL_HINTS, wm_handle_reply);
+
             c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_HINTS, atoms.WM_HINTS, 0, 32).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_HINTS,
                             wm_handle_reply);
@@ -237,6 +266,7 @@ void wm_flush_dirty(server_t* s) {
             TRACE_LOG("flush_dirty state h=%lx layer=%d above=%d below=%d sticky=%d max=%d/%d focused=%d", h,
                       hot->layer, hot->state_above, hot->state_below, hot->sticky, hot->maximized_horz,
                       hot->maximized_vert, (hot->flags & CLIENT_FLAG_FOCUSED) != 0);
+
             xcb_atom_t state_atoms[12];
             uint32_t count = 0;
 
@@ -307,35 +337,24 @@ void wm_flush_dirty(server_t* s) {
         size_t cap = 0;
         for (int l = 0; l < LAYER_COUNT; l++) cap += s->layers[l].length;
 
-        xcb_window_t* wins = cap ? (xcb_window_t*)arena_alloc(&s->tick_arena, cap * sizeof(xcb_window_t)) : NULL;
+        xcb_window_t* wins_stacking =
+            cap ? (xcb_window_t*)arena_alloc(&s->tick_arena, cap * sizeof(xcb_window_t)) : NULL;
 
-        uint32_t idx = 0;
-        if (wins) {
-            for (int l = 0; l < LAYER_COUNT; l++) {
-                small_vec_t* v = &s->layers[l];
-                for (size_t i = 0; i < v->length; i++) {
-                    handle_t h = (handle_t)(uintptr_t)v->items[i];
-                    client_hot_t* hot = server_chot(s, h);
-                    if (!hot) continue;
-                    if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
-                    wins[idx++] = hot->xid;
-                }
-            }
+        uint32_t idx_stacking = 0;
+        if (wins_stacking) {
+            idx_stacking = wm_build_client_list_stacking(s, wins_stacking, (uint32_t)cap);
         }
 
+        // _NET_CLIENT_LIST: mapping order, not stacking order
+        // Until you have a dedicated mapping-order list, avoid publishing an incorrect list.
         if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST) {
-            if (idx) {
-                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST, XCB_ATOM_WINDOW,
-                                    32, idx, wins);
-            } else {
-                xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST);
-            }
+            xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST);
         }
 
         if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST_STACKING) {
-            if (idx) {
+            if (idx_stacking) {
                 xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST_STACKING,
-                                    XCB_ATOM_WINDOW, 32, idx, wins);
+                                    XCB_ATOM_WINDOW, 32, idx_stacking, wins_stacking);
             } else {
                 xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST_STACKING);
             }

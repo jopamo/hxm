@@ -22,6 +22,7 @@ void test_frame_extents() {
     s.root_depth = 24;
     s.root_visual_type = xcb_get_visualtype(NULL, 0);
     s.conn = (xcb_connection_t*)malloc(1);
+    arena_init(&s.tick_arena, 4096);
 
     // Init config
     config_init_defaults(&s.config);
@@ -118,6 +119,7 @@ void test_frame_extents() {
     hash_map_destroy(&s.window_to_client);
     hash_map_destroy(&s.frame_to_client);
     config_destroy(&s.config);
+    arena_destroy(&s.tick_arena);
     free(s.conn);
 }
 
@@ -128,6 +130,7 @@ void test_allowed_actions() {
     s.root_depth = 24;
     s.root_visual_type = xcb_get_visualtype(NULL, 0);
     s.conn = (xcb_connection_t*)malloc(1);
+    arena_init(&s.tick_arena, 4096);
 
     atoms._NET_WM_ALLOWED_ACTIONS = 300;
     atoms._NET_WM_ACTION_MOVE = 301;
@@ -202,6 +205,7 @@ void test_allowed_actions() {
     slotmap_destroy(&s.clients);
     hash_map_destroy(&s.window_to_client);
     hash_map_destroy(&s.frame_to_client);
+    arena_destroy(&s.tick_arena);
     free(s.conn);
 }
 
@@ -214,6 +218,7 @@ void test_desktop_clamp_single() {
     s.conn = (xcb_connection_t*)malloc(1);
     s.desktop_count = 1;
     s.current_desktop = 0;
+    arena_init(&s.tick_arena, 4096);
 
     atoms._NET_WM_DESKTOP = 500;
     atoms.WM_STATE = 501;
@@ -247,6 +252,7 @@ void test_desktop_clamp_single() {
     render_free(&hot->render_ctx);
     if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
     slotmap_destroy(&s.clients);
+    arena_destroy(&s.tick_arena);
     free(s.conn);
 }
 
@@ -258,6 +264,7 @@ void test_dirty_stack_relayer() {
     s.root_visual_type = xcb_get_visualtype(NULL, 0);
     s.conn = (xcb_connection_t*)malloc(1);
     s.root = 1;
+    arena_init(&s.tick_arena, 4096);
 
     for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
 
@@ -292,6 +299,7 @@ void test_dirty_stack_relayer() {
     render_free(&hot->render_ctx);
     if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
     slotmap_destroy(&s.clients);
+    arena_destroy(&s.tick_arena);
     free(s.conn);
 }
 

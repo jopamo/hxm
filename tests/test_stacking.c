@@ -24,6 +24,7 @@ static bool init_server(server_t* s) {
     s->is_test = true;
     s->conn = (xcb_connection_t*)malloc(1);
     for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s->layers[i]);
+    arena_init(&s->tick_arena, 4096);
     if (slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return true;
     free(s->conn);
     return false;
@@ -42,6 +43,7 @@ static void cleanup_server(server_t* s) {
     for (int i = 0; i < LAYER_COUNT; i++) {
         small_vec_destroy(&s->layers[i]);
     }
+    arena_destroy(&s->tick_arena);
     free(s->conn);
 }
 

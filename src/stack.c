@@ -123,6 +123,7 @@ static void stack_insert_top(server_t* s, client_hot_t* c, int layer) {
     if (!v) return;
     stack_vec_insert(s, v, v->length, c->self);
     c->stacking_layer = (int8_t)layer;
+    c->stacking_index = (int32_t)(v->length - 1);
     mark_stacking_dirty(s);
 }
 
@@ -131,6 +132,7 @@ static void stack_insert_bottom(server_t* s, client_hot_t* c, int layer) {
     if (!v) return;
     stack_vec_insert(s, v, 0, c->self);
     c->stacking_layer = (int8_t)layer;
+    c->stacking_index = 0;
     mark_stacking_dirty(s);
 }
 
@@ -244,6 +246,7 @@ void stack_place_above(server_t* s, handle_t h, handle_t sibling_h) {
     size_t new_idx = (size_t)sib_idx + 1;
     stack_vec_insert(s, v, new_idx, h);
     c->stacking_layer = (int8_t)layer;
+    c->stacking_index = (int32_t)new_idx;
     mark_stacking_dirty(s);
     TRACE_ONLY(debug_dump_layer(s, layer, "after place_above"));
 
@@ -284,6 +287,7 @@ void stack_place_below(server_t* s, handle_t h, handle_t sibling_h) {
     size_t new_idx = (size_t)sib_idx;
     stack_vec_insert(s, v, new_idx, h);
     c->stacking_layer = (int8_t)layer;
+    c->stacking_index = (int32_t)new_idx;
     mark_stacking_dirty(s);
     TRACE_ONLY(debug_dump_layer(s, layer, "after place_below"));
 
