@@ -222,6 +222,7 @@ void wm_become(server_t* s) {
         atoms._NET_CLIENT_LIST,
         atoms._NET_CLIENT_LIST_STACKING,
         atoms._NET_ACTIVE_WINDOW,
+        atoms._GTK_FRAME_EXTENTS,
         atoms._NET_WM_NAME,
         atoms._NET_WM_VISIBLE_NAME,
         atoms._NET_WM_PING,
