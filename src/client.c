@@ -140,6 +140,12 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->sync_counter = 0;
     hot->icon_geometry_valid = false;
 
+    hot->gtk_frame_extents_set = false;
+    hot->gtk_extents.left = 0;
+    hot->gtk_extents.right = 0;
+    hot->gtk_extents.top = 0;
+    hot->gtk_extents.bottom = 0;
+
     // Phase 1 cookie budget
     // Attrs, Geom, Class, ClientMachine, Hints, NormalHints, Transient, Type, Protocols,
     // NetName, Name, NetIconName, IconName, NetState, Desktop,
@@ -391,15 +397,25 @@ void client_finish_manage(server_t* s, handle_t h) {
     xcb_change_save_set(s->conn, XCB_SET_MODE_INSERT, hot->xid);
 
     // 3. Reparent
-    xcb_reparent_window(s->conn, hot->xid, hot->frame, bw, th);
+    int16_t rx = bw;
+    int16_t ry = th;
+    if (hot->gtk_frame_extents_set) {
+        rx = 0;
+        ry = 0;
+    }
+    xcb_reparent_window(s->conn, hot->xid, hot->frame, rx, ry);
 
     hot->server = hot->desired;
     wm_send_synthetic_configure(s, h);
 
     // Set _NET_FRAME_EXTENTS (before mapping)
-    uint32_t extents[4] = {bw, bw, th + bw, bw};
-    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4,
-                        extents);
+    if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
+        xcb_delete_property(s->conn, hot->xid, atoms._NET_FRAME_EXTENTS);
+    } else {
+        uint32_t extents[4] = {bw, bw, th + bw, bw};
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32,
+                            4, extents);
+    }
 
     if (hot->window_opacity_valid) {
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL,

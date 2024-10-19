@@ -172,9 +172,13 @@ void wm_flush_dirty(server_t* s) {
                 client_values);
 
             // Set _NET_FRAME_EXTENTS
-            uint32_t extents[4] = {bw, bw, th + bw, bw};
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL,
-                                32, 4, extents);
+            if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
+                xcb_delete_property(s->conn, hot->xid, atoms._NET_FRAME_EXTENTS);
+            } else {
+                uint32_t extents[4] = {bw, bw, th + bw, bw};
+                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS,
+                                    XCB_ATOM_CARDINAL, 32, 4, extents);
+            }
 
             // Update server state immediately to ensure redraw uses correct geometry
             hot->server.x = (int16_t)frame_x;
