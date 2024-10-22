@@ -36,34 +36,47 @@ typedef struct {
 
 static void client_apply_motif_hints(server_t* s, handle_t h, const xcb_get_property_reply_t* r) {
     client_hot_t* hot = server_chot(s, h);
-    if (!hot || !r) return;
+    if (!hot) return;
 
-    int len = xcb_get_property_value_length(r);
-    if (len < (int)sizeof(motif_wm_hints_t)) return;
+    bool decorations_set = false;
+    bool undecorated = false;
 
-    const motif_wm_hints_t* mh = (const motif_wm_hints_t*)xcb_get_property_value(r);
+    int len = r ? xcb_get_property_value_length(r) : 0;
+    if (r && r->format == 32 && len >= (int)(3 * sizeof(uint32_t))) {
+        const motif_wm_hints_t* mh = (const motif_wm_hints_t*)xcb_get_property_value(r);
 
-    if ((mh->flags & MWM_HINTS_DECORATIONS) && mh->decorations == 0) {
-        hot->flags |= CLIENT_FLAG_UNDECORATED;
+        if (mh->flags & MWM_HINTS_DECORATIONS) {
+            bool want_border = (mh->decorations & MWM_DECOR_ALL) ? !(mh->decorations & MWM_DECOR_BORDER)
+                                                                 : (mh->decorations & MWM_DECOR_BORDER);
+            bool want_title = (mh->decorations & MWM_DECOR_ALL) ? !(mh->decorations & MWM_DECOR_TITLE)
+                                                                : (mh->decorations & MWM_DECOR_TITLE);
+
+            decorations_set = true;
+            undecorated = !(want_border && want_title);
+        }
     }
+
+    hot->motif_decorations_set = decorations_set;
+    hot->motif_undecorated = undecorated;
 }
 
 static void client_apply_gtk_frame_extents(server_t* s, handle_t h, const xcb_get_property_reply_t* r) {
     client_hot_t* hot = server_chot(s, h);
-    if (!hot || !r) return;
+    if (!hot) return;
 
-    int len = xcb_get_property_value_length(r);
-    if (len < (int)(4 * sizeof(uint32_t))) return;
+    int len = r ? xcb_get_property_value_length(r) : 0;
+    bool has_extents = (r && r->format == 32 && len >= (int)(4 * sizeof(uint32_t)));
 
-    const uint32_t* v = (const uint32_t*)xcb_get_property_value(r);
-
-    hot->gtk_extents.left = (uint16_t)v[0];
-    hot->gtk_extents.right = (uint16_t)v[1];
-    hot->gtk_extents.top = (uint16_t)v[2];
-    hot->gtk_extents.bottom = (uint16_t)v[3];
-
-    hot->gtk_frame_extents_set = true;
-    hot->flags |= CLIENT_FLAG_UNDECORATED;
+    hot->gtk_frame_extents_set = has_extents;
+    if (has_extents) {
+        const uint32_t* v = (const uint32_t*)xcb_get_property_value(r);
+        hot->gtk_extents.left = (uint16_t)v[0];
+        hot->gtk_extents.right = (uint16_t)v[1];
+        hot->gtk_extents.top = (uint16_t)v[2];
+        hot->gtk_extents.bottom = (uint16_t)v[3];
+    } else {
+        memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
+    }
 }
 
 static bool is_valid_utf8(const char* str, size_t len) {

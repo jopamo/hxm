@@ -42,6 +42,7 @@
 static int make_epoll_or_die(void);
 static void epoll_add_fd_or_die(int epfd, int fd);
 static void load_config_from_home(server_t* s);
+static void run_autostart(void);
 static void apply_reload(server_t* s);
 static void buckets_reset(event_buckets_t* b);
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
@@ -103,6 +104,7 @@ void server_init(server_t* s) {
     // Initialize configuration (defaults then optional load)
     config_init_defaults(&s->config);
     load_config_from_home(s);
+    run_autostart();
 
     // Initialize workspace state from config
     s->desktop_count = s->config.desktop_count ? s->config.desktop_count : 1;
@@ -274,6 +276,51 @@ static void epoll_add_fd_or_die(int epfd, int fd) {
     if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev) < 0) {
         LOG_ERROR("epoll_ctl add fd=%d failed: %s", fd, strerror(errno));
         exit(1);
+    }
+}
+
+static void run_autostart(void) {
+    char path[1024];
+    const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
+    const char* home = getenv("HOME");
+    const char* exec_path = NULL;
+
+    // Check XDG_CONFIG_HOME
+    if (xdg_config_home) {
+        snprintf(path, sizeof(path), "%s/bbox/autostart", xdg_config_home);
+        if (access(path, X_OK) == 0) {
+            exec_path = path;
+        }
+    }
+
+    // Check ~/.config
+    if (!exec_path && home) {
+        snprintf(path, sizeof(path), "%s/.config/bbox/autostart", home);
+        if (access(path, X_OK) == 0) {
+            exec_path = path;
+        }
+    }
+
+    // Check /etc
+    if (!exec_path) {
+        if (access("/etc/bbox/autostart", X_OK) == 0) {
+            exec_path = "/etc/bbox/autostart";
+        }
+    }
+
+    if (exec_path) {
+        LOG_INFO("Executing autostart script: %s", exec_path);
+        pid_t pid = fork();
+        if (pid == 0) {
+            if (setsid() < 0) {
+                LOG_WARN("setsid failed in autostart: %s", strerror(errno));
+            }
+            execl(exec_path, exec_path, NULL);
+            LOG_ERROR("Failed to exec autostart script: %s", strerror(errno));
+            exit(1);
+        } else if (pid < 0) {
+            LOG_ERROR("Failed to fork for autostart: %s", strerror(errno));
+        }
     }
 }
 

@@ -15,6 +15,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <xcb/randr.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_icccm.h>
 #include <xcb/xcb_keysyms.h>
@@ -131,6 +132,50 @@ static void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool 
     uint32_t extents[4] = {bw, bw, th + bw, bw};
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, win, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4,
                         extents);
+}
+
+static void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
+    // Default to full screen
+    xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+    out_geom->x = 0;
+    out_geom->y = 0;
+    out_geom->w = (uint16_t)screen->width_in_pixels;
+    out_geom->h = (uint16_t)screen->height_in_pixels;
+
+    if (!s->conn) return;
+
+    xcb_randr_get_screen_resources_current_cookie_t r_c = xcb_randr_get_screen_resources_current(s->conn, s->root);
+    xcb_randr_get_screen_resources_current_reply_t* res =
+        xcb_randr_get_screen_resources_current_reply(s->conn, r_c, NULL);
+
+    if (!res) return;
+
+    // Use center of the window to determine which monitor it is on
+    int center_x = hot->server.x + hot->server.w / 2;
+    int center_y = hot->server.y + hot->server.h / 2;
+
+    xcb_randr_crtc_t* crtcs = xcb_randr_get_screen_resources_current_crtcs(res);
+    int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res);
+
+    for (int i = 0; i < num_crtcs; i++) {
+        xcb_randr_get_crtc_info_cookie_t c_c = xcb_randr_get_crtc_info(s->conn, crtcs[i], res->config_timestamp);
+        xcb_randr_get_crtc_info_reply_t* crtc = xcb_randr_get_crtc_info_reply(s->conn, c_c, NULL);
+
+        if (crtc) {
+            if (crtc->mode != XCB_NONE && center_x >= crtc->x && center_x < crtc->x + (int)crtc->width &&
+                center_y >= crtc->y && center_y < crtc->y + (int)crtc->height) {
+                out_geom->x = crtc->x;
+                out_geom->y = crtc->y;
+                out_geom->w = crtc->width;
+                out_geom->h = crtc->height;
+                free(crtc);
+                break;
+            }
+            free(crtc);
+        }
+    }
+
+    free(res);
 }
 
 static void wm_client_apply_maximize(server_t* s, client_hot_t* hot) {
@@ -922,11 +967,7 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
             if (s->config.fullscreen_use_workarea) {
                 hot->desired = s->workarea;
             } else {
-                xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
-                hot->desired.x = 0;
-                hot->desired.y = 0;
-                hot->desired.w = (uint16_t)screen->width_in_pixels;
-                hot->desired.h = (uint16_t)screen->height_in_pixels;
+                wm_get_monitor_geometry(s, hot, &hot->desired);
             }
 
             hot->dirty |= DIRTY_GEOM | DIRTY_STATE | DIRTY_STACK;
