@@ -25,6 +25,12 @@ void wm_send_synthetic_configure(server_t* s, handle_t h) {
 
     uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
     uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+    int16_t client_offset_x = (int16_t)bw;
+    int16_t client_offset_y = (int16_t)th;
+    if (hot->gtk_frame_extents_set) {
+        client_offset_x = 0;
+        client_offset_y = 0;
+    }
 
     char buffer[32];
     memset(buffer, 0, sizeof(buffer));
@@ -34,8 +40,8 @@ void wm_send_synthetic_configure(server_t* s, handle_t h) {
     ev->event = hot->xid;
     ev->window = hot->xid;
     ev->above_sibling = XCB_NONE;
-    ev->x = hot->server.x + (int16_t)bw;
-    ev->y = hot->server.y + (int16_t)th;
+    ev->x = (int16_t)(hot->server.x + client_offset_x);
+    ev->y = (int16_t)(hot->server.y + client_offset_y);
     ev->width = hot->server.w;
     ev->height = hot->server.h;
     ev->border_width = 0;
@@ -97,6 +103,22 @@ static uint32_t wm_build_client_list_stacking(server_t* s, xcb_window_t* out, ui
         }
     }
 
+    return idx;
+}
+
+static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t cap) {
+    if (!s || !out || !cap) return 0;
+
+    uint32_t idx = 0;
+    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+        if (!slotmap_is_used_idx(&s->clients, i)) continue;
+
+        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+        if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
+
+        if (idx >= cap) return idx;
+        out[idx++] = hot->xid;
+    }
     return idx;
 }
 
@@ -349,10 +371,24 @@ void wm_flush_dirty(server_t* s) {
             idx_stacking = wm_build_client_list_stacking(s, wins_stacking, (uint32_t)cap);
         }
 
-        // _NET_CLIENT_LIST: mapping order, not stacking order
-        // Until you have a dedicated mapping-order list, avoid publishing an incorrect list.
+        // _NET_CLIENT_LIST: mapping order (slotmap order)
+        // Must include all managed windows (including iconified ones), so we use slotmap capacity.
+        uint32_t cap_list = slotmap_capacity(&s->clients);
+        xcb_window_t* wins_list =
+            cap_list ? (xcb_window_t*)arena_alloc(&s->tick_arena, cap_list * sizeof(xcb_window_t)) : NULL;
+
+        uint32_t idx_list = 0;
+        if (wins_list) {
+            idx_list = wm_build_client_list(s, wins_list, cap_list);
+        }
+
         if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST) {
-            xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST);
+            if (idx_list) {
+                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST, XCB_ATOM_WINDOW,
+                                    32, idx_list, wins_list);
+            } else {
+                xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST);
+            }
         }
 
         if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST_STACKING) {

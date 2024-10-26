@@ -165,6 +165,9 @@ typedef struct client_hot {
     xcb_visualid_t visual_id;
     xcb_visualtype_t* visual_type;
     uint8_t depth;
+    xcb_colormap_t colormap;
+    xcb_colormap_t frame_colormap;
+    bool frame_colormap_owned;
 
     xcb_damage_damage_t damage;
     dirty_region_t damage_region;

@@ -409,8 +409,10 @@ xcb_void_cookie_t xcb_change_property_checked(xcb_connection_t* c, uint8_t mode,
 
 xcb_void_cookie_t xcb_delete_property(xcb_connection_t* c, xcb_window_t window, xcb_atom_t property) {
     (void)c;
-    (void)window;
-    (void)property;
+    stub_last_prop_window = window;
+    stub_last_prop_atom = property;
+    stub_last_prop_type = XCB_ATOM_NONE;
+    stub_last_prop_len = 0;
     return (xcb_void_cookie_t){0};
 }
 
@@ -835,4 +837,40 @@ xcb_keysym_t xcb_key_symbols_get_keysym(xcb_key_symbols_t* syms, xcb_keycode_t k
     (void)col;
     if (keycode == 9) return XK_Escape;
     return 0;
+}
+
+// Colormap stubs
+xcb_void_cookie_t xcb_install_colormap(xcb_connection_t* c, xcb_colormap_t cmap) {
+    (void)c;
+    (void)cmap;
+    return (xcb_void_cookie_t){0};
+}
+
+xcb_void_cookie_t xcb_install_colormap_checked(xcb_connection_t* c, xcb_colormap_t cmap) {
+    return xcb_install_colormap(c, cmap);
+}
+
+xcb_void_cookie_t xcb_create_colormap(xcb_connection_t* c, uint8_t alloc, xcb_colormap_t mid, xcb_window_t window,
+                                      xcb_visualid_t visual) {
+    (void)c;
+    (void)alloc;
+    (void)mid;
+    (void)window;
+    (void)visual;
+    return (xcb_void_cookie_t){0};
+}
+
+xcb_void_cookie_t xcb_create_colormap_checked(xcb_connection_t* c, uint8_t alloc, xcb_colormap_t mid,
+                                              xcb_window_t window, xcb_visualid_t visual) {
+    return xcb_create_colormap(c, alloc, mid, window, visual);
+}
+
+xcb_void_cookie_t xcb_free_colormap(xcb_connection_t* c, xcb_colormap_t cmap) {
+    (void)c;
+    (void)cmap;
+    return (xcb_void_cookie_t){0};
+}
+
+xcb_void_cookie_t xcb_free_colormap_checked(xcb_connection_t* c, xcb_colormap_t cmap) {
+    return xcb_free_colormap(c, cmap);
 }

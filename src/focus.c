@@ -30,6 +30,18 @@ static void debug_dump_focus_history(const server_t* s, const char* tag) {
 }
 #endif
 
+/*
+static void install_client_colormap(server_t* s, client_hot_t* hot) {
+    if (!hot) return;
+    if (hot->colormap != XCB_NONE) {
+        xcb_install_colormap(s->conn, hot->colormap);
+    }
+    if (hot->frame_colormap_owned && hot->frame_colormap != XCB_NONE) {
+        xcb_install_colormap(s->conn, hot->frame_colormap);
+    }
+}
+*/
+
 void wm_set_focus(server_t* s, handle_t h) {
     TRACE_LOG("set_focus from=%lx to=%lx", s->focused_client, h);
     if (s->focused_client == h) return;
@@ -57,6 +69,8 @@ void wm_set_focus(server_t* s, handle_t h) {
     if (c) {
         c->flags |= CLIENT_FLAG_FOCUSED;
         c->dirty |= DIRTY_FRAME_STYLE | DIRTY_STATE;
+
+        // install_client_colormap(s, c);
 
         // Move to MRU head
         if (c->focus_node.next && c->focus_node.next != &c->focus_node) {
@@ -99,6 +113,7 @@ void wm_set_focus(server_t* s, handle_t h) {
     } else {
         // Focus root or None
         TRACE_LOG("set_focus root");
+        // xcb_install_colormap(s->conn, s->default_colormap);
         xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, s->root, XCB_CURRENT_TIME);
         s->root_dirty |= ROOT_DIRTY_ACTIVE_WINDOW;
     }

@@ -10,6 +10,7 @@
 #include "wm.h"
 
 // Externs from xcb_stubs.c
+extern void xcb_stubs_reset(void);
 extern int stub_map_window_count;
 extern int stub_unmap_window_count;
 extern xcb_window_t stub_last_mapped_window;
@@ -18,8 +19,13 @@ extern xcb_window_t stub_last_unmapped_window;
 void setup_server(server_t* s) {
     memset(s, 0, sizeof(server_t));
     s->is_test = true;
+
+    xcb_stubs_reset();
+    s->conn = xcb_connect(NULL, NULL);
+    atoms_init(s->conn);
+
     s->root_depth = 24;
-    s->root_visual_type = xcb_get_visualtype(NULL, 0);
+    s->root_visual_type = xcb_get_visualtype(s->conn, 0);
     slotmap_init(&s->clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
 
     // Initialize workspace defaults
@@ -140,6 +146,7 @@ void test_workspace_switch_basics() {
         }
     }
     slotmap_destroy(&s.clients);
+    xcb_disconnect(s.conn);
 }
 
 void test_client_move_to_workspace() {
@@ -207,6 +214,7 @@ void test_client_move_to_workspace() {
         }
     }
     slotmap_destroy(&s.clients);
+    xcb_disconnect(s.conn);
 }
 
 void test_client_toggle_sticky() {
@@ -249,6 +257,7 @@ void test_client_toggle_sticky() {
         }
     }
     slotmap_destroy(&s.clients);
+    xcb_disconnect(s.conn);
 }
 
 void test_workspace_relative() {
@@ -286,6 +295,7 @@ void test_workspace_relative() {
         }
     }
     slotmap_destroy(&s.clients);
+    xcb_disconnect(s.conn);
 }
 
 int main() {

@@ -108,6 +108,7 @@ static const char* atom_names[] = {
     "UTF8_STRING",
     "COMPOUND_TEXT",
     "WM_S0",
+    "_NET_WM_BYPASS_COMPOSITOR",
 };
 
 void atoms_init(xcb_connection_t* conn) {

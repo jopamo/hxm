@@ -111,6 +111,7 @@ struct atoms {
     xcb_atom_t UTF8_STRING;
     xcb_atom_t COMPOUND_TEXT;
     xcb_atom_t WM_S0;
+    xcb_atom_t _NET_WM_BYPASS_COMPOSITOR;
 };
 
 extern struct atoms atoms;
