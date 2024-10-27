@@ -366,6 +366,11 @@ void client_finish_manage(server_t* s, handle_t h) {
 
     wm_place_window(s, h);
 
+    // Subscribe to client events before framing/mapping.
+    uint32_t client_events = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_ENTER_WINDOW |
+                             XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
+    xcb_change_window_attributes(s->conn, hot->xid, XCB_CW_EVENT_MASK, &client_events);
+
     // 1. Create frame
     rect_t geom = hot->desired;
 
@@ -410,7 +415,54 @@ void client_finish_manage(server_t* s, handle_t h) {
     }
     xcb_reparent_window(s->conn, hot->xid, hot->frame, rx, ry);
 
-    hot->server = hot->desired;
+    // 4.5. Apply initial sizes/positions after reparenting.
+    int32_t frame_x = geom.x;
+    int32_t frame_y = geom.y;
+    uint32_t frame_w = geom.w;
+    uint32_t frame_h = geom.h;
+
+    int32_t client_x = bw;
+    int32_t client_y = th;
+    uint32_t client_w = geom.w;
+    uint32_t client_h = geom.h;
+
+    if (hot->gtk_frame_extents_set) {
+        frame_x -= (int32_t)hot->gtk_extents.left;
+        frame_y -= (int32_t)hot->gtk_extents.top;
+        frame_w += hot->gtk_extents.left + hot->gtk_extents.right;
+        frame_h += hot->gtk_extents.top + hot->gtk_extents.bottom;
+
+        client_x = 0;
+        client_y = 0;
+        client_w = frame_w;
+        client_h = frame_h;
+    } else {
+        frame_w += 2 * bw;
+        frame_h += th + bw;
+    }
+
+    uint32_t frame_values[4];
+    frame_values[0] = (uint32_t)frame_x;
+    frame_values[1] = (uint32_t)frame_y;
+    frame_values[2] = frame_w;
+    frame_values[3] = frame_h;
+    xcb_configure_window(s->conn, hot->frame,
+                         XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+                         frame_values);
+
+    uint32_t client_values[4];
+    client_values[0] = (uint32_t)client_x;
+    client_values[1] = (uint32_t)client_y;
+    client_values[2] = client_w;
+    client_values[3] = client_h;
+    xcb_configure_window(s->conn, hot->xid,
+                         XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+                         client_values);
+
+    hot->server.x = (int16_t)frame_x;
+    hot->server.y = (int16_t)frame_y;
+    hot->server.w = (uint16_t)client_w;
+    hot->server.h = (uint16_t)client_h;
     wm_send_synthetic_configure(s, h);
 
     // Set _NET_FRAME_EXTENTS (before mapping)
@@ -461,6 +513,7 @@ void client_finish_manage(server_t* s, handle_t h) {
     if (visible) {
         xcb_map_window(s->conn, hot->xid);
         xcb_map_window(s->conn, hot->frame);
+        xcb_flush(s->conn);
         hot->state = STATE_MAPPED;
 
         uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
@@ -483,11 +536,6 @@ void client_finish_manage(server_t* s, handle_t h) {
     }
 
     hot->dirty |= DIRTY_STATE;
-
-    // Subscribe to client events
-    uint32_t client_events = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_ENTER_WINDOW |
-                             XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
-    xcb_change_window_attributes(s->conn, hot->xid, XCB_CW_EVENT_MASK, &client_events);
 
     if (s->damage_supported) {
         hot->damage = xcb_generate_id(s->conn);
