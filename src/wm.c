@@ -478,6 +478,9 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
 
+    TRACE_LOG("configure_request h=%lx xid=%u mask=0x%x x=%d y=%d w=%u h=%u bw=%u", h, hot->xid, ev->mask, ev->x, ev->y,
+              ev->width, ev->height, ev->border_width);
+
     if (ev->mask & XCB_CONFIG_WINDOW_X) hot->desired.x = ev->x;
     if (ev->mask & XCB_CONFIG_WINDOW_Y) hot->desired.y = ev->y;
     if (ev->mask & XCB_CONFIG_WINDOW_WIDTH) hot->desired.w = ev->width;
@@ -507,6 +510,9 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
     (void)s;
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
+
+    TRACE_LOG("configure_notify h=%lx win=%u x=%d y=%d w=%u h=%u bw=%u above=%u", h, ev->window, ev->x, ev->y,
+              ev->width, ev->height, ev->border_width, ev->above_sibling);
 
     if (ev->window == hot->frame) {
         hot->server.x = ev->x;

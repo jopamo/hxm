@@ -47,6 +47,7 @@ void wm_send_synthetic_configure(server_t* s, handle_t h) {
     ev->border_width = 0;
     ev->override_redirect = hot->override_redirect;
 
+    TRACE_LOG("synthetic_configure xid=%u x=%d y=%d w=%u h=%u", hot->xid, ev->x, ev->y, ev->width, ev->height);
     xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_STRUCTURE_NOTIFY, buffer);
 }
 
@@ -383,21 +384,13 @@ void wm_flush_dirty(server_t* s) {
         }
 
         if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST) {
-            if (idx_list) {
-                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST, XCB_ATOM_WINDOW,
-                                    32, idx_list, wins_list);
-            } else {
-                xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST);
-            }
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32,
+                                idx_list, wins_list);
         }
 
         if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST_STACKING) {
-            if (idx_stacking) {
-                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST_STACKING,
-                                    XCB_ATOM_WINDOW, 32, idx_stacking, wins_stacking);
-            } else {
-                xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST_STACKING);
-            }
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST_STACKING,
+                                XCB_ATOM_WINDOW, 32, idx_stacking, wins_stacking);
         }
 
         s->root_dirty &= ~(ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING);
