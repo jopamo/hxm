@@ -91,6 +91,8 @@ void config_init_defaults(config_t* config) {
     add_keybind(config, XCB_MOD_MASK_4, XK_s, ACTION_TOGGLE_STICKY, NULL);
     add_keybind(config, XCB_MOD_MASK_4, XK_Left, ACTION_WORKSPACE_PREV, NULL);
     add_keybind(config, XCB_MOD_MASK_4, XK_Right, ACTION_WORKSPACE_NEXT, NULL);
+    add_keybind(config, XCB_MOD_MASK_1, XK_F7, ACTION_MOVE, NULL);
+    add_keybind(config, XCB_MOD_MASK_1, XK_F8, ACTION_RESIZE, NULL);
 }
 
 void config_destroy(config_t* config) {
@@ -246,6 +248,10 @@ static void parse_keybind(config_t* config, const char* val) {
         cmd = trim_whitespace(action_str + 18);
     } else if (strcasecmp(action_str, "toggle_sticky") == 0)
         action = ACTION_TOGGLE_STICKY;
+    else if (strcasecmp(action_str, "move") == 0)
+        action = ACTION_MOVE;
+    else if (strcasecmp(action_str, "resize") == 0)
+        action = ACTION_RESIZE;
     else if (strcasecmp(action_str, "restart") == 0)
         action = ACTION_RESTART;
     else if (strcasecmp(action_str, "exit") == 0)

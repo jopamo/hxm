@@ -647,8 +647,8 @@ static void wm_cancel_interaction(server_t* s) {
     LOG_INFO("Ended interaction");
 }
 
-static void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir,
-                                 int16_t root_x, int16_t root_y) {
+void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir, int16_t root_x,
+                          int16_t root_y) {
     s->interaction_mode = start_move ? INTERACTION_MOVE : INTERACTION_RESIZE;
     s->interaction_resize_dir = resize_dir;
     s->interaction_window = hot->frame;

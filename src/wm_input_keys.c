@@ -157,6 +157,40 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
             case ACTION_TOGGLE_STICKY:
                 if (s->focused_client != HANDLE_INVALID) wm_client_toggle_sticky(s, s->focused_client);
                 break;
+            case ACTION_MOVE:
+                if (s->focused_client != HANDLE_INVALID) {
+                    client_hot_t* hot = server_chot(s, s->focused_client);
+                    if (hot) {
+                        int16_t root_x = hot->server.x + hot->server.w / 2;
+                        int16_t root_y = hot->server.y + hot->server.h / 2;
+
+                        xcb_query_pointer_cookie_t cookie = xcb_query_pointer(s->conn, s->root);
+                        xcb_query_pointer_reply_t* r = xcb_query_pointer_reply(s->conn, cookie, NULL);
+                        if (r) {
+                            root_x = r->root_x;
+                            root_y = r->root_y;
+                            free(r);
+                        }
+
+                        wm_start_interaction(s, s->focused_client, hot, true, RESIZE_NONE, root_x, root_y);
+                    }
+                }
+                break;
+            case ACTION_RESIZE:
+                if (s->focused_client != HANDLE_INVALID) {
+                    client_hot_t* hot = server_chot(s, s->focused_client);
+                    if (hot) {
+                        int16_t root_x = hot->server.x + hot->server.w;
+                        int16_t root_y = hot->server.y + hot->server.h;
+
+                        // Warp pointer to bottom-right corner to facilitate resize
+                        xcb_warp_pointer(s->conn, XCB_NONE, s->root, 0, 0, 0, 0, root_x, root_y);
+
+                        wm_start_interaction(s, s->focused_client, hot, false, RESIZE_BOTTOM | RESIZE_RIGHT, root_x,
+                                             root_y);
+                    }
+                }
+                break;
             default:
                 break;
         }

@@ -515,12 +515,14 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 
         case XCB_MAP_NOTIFY: {
             xcb_map_notify_event_t* e = (xcb_map_notify_event_t*)ev;
+            (void)e;
             TRACE_LOG("ingest map_notify win=%u event=%u override=%u", e->window, e->event, e->override_redirect);
             break;
         }
 
         case XCB_REPARENT_NOTIFY: {
             xcb_reparent_notify_event_t* e = (xcb_reparent_notify_event_t*)ev;
+            (void)e;
             TRACE_LOG("ingest reparent_notify win=%u parent=%u x=%d y=%d override=%u", e->window, e->parent, e->x, e->y,
                       e->override_redirect);
             break;
