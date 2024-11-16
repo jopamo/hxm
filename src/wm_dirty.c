@@ -158,19 +158,14 @@ void wm_flush_dirty(server_t* s) {
             uint32_t client_h = hot->desired.h;
 
             if (hot->gtk_frame_extents_set) {
-                frame_x -= (int32_t)hot->gtk_extents.left;
-                frame_y -= (int32_t)hot->gtk_extents.top;
-                frame_w += hot->gtk_extents.left + hot->gtk_extents.right;
-                frame_h += hot->gtk_extents.top + hot->gtk_extents.bottom;
-
-                client_x = 0;
-                client_y = 0;
-                client_w = frame_w;
-                client_h = frame_h;
-            } else {
-                frame_w += 2 * bw;
-                frame_h += th + bw;
+                client_x -= (int32_t)hot->gtk_extents.left;
+                client_y -= (int32_t)hot->gtk_extents.top;
+                client_w += hot->gtk_extents.left + hot->gtk_extents.right;
+                client_h += hot->gtk_extents.top + hot->gtk_extents.bottom;
             }
+
+            frame_w += 2 * bw;
+            frame_h += th + bw;
 
             uint32_t frame_values[4];
             frame_values[0] = (uint32_t)frame_x;
@@ -195,7 +190,7 @@ void wm_flush_dirty(server_t* s) {
                 client_values);
 
             // Set _NET_FRAME_EXTENTS
-            if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
+            if (hot->flags & CLIENT_FLAG_UNDECORATED) {
                 xcb_delete_property(s->conn, hot->xid, atoms._NET_FRAME_EXTENTS);
             } else {
                 uint32_t extents[4] = {bw, bw, th + bw, bw};

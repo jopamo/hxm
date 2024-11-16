@@ -84,20 +84,19 @@ void test_gtk_extents_toggle_decorations() {
     wm_handle_reply(&s, &slot, &reply_struct.rep, NULL);
 
     assert(hot->gtk_frame_extents_set);
-    assert(hot->flags & CLIENT_FLAG_UNDECORATED);
+    assert(!(hot->flags & CLIENT_FLAG_UNDECORATED));
     assert(hot->dirty & DIRTY_GEOM);
-    assert(hot->dirty & DIRTY_FRAME_STYLE);
 
     stub_last_prop_atom = 0;
     wm_flush_dirty(&s);
 
     assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
-    assert(stub_last_prop_len == 0);
-    // uint32_t* extents = (uint32_t*)stub_last_prop_data;
-    // assert(extents[0] == 0);
-    // assert(extents[1] == 0);
-    // assert(extents[2] == 0);
-    // assert(extents[3] == 0);
+    assert(stub_last_prop_len == 4);
+    uint32_t* extents_check = (uint32_t*)stub_last_prop_data;
+    assert(extents_check[0] == 5);
+    assert(extents_check[1] == 5);
+    assert(extents_check[2] == 25);
+    assert(extents_check[3] == 5);
 
     hot->dirty = DIRTY_NONE;
 

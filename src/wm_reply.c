@@ -176,7 +176,6 @@ static bool client_should_be_undecorated(const client_hot_t* hot) {
     if (!hot) return false;
     if (hot->layer == LAYER_FULLSCREEN) return true;
     if (client_type_forces_undecorated(hot->type)) return true;
-    if (hot->gtk_frame_extents_set) return true;
     if (hot->motif_decorations_set) return hot->motif_undecorated;
     return false;
 }

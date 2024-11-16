@@ -121,6 +121,7 @@ static void test_gtk_extents_inflation_order_and_state(void) {
 
     // Even if we have border width, GTK extents should dominate for undecorated client
     ts.s.config.theme.border_width = 5;
+    ts.s.config.theme.title_height = 20;
 
     client_hot_t* hot = test_client_add(&ts, 100, 200);
 
@@ -136,31 +137,51 @@ static void test_gtk_extents_inflation_order_and_state(void) {
     reset_config_captures();
     wm_flush_dirty(&ts.s);
 
-    // Expected
-    const int32_t exp_frame_x = 50 - 10;
-    const int32_t exp_frame_y = 50 - 20;
-    const uint32_t exp_w = 400 + 10 + 10;
-    const uint32_t exp_h = 300 + 20 + 20;
+    // Expected: Forced SSD (Crop Shadows)
+    // Frame: Positioned at desired (logical) pos, Sized to content + WM decorations
+    const int32_t exp_frame_x = 50;
+    const int32_t exp_frame_y = 50;
+    const uint32_t exp_frame_w = 400 + 2 * 5;   // 410
+    const uint32_t exp_frame_h = 300 + 20 + 5;  // 325
+
+    // Client: Sized to Content + Shadows, Positioned negatively to hide shadows
+    // client_x = bw - left = 5 - 10 = -5
+    // client_y = th - top = 20 - 20 = 0
+    const int32_t exp_client_x = -5;
+    const int32_t exp_client_y = 0;
+    const uint32_t exp_client_w = 400 + 10 + 10;  // 420
+    const uint32_t exp_client_h = 300 + 20 + 20;  // 340
 
     // Two configures: frame then client
     assert(stub_configure_window_count == 2);
     assert(stub_config_calls_len == 2);
 
-    assert_call_eq(&stub_config_calls[0], 200, exp_frame_x, exp_frame_y, exp_w, exp_h);
-    assert_call_eq(&stub_config_calls[1], 100, 0, 0, exp_w, exp_h);
+    assert_call_eq(&stub_config_calls[0], 200, exp_frame_x, exp_frame_y, exp_frame_w, exp_frame_h);
+    assert_call_eq(&stub_config_calls[1], 100, exp_client_x, exp_client_y, exp_client_w, exp_client_h);
 
     // Last call should be the client
     assert(stub_last_config_window == 100);
-    assert(stub_last_config_x == 0);
-    assert(stub_last_config_y == 0);
-    assert(stub_last_config_w == exp_w);
-    assert(stub_last_config_h == exp_h);
+    assert(stub_last_config_x == exp_client_x);
+    assert(stub_last_config_y == exp_client_y);
+    assert(stub_last_config_w == exp_client_w);
+    assert(stub_last_config_h == exp_client_h);
 
     // Server state should reflect frame geometry
     assert(hot->server.x == exp_frame_x);
     assert(hot->server.y == exp_frame_y);
-    assert(hot->server.w == exp_w);
-    assert(hot->server.h == exp_h);
+    // Server state tracks the client window size? No, usually frame size or client content size?
+    // In wm_dirty.c: hot->server.w = (uint16_t)client_w;
+    // Wait, let's check wm_dirty.c logic again.
+    // It updates hot->server with client_w/h.
+    // Ideally hot->server should probably track the frame or the logical size?
+    // wm_dirty.c says:
+    // hot->server.x = (int16_t)frame_x;
+    // hot->server.y = (int16_t)frame_y;
+    // hot->server.w = (uint16_t)client_w; <-- This seems to track the actual X window size.
+    // hot->server.h = (uint16_t)client_h;
+
+    assert(hot->server.w == exp_client_w);
+    assert(hot->server.h == exp_client_h);
 
     printf("test_gtk_extents_inflation_order_and_state passed\n");
 
@@ -172,6 +193,7 @@ static void test_no_gtk_extents_no_inflation(void) {
     test_server_init(&ts);
 
     ts.s.config.theme.border_width = 5;
+    ts.s.config.theme.title_height = 20;  // Explicitly set default
 
     client_hot_t* hot = test_client_add(&ts, 101, 201);
 
@@ -267,6 +289,9 @@ static void test_two_clients_both_configured(void) {
     test_server_t ts;
     test_server_init(&ts);
 
+    ts.s.config.theme.border_width = 5;
+    ts.s.config.theme.title_height = 20;
+
     client_hot_t* a = test_client_add(&ts, 110, 210);
     client_hot_t* b = test_client_add(&ts, 111, 211);
 
@@ -304,12 +329,19 @@ static void test_two_clients_both_configured(void) {
         const stub_config_call_t* c1 = &stub_config_calls[i + 1];
 
         if (!found_a && c0->win == 210 && c1->win == 110) {
-            const int32_t fx = 10 - 5;
-            const int32_t fy = 20 - 7;
-            const uint32_t w = 100 + 5 + 6;
-            const uint32_t h = 200 + 7 + 8;
-            assert_call_eq(c0, 210, fx, fy, w, h);
-            assert_call_eq(c1, 110, 0, 0, w, h);
+            // Client A: Forced SSD
+            const int32_t fx = 10;
+            const int32_t fy = 20;
+            const uint32_t fw = 100 + 10;  // 2*bw
+            const uint32_t fh = 200 + 25;  // th + bw
+
+            const int32_t cx = 5 - 5;   // bw - left = 0
+            const int32_t cy = 20 - 7;  // th - top = 13
+            const uint32_t cw = 100 + 5 + 6;
+            const uint32_t ch = 200 + 7 + 8;
+
+            assert_call_eq(c0, 210, fx, fy, fw, fh);
+            assert_call_eq(c1, 110, cx, cy, cw, ch);
             found_a = true;
         }
 
