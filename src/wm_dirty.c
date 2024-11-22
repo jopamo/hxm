@@ -27,10 +27,12 @@ void wm_send_synthetic_configure(server_t* s, handle_t h) {
     uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
     int16_t client_offset_x = (int16_t)bw;
     int16_t client_offset_y = (int16_t)th;
+    /*
     if (hot->gtk_frame_extents_set) {
         client_offset_x = 0;
         client_offset_y = 0;
     }
+    */
 
     char buffer[32];
     memset(buffer, 0, sizeof(buffer));
@@ -157,12 +159,14 @@ void wm_flush_dirty(server_t* s) {
             uint32_t client_w = hot->desired.w;
             uint32_t client_h = hot->desired.h;
 
+            /*
             if (hot->gtk_frame_extents_set) {
                 client_x -= (int32_t)hot->gtk_extents.left;
                 client_y -= (int32_t)hot->gtk_extents.top;
                 client_w += hot->gtk_extents.left + hot->gtk_extents.right;
                 client_h += hot->gtk_extents.top + hot->gtk_extents.bottom;
             }
+            */
 
             frame_w += 2 * bw;
             frame_h += th + bw;
@@ -190,7 +194,15 @@ void wm_flush_dirty(server_t* s) {
                 client_values);
 
             // Set _NET_FRAME_EXTENTS
-            if (hot->flags & CLIENT_FLAG_UNDECORATED) {
+            // if (hot->flags & CLIENT_FLAG_UNDECORATED) {
+            //     xcb_delete_property(s->conn, hot->xid, atoms._NET_FRAME_EXTENTS);
+            // } else {
+            //     uint32_t extents[4] = {bw, bw, th + bw, bw};
+            //     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS,
+            //                         XCB_ATOM_CARDINAL, 32, 4, extents);
+            // }
+            // Original logic above, modified:
+            if ((hot->flags & CLIENT_FLAG_UNDECORATED)) {
                 xcb_delete_property(s->conn, hot->xid, atoms._NET_FRAME_EXTENTS);
             } else {
                 uint32_t extents[4] = {bw, bw, th + bw, bw};

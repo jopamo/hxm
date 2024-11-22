@@ -93,6 +93,7 @@ static bool wm_is_above_in_layer(const server_t* s, const client_hot_t* a, const
 }
 
 static bool wm_window_wants_undecorated(server_t* s, xcb_window_t win) {
+    /*
     if (atoms._GTK_FRAME_EXTENTS != XCB_ATOM_NONE) {
         xcb_get_property_cookie_t ck =
             xcb_get_property(s->conn, 0, win, atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 0, 4);
@@ -103,6 +104,7 @@ static bool wm_window_wants_undecorated(server_t* s, xcb_window_t win) {
             if (has_extents) return true;
         }
     }
+    */
 
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5);
     xcb_get_property_reply_t* r = xcb_get_property_reply(s->conn, ck, NULL);
@@ -486,6 +488,8 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     if (ev->mask & XCB_CONFIG_WINDOW_WIDTH) hot->desired.w = ev->width;
     if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT) hot->desired.h = ev->height;
 
+    // Reworked GTK handling: treat as standard windows for now
+    /*
     if (hot->gtk_frame_extents_set) {
         if (ev->mask & XCB_CONFIG_WINDOW_X) hot->desired.x += (int16_t)hot->gtk_extents.left;
         if (ev->mask & XCB_CONFIG_WINDOW_Y) hot->desired.y += (int16_t)hot->gtk_extents.top;
@@ -498,6 +502,7 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
             hot->desired.h = (hot->desired.h > v_ext) ? (hot->desired.h - (uint16_t)v_ext) : 1;
         }
     }
+    */
 
     client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
     hot->dirty |= DIRTY_GEOM;

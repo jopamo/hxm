@@ -137,20 +137,20 @@ static void test_gtk_extents_inflation_order_and_state(void) {
     reset_config_captures();
     wm_flush_dirty(&ts.s);
 
-    // Expected: Forced SSD (Crop Shadows)
+    // Expected: Standard Window (Extents Ignored)
     // Frame: Positioned at desired (logical) pos, Sized to content + WM decorations
     const int32_t exp_frame_x = 50;
     const int32_t exp_frame_y = 50;
     const uint32_t exp_frame_w = 400 + 2 * 5;   // 410
     const uint32_t exp_frame_h = 300 + 20 + 5;  // 325
 
-    // Client: Sized to Content + Shadows, Positioned negatively to hide shadows
-    // client_x = bw - left = 5 - 10 = -5
-    // client_y = th - top = 20 - 20 = 0
-    const int32_t exp_client_x = -5;
-    const int32_t exp_client_y = 0;
-    const uint32_t exp_client_w = 400 + 10 + 10;  // 420
-    const uint32_t exp_client_h = 300 + 20 + 20;  // 340
+    // Client: Positioned inside frame with standard borders
+    // client_x = bw = 5
+    // client_y = th = 20
+    const int32_t exp_client_x = 5;
+    const int32_t exp_client_y = 20;
+    const uint32_t exp_client_w = 400;
+    const uint32_t exp_client_h = 300;
 
     // Two configures: frame then client
     assert(stub_configure_window_count == 2);
@@ -169,17 +169,6 @@ static void test_gtk_extents_inflation_order_and_state(void) {
     // Server state should reflect frame geometry
     assert(hot->server.x == exp_frame_x);
     assert(hot->server.y == exp_frame_y);
-    // Server state tracks the client window size? No, usually frame size or client content size?
-    // In wm_dirty.c: hot->server.w = (uint16_t)client_w;
-    // Wait, let's check wm_dirty.c logic again.
-    // It updates hot->server with client_w/h.
-    // Ideally hot->server should probably track the frame or the logical size?
-    // wm_dirty.c says:
-    // hot->server.x = (int16_t)frame_x;
-    // hot->server.y = (int16_t)frame_y;
-    // hot->server.w = (uint16_t)client_w; <-- This seems to track the actual X window size.
-    // hot->server.h = (uint16_t)client_h;
-
     assert(hot->server.w == exp_client_w);
     assert(hot->server.h == exp_client_h);
 
@@ -329,16 +318,16 @@ static void test_two_clients_both_configured(void) {
         const stub_config_call_t* c1 = &stub_config_calls[i + 1];
 
         if (!found_a && c0->win == 210 && c1->win == 110) {
-            // Client A: Forced SSD
+            // Client A: Now Standard Window (Extents Ignored)
             const int32_t fx = 10;
             const int32_t fy = 20;
-            const uint32_t fw = 100 + 10;  // 2*bw
-            const uint32_t fh = 200 + 25;  // th + bw
+            const uint32_t fw = 100 + 2 * 5;  // 2*bw
+            const uint32_t fh = 200 + 25;     // th + bw
 
-            const int32_t cx = 5 - 5;   // bw - left = 0
-            const int32_t cy = 20 - 7;  // th - top = 13
-            const uint32_t cw = 100 + 5 + 6;
-            const uint32_t ch = 200 + 7 + 8;
+            const int32_t cx = 5;   // bw
+            const int32_t cy = 20;  // th
+            const uint32_t cw = 100;
+            const uint32_t ch = 200;
 
             assert_call_eq(c0, 210, fx, fy, fw, fh);
             assert_call_eq(c1, 110, cx, cy, cw, ch);

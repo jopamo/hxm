@@ -499,6 +499,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     hot->dirty |= DIRTY_GEOM;
                 } else {
                     // Initial map: Apply extents to desired geometry
+                    /*
                     uint32_t h_ext = hot->gtk_extents.left + hot->gtk_extents.right;
                     uint32_t v_ext = hot->gtk_extents.top + hot->gtk_extents.bottom;
                     hot->desired.w = (hot->desired.w > h_ext) ? (hot->desired.w - (uint16_t)h_ext) : 1;
@@ -508,6 +509,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     // The old code did: hot->desired.x += hot->gtk_extents.left;
                     hot->desired.x += (int16_t)hot->gtk_extents.left;
                     hot->desired.y += (int16_t)hot->gtk_extents.top;
+                    */
                 }
 
                 if (client_apply_decoration_hints(hot)) changed = true;

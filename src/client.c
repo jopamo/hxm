@@ -409,10 +409,12 @@ void client_finish_manage(server_t* s, handle_t h) {
     // 3. Reparent
     int16_t rx = bw;
     int16_t ry = th;
+    /*
     if (hot->gtk_frame_extents_set) {
         rx = 0;
         ry = 0;
     }
+    */
     xcb_reparent_window(s->conn, hot->xid, hot->frame, rx, ry);
 
     // 4.5. Apply initial sizes/positions after reparenting.
@@ -426,6 +428,7 @@ void client_finish_manage(server_t* s, handle_t h) {
     uint32_t client_w = geom.w;
     uint32_t client_h = geom.h;
 
+    /*
     if (hot->gtk_frame_extents_set) {
         frame_x -= (int32_t)hot->gtk_extents.left;
         frame_y -= (int32_t)hot->gtk_extents.top;
@@ -440,6 +443,9 @@ void client_finish_manage(server_t* s, handle_t h) {
         frame_w += 2 * bw;
         frame_h += th + bw;
     }
+    */
+    frame_w += 2 * bw;
+    frame_h += th + bw;
 
     uint32_t frame_values[4];
     frame_values[0] = (uint32_t)frame_x;
@@ -466,7 +472,8 @@ void client_finish_manage(server_t* s, handle_t h) {
     wm_send_synthetic_configure(s, h);
 
     // Set _NET_FRAME_EXTENTS (before mapping)
-    if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
+    // if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
+    if ((hot->flags & CLIENT_FLAG_UNDECORATED)) {
         xcb_delete_property(s->conn, hot->xid, atoms._NET_FRAME_EXTENTS);
     } else {
         uint32_t extents[4] = {bw, bw, th + bw, bw};
@@ -692,6 +699,7 @@ void client_unmanage(server_t* s, handle_t h) {
         int16_t root_x = hot->server.x;
         int16_t root_y = hot->server.y;
 
+        /*
         if (hot->gtk_frame_extents_set) {
             root_x += (int16_t)hot->gtk_extents.left;
             root_y += (int16_t)hot->gtk_extents.top;
@@ -701,6 +709,11 @@ void client_unmanage(server_t* s, handle_t h) {
             root_x += (int16_t)bw;
             root_y += (int16_t)th;
         }
+        */
+        uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
+        uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+        root_x += (int16_t)bw;
+        root_y += (int16_t)th;
 
         TRACE_LOG("unmanage reparent xid=%u -> root (%d,%d)", hot->xid, root_x, root_y);
         xcb_reparent_window(s->conn, hot->xid, s->root, root_x, root_y);

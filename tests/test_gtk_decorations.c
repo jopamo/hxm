@@ -154,10 +154,11 @@ void test_gtk_configure_request_extents() {
 
     wm_handle_configure_request(&s, h, &ev);
 
-    assert(hot->desired.x == 208);
-    assert(hot->desired.y == 124);
-    assert(hot->desired.w == 284);
-    assert(hot->desired.h == 168);
+    // Standard behavior: no GTK adjustment
+    assert(hot->desired.x == 200);
+    assert(hot->desired.y == 100);
+    assert(hot->desired.w == 300);
+    assert(hot->desired.h == 200);
     assert(hot->dirty & DIRTY_GEOM);
 
     hot->dirty = DIRTY_NONE;
@@ -166,8 +167,8 @@ void test_gtk_configure_request_extents() {
 
     wm_handle_configure_request(&s, h, &ev);
 
-    assert(hot->desired.w == 1);
-    assert(hot->desired.h == 1);
+    assert(hot->desired.w == 10);
+    assert(hot->desired.h == 10);
     assert(hot->dirty & DIRTY_GEOM);
 
     printf("test_gtk_configure_request_extents passed\n");
