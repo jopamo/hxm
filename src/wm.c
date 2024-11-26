@@ -1063,6 +1063,19 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         return;
     }
 
+    if (ev->type == atoms.WM_CHANGE_STATE && ev->format == 32) {
+        handle_t h = server_get_client_by_window(s, ev->window);
+        if (h != HANDLE_INVALID) {
+            uint32_t state = ev->data.data32[0];
+            if (state == XCB_ICCCM_WM_STATE_ICONIC) {
+                wm_client_iconify(s, h);
+            } else if (state == XCB_ICCCM_WM_STATE_NORMAL) {
+                wm_client_restore(s, h);
+            }
+        }
+        return;
+    }
+
     if (ev->type == atoms._NET_CURRENT_DESKTOP) {
         uint32_t desktop = ev->data.data32[0];
         TRACE_LOG("_NET_CURRENT_DESKTOP request=%u", desktop);

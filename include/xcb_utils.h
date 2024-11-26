@@ -19,6 +19,7 @@ struct atoms {
     xcb_atom_t WM_HINTS;
     xcb_atom_t WM_NORMAL_HINTS;
     xcb_atom_t WM_TRANSIENT_FOR;
+    xcb_atom_t WM_CHANGE_STATE;
     xcb_atom_t _MOTIF_WM_HINTS;
     xcb_atom_t _GTK_FRAME_EXTENTS;
     xcb_atom_t _NET_WM_SYNC_REQUEST;
