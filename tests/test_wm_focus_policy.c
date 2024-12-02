@@ -11,6 +11,78 @@
 #include "xcb_utils.h"
 
 extern int stub_grab_button_count;
+extern void xcb_stubs_reset(void);
+extern int stub_map_window_count;
+extern int stub_unmap_window_count;
+extern xcb_atom_t stub_last_prop_atom;
+extern uint32_t stub_last_prop_len;
+extern uint8_t stub_last_prop_data[4096];
+
+static void setup_server_for_manage(server_t* s) {
+    memset(s, 0, sizeof(*s));
+    s->is_test = true;
+    xcb_stubs_reset();
+    s->conn = xcb_connect(NULL, NULL);
+    atoms_init(s->conn);
+
+    s->root = 1;
+    s->root_depth = 24;
+    s->root_visual = 1;
+    s->root_visual_type = xcb_get_visualtype(s->conn, 0);
+
+    s->current_desktop = 0;
+    s->desktop_count = 4;
+    s->focused_client = HANDLE_INVALID;
+
+    list_init(&s->focus_history);
+    hash_map_init(&s->window_to_client);
+    hash_map_init(&s->frame_to_client);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s->layers[i]);
+
+    s->config.theme.border_width = 1;
+    s->config.theme.title_height = 10;
+
+    slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t));
+}
+
+static handle_t alloc_test_client(server_t* s, xcb_window_t xid, int32_t desktop) {
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    memset(hot, 0, sizeof(*hot));
+    memset(cold_ptr, 0, sizeof(client_cold_t));
+    render_init(&hot->render_ctx);
+    hot->self = h;
+    hot->xid = xid;
+    hot->state = STATE_NEW;
+    hot->type = WINDOW_TYPE_NORMAL;
+    hot->layer = LAYER_NORMAL;
+    hot->base_layer = LAYER_NORMAL;
+    hot->focus_override = -1;
+    hot->transient_for = HANDLE_INVALID;
+    hot->desktop = desktop;
+    hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
+    hot->desired = (rect_t){0, 0, 200, 150};
+    hot->visual_id = s->root_visual;
+    hot->depth = s->root_depth;
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
+    list_init(&hot->focus_node);
+    list_init(&hot->transients_head);
+    list_init(&hot->transient_sibling);
+    return h;
+}
+
+static void set_client_mapped(server_t* s, handle_t h, xcb_window_t frame) {
+    client_hot_t* hot = server_chot(s, h);
+    if (!hot) return;
+    hot->state = STATE_MAPPED;
+    hot->frame = frame;
+    hot->server.x = 0;
+    hot->server.y = 0;
+    hot->server.w = 100;
+    hot->server.h = 80;
+}
 
 void test_focus_on_finish_manage() {
     server_t s;
@@ -351,10 +423,344 @@ void test_title_update() {
     free(s.conn);
 }
 
+void test_finish_manage_visibility() {
+    server_t s;
+    setup_server_for_manage(&s);
+
+    // Not visible when on a different desktop.
+    handle_t h1 = alloc_test_client(&s, 201, 1);
+    stub_map_window_count = 0;
+    stub_unmap_window_count = 0;
+    client_finish_manage(&s, h1);
+    client_hot_t* hot1 = server_chot(&s, h1);
+    assert(hot1->state == STATE_UNMAPPED);
+    assert(stub_map_window_count == 0);
+    assert(stub_unmap_window_count == 0);
+
+    // Not visible when requested to start iconic.
+    handle_t h2 = alloc_test_client(&s, 202, 0);
+    client_hot_t* hot2 = server_chot(&s, h2);
+    hot2->initial_state = XCB_ICCCM_WM_STATE_ICONIC;
+    stub_map_window_count = 0;
+    stub_unmap_window_count = 0;
+    client_finish_manage(&s, h2);
+    assert(hot2->state == STATE_UNMAPPED);
+    assert(stub_map_window_count == 0);
+    assert(stub_unmap_window_count == 0);
+
+    // Visible on current desktop and normal initial state maps client + frame.
+    handle_t h3 = alloc_test_client(&s, 203, 0);
+    stub_map_window_count = 0;
+    stub_unmap_window_count = 0;
+    client_finish_manage(&s, h3);
+    client_hot_t* hot3 = server_chot(&s, h3);
+    assert(hot3->state == STATE_MAPPED);
+    assert(stub_map_window_count == 2);
+    assert(stub_unmap_window_count == 0);
+
+    printf("test_finish_manage_visibility passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
+void test_finish_manage_show_desktop_hides() {
+    server_t s;
+    setup_server_for_manage(&s);
+    s.showing_desktop = true;
+
+    handle_t h = alloc_test_client(&s, 301, 0);
+    stub_map_window_count = 0;
+    stub_unmap_window_count = 0;
+    client_finish_manage(&s, h);
+
+    client_hot_t* hot = server_chot(&s, h);
+    assert(hot->show_desktop_hidden == true);
+    assert(hot->state == STATE_UNMAPPED);
+    assert(stub_map_window_count == 2);
+    assert(stub_unmap_window_count == 1);
+
+    printf("test_finish_manage_show_desktop_hides passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
+void test_finish_manage_focus_override() {
+    server_t s;
+    setup_server_for_manage(&s);
+
+    handle_t h1 = alloc_test_client(&s, 401, 0);
+    client_finish_manage(&s, h1);
+    assert(s.focused_client == h1);
+
+    // Override off prevents a dialog from stealing focus.
+    handle_t h2 = alloc_test_client(&s, 402, 0);
+    client_hot_t* hot2 = server_chot(&s, h2);
+    hot2->type = WINDOW_TYPE_DIALOG;
+    hot2->focus_override = 0;
+    client_finish_manage(&s, h2);
+    assert(s.focused_client == h1);
+
+    // Override on forces focus even for a normal window.
+    handle_t h3 = alloc_test_client(&s, 403, 0);
+    client_hot_t* hot3 = server_chot(&s, h3);
+    hot3->focus_override = 1;
+    client_finish_manage(&s, h3);
+    assert(s.focused_client == h3);
+
+    printf("test_finish_manage_focus_override passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
+void test_iconify_updates_focus() {
+    server_t s;
+    setup_server_for_manage(&s);
+
+    handle_t h1 = alloc_test_client(&s, 501, 0);
+    client_hot_t* hot1 = server_chot(&s, h1);
+    hot1->state = STATE_MAPPED;
+    hot1->frame = 1501;
+
+    handle_t h2 = alloc_test_client(&s, 502, 0);
+    client_hot_t* hot2 = server_chot(&s, h2);
+    hot2->state = STATE_MAPPED;
+    hot2->frame = 1502;
+
+    wm_set_focus(&s, h1);
+    wm_set_focus(&s, h2);
+    assert(s.focused_client == h2);
+
+    stub_unmap_window_count = 0;
+    stub_last_prop_atom = 0;
+    stub_last_prop_len = 0;
+    memset(stub_last_prop_data, 0, sizeof(stub_last_prop_data));
+
+    wm_client_iconify(&s, h2);
+
+    assert(hot2->state == STATE_UNMAPPED);
+    assert(stub_unmap_window_count == 1);
+    assert(s.focused_client == h1);
+    assert(stub_last_prop_atom == atoms.WM_STATE);
+    assert(stub_last_prop_len == 2);
+    uint32_t* vals = (uint32_t*)stub_last_prop_data;
+    assert(vals[0] == XCB_ICCCM_WM_STATE_ICONIC);
+
+    printf("test_iconify_updates_focus passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
+void test_restore_maps_window() {
+    server_t s;
+    setup_server_for_manage(&s);
+
+    handle_t h = alloc_test_client(&s, 601, 0);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->state = STATE_UNMAPPED;
+    hot->frame = 1601;
+
+    stub_map_window_count = 0;
+    stub_last_prop_atom = 0;
+    stub_last_prop_len = 0;
+    memset(stub_last_prop_data, 0, sizeof(stub_last_prop_data));
+
+    wm_client_restore(&s, h);
+
+    assert(hot->state == STATE_MAPPED);
+    assert(stub_map_window_count == 2);
+    assert(stub_last_prop_atom == atoms.WM_STATE);
+    assert(stub_last_prop_len == 2);
+    uint32_t* vals = (uint32_t*)stub_last_prop_data;
+    assert(vals[0] == XCB_ICCCM_WM_STATE_NORMAL);
+
+    printf("test_restore_maps_window passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
+void test_set_focus_ignores_unmapped() {
+    server_t s;
+    setup_server_for_manage(&s);
+
+    handle_t h1 = alloc_test_client(&s, 701, 0);
+    handle_t h2 = alloc_test_client(&s, 702, 0);
+    set_client_mapped(&s, h1, 1701);
+    set_client_mapped(&s, h2, 1702);
+
+    wm_set_focus(&s, h1);
+    assert(s.focused_client == h1);
+
+    client_hot_t* hot2 = server_chot(&s, h2);
+    hot2->state = STATE_UNMAPPED;
+    wm_set_focus(&s, h2);
+    assert(s.focused_client == h1);
+
+    printf("test_set_focus_ignores_unmapped passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
+void test_unmanage_focus_prefers_parent() {
+    server_t s;
+    setup_server_for_manage(&s);
+
+    handle_t parent = alloc_test_client(&s, 801, 0);
+    handle_t child = alloc_test_client(&s, 802, 0);
+    set_client_mapped(&s, parent, 1801);
+    set_client_mapped(&s, child, 1802);
+
+    client_hot_t* child_hot = server_chot(&s, child);
+    child_hot->transient_for = parent;
+
+    wm_set_focus(&s, parent);
+    wm_set_focus(&s, child);
+    assert(s.focused_client == child);
+
+    client_unmanage(&s, child);
+    assert(s.focused_client == parent);
+
+    printf("test_unmanage_focus_prefers_parent passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
+void test_unmanage_focus_falls_back_to_mru() {
+    server_t s;
+    setup_server_for_manage(&s);
+
+    handle_t parent = alloc_test_client(&s, 901, 0);
+    handle_t other = alloc_test_client(&s, 902, 0);
+    handle_t child = alloc_test_client(&s, 903, 0);
+    set_client_mapped(&s, parent, 1901);
+    set_client_mapped(&s, other, 1902);
+    set_client_mapped(&s, child, 1903);
+
+    client_hot_t* parent_hot = server_chot(&s, parent);
+    parent_hot->state = STATE_UNMAPPED;
+
+    client_hot_t* child_hot = server_chot(&s, child);
+    child_hot->transient_for = parent;
+
+    wm_set_focus(&s, other);
+    wm_set_focus(&s, child);
+    assert(s.focused_client == child);
+
+    client_unmanage(&s, child);
+    assert(s.focused_client == other);
+
+    printf("test_unmanage_focus_falls_back_to_mru passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
 int main() {
     test_focus_on_finish_manage();
     test_mru_cycling();
     test_move_interaction();
     test_title_update();
+    test_finish_manage_visibility();
+    test_finish_manage_show_desktop_hides();
+    test_finish_manage_focus_override();
+    test_iconify_updates_focus();
+    test_restore_maps_window();
+    test_set_focus_ignores_unmapped();
+    test_unmanage_focus_prefers_parent();
+    test_unmanage_focus_falls_back_to_mru();
     return 0;
 }

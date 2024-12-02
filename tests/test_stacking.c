@@ -5,6 +5,7 @@
 
 #include "bbox.h"
 #include "client.h"
+#include "config.h"
 #include "event.h"
 #include "wm.h"
 #include "xcb_utils.h"
@@ -23,8 +24,10 @@ static bool init_server(server_t* s) {
     memset(s, 0, sizeof(*s));
     s->is_test = true;
     s->conn = (xcb_connection_t*)malloc(1);
+    config_init_defaults(&s->config);
     for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s->layers[i]);
     arena_init(&s->tick_arena, 4096);
+    list_init(&s->focus_history);
     if (slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return true;
     free(s->conn);
     return false;
@@ -44,6 +47,7 @@ static void cleanup_server(server_t* s) {
         small_vec_destroy(&s->layers[i]);
     }
     arena_destroy(&s->tick_arena);
+    config_destroy(&s->config);
     free(s->conn);
 }
 
@@ -60,6 +64,7 @@ static handle_t add_client(server_t* s, xcb_window_t xid, xcb_window_t frame, in
     hot->stacking_layer = -1;
     list_init(&hot->transients_head);
     list_init(&hot->transient_sibling);
+    list_init(&hot->focus_node);
     return h;
 }
 
@@ -206,10 +211,31 @@ void test_root_stacking_property_order() {
     cleanup_server(&s);
 }
 
+void test_focus_raise_on_focus() {
+    server_t s;
+    if (!init_server(&s)) return;
+
+    s.config.focus_raise = true;
+
+    handle_t h1 = add_client(&s, 10, 110, LAYER_NORMAL);
+    handle_t h2 = add_client(&s, 20, 120, LAYER_NORMAL);
+    stack_raise(&s, h1);
+    stack_raise(&s, h2);
+
+    wm_set_focus(&s, h1);
+
+    handle_t order[] = {h2, h1};
+    assert_layer_order(&s, LAYER_NORMAL, order, 2);
+
+    printf("test_focus_raise_on_focus passed\n");
+    cleanup_server(&s);
+}
+
 int main() {
     test_stack_restack_single_and_sibling();
     test_stack_cross_layer_sibling();
     test_stack_raise_transients_restack_count();
     test_root_stacking_property_order();
+    test_focus_raise_on_focus();
     return 0;
 }

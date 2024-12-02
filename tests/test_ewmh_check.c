@@ -81,6 +81,19 @@ static void test_supporting_wm_check_mapped(void) {
 extern xcb_atom_t stub_last_prop_atom;
 extern uint32_t stub_last_prop_len;
 extern uint8_t stub_last_prop_data[4096];
+extern int stub_prop_calls_len;
+extern struct stub_prop_call {
+    xcb_window_t window;
+    xcb_atom_t atom;
+    xcb_atom_t type;
+    uint8_t format;
+    uint32_t len;
+    uint8_t data[4096];
+    bool deleted;
+} stub_prop_calls[128];
+
+extern void xcb_stubs_set_selection_owner(xcb_window_t owner);
+extern xcb_window_t xcb_stubs_get_selection_owner(void);
 
 static void test_net_client_list_published(void) {
     server_t s;
@@ -117,8 +130,79 @@ static void test_net_client_list_published(void) {
     xcb_disconnect(s.conn);
 }
 
+static const struct stub_prop_call* find_prop_call(xcb_window_t win, xcb_atom_t atom) {
+    for (int i = stub_prop_calls_len - 1; i >= 0; i--) {
+        if (stub_prop_calls[i].window == win && stub_prop_calls[i].atom == atom && !stub_prop_calls[i].deleted) {
+            return &stub_prop_calls[i];
+        }
+    }
+    return NULL;
+}
+
+static void test_wm_s0_selection_and_supporting_check(void) {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+
+    s.conn = xcb_connect(NULL, NULL);
+    s.root = 77;
+    atoms_init(s.conn);
+    slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
+    s.desktop_count = 1;
+    xcb_stubs_reset();
+
+    wm_become(&s);
+
+    assert(xcb_stubs_get_selection_owner() == s.supporting_wm_check);
+
+    const struct stub_prop_call* root_call = find_prop_call(s.root, atoms._NET_SUPPORTING_WM_CHECK);
+    assert(root_call != NULL);
+    assert(root_call->format == 32);
+    assert(root_call->len == 1);
+    const uint32_t* root_val = (const uint32_t*)root_call->data;
+    assert(root_val[0] == s.supporting_wm_check);
+
+    const struct stub_prop_call* support_call = find_prop_call(s.supporting_wm_check, atoms._NET_SUPPORTING_WM_CHECK);
+    assert(support_call != NULL);
+    assert(support_call->format == 32);
+    assert(support_call->len == 1);
+    const uint32_t* support_val = (const uint32_t*)support_call->data;
+    assert(support_val[0] == s.supporting_wm_check);
+
+    printf("PASS: WM_S0 and _NET_SUPPORTING_WM_CHECK round-trip\n");
+
+    slotmap_destroy(&s.clients);
+    xcb_disconnect(s.conn);
+}
+
+static void test_refuse_when_selection_owned(void) {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+
+    s.conn = xcb_connect(NULL, NULL);
+    s.root = 55;
+    atoms_init(s.conn);
+    slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
+    s.desktop_count = 1;
+
+    xcb_stubs_reset();
+    xcb_stubs_set_selection_owner(999);
+
+    wm_become(&s);
+
+    assert(s.supporting_wm_check == XCB_WINDOW_NONE);
+    assert(stub_map_window_count == 0);
+    assert(xcb_stubs_get_selection_owner() == 999);
+
+    printf("PASS: WM refuses when WM_S0 owned\n");
+
+    slotmap_destroy(&s.clients);
+    xcb_disconnect(s.conn);
+}
+
 int main(void) {
     test_supporting_wm_check_mapped();
     test_net_client_list_published();
+    test_wm_s0_selection_and_supporting_check();
+    test_refuse_when_selection_owned();
     return 0;
 }

@@ -19,10 +19,7 @@ void test_should_focus_on_map() {
     // Default window type is NORMAL (0), transient_for HANDLE_INVALID
     hot.type = WINDOW_TYPE_NORMAL;
     hot.transient_for = HANDLE_INVALID;
-    printf("debug: type=%u, transient_for=%lu, HANDLE_INVALID=%lu\n", hot.type, hot.transient_for,
-           (uint64_t)HANDLE_INVALID);
     bool result = should_focus_on_map(&hot);
-    printf("result=%d\n", result);
     assert(result == false);
 
     // Dialog window should focus
@@ -34,18 +31,26 @@ void test_should_focus_on_map() {
     hot.transient_for = handle_make(1, 0);
     assert(should_focus_on_map(&hot) == true);
 
-    // Dock window should not focus (even if transient)
-    hot.type = WINDOW_TYPE_DOCK;
-    assert(should_focus_on_map(&hot) == false);
+    // Types that should never focus on map, even if transient.
+    const window_type_t no_focus_types[] = {
+        WINDOW_TYPE_DOCK,    WINDOW_TYPE_NOTIFICATION,  WINDOW_TYPE_DESKTOP,
+        WINDOW_TYPE_MENU,    WINDOW_TYPE_DROPDOWN_MENU, WINDOW_TYPE_POPUP_MENU,
+        WINDOW_TYPE_TOOLTIP, WINDOW_TYPE_COMBO,         WINDOW_TYPE_DND,
+    };
+    for (size_t i = 0; i < sizeof(no_focus_types) / sizeof(no_focus_types[0]); i++) {
+        hot.type = no_focus_types[i];
+        hot.transient_for = handle_make(2, 0);
+        assert(should_focus_on_map(&hot) == false);
+    }
 
-    // Notification window should not focus
-    hot.type = WINDOW_TYPE_NOTIFICATION;
+    // Focus override forces behavior.
+    hot.type = WINDOW_TYPE_DIALOG;
     hot.transient_for = HANDLE_INVALID;
+    hot.focus_override = 0;
     assert(should_focus_on_map(&hot) == false);
-
-    // Desktop window should not focus
-    hot.type = WINDOW_TYPE_DESKTOP;
-    assert(should_focus_on_map(&hot) == false);
+    hot.focus_override = 1;
+    assert(should_focus_on_map(&hot) == true);
+    hot.focus_override = -1;
 
     printf("test_should_focus_on_map passed\n");
     render_free(&hot.render_ctx);

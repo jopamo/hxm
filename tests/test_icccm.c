@@ -3,8 +3,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcb/xproto.h>
 
 #include "client.h"
+#include "config.h"
 #include "cookie_jar.h"
 #include "event.h"
 #include "wm.h"
@@ -16,6 +18,29 @@ extern xcb_window_t stub_last_send_event_destination;
 extern char stub_last_event[32];
 extern int stub_kill_client_count;
 extern uint32_t stub_last_kill_client_resource;
+extern xcb_atom_t stub_last_prop_atom;
+extern uint32_t stub_last_prop_len;
+extern uint8_t stub_last_prop_data[4096];
+extern int stub_prop_calls_len;
+extern struct stub_prop_call {
+    xcb_window_t window;
+    xcb_atom_t atom;
+    xcb_atom_t type;
+    uint8_t format;
+    uint32_t len;
+    uint8_t data[4096];
+    bool deleted;
+} stub_prop_calls[128];
+
+static const struct stub_prop_call* find_prop_call(xcb_window_t win, xcb_atom_t atom, bool deleted) {
+    for (int i = stub_prop_calls_len - 1; i >= 0; i--) {
+        if (stub_prop_calls[i].window == win && stub_prop_calls[i].atom == atom &&
+            stub_prop_calls[i].deleted == deleted) {
+            return &stub_prop_calls[i];
+        }
+    }
+    return NULL;
+}
 
 void test_icccm_protocols() {
     server_t s;
@@ -139,6 +164,127 @@ void test_client_close() {
     free(s.conn);
 }
 
+void test_wm_take_focus_on_focus() {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+    s.is_test = true;
+    s.root = 1;
+    s.root_depth = 24;
+    s.root_visual_type = xcb_get_visualtype(NULL, 0);
+    s.conn = (xcb_connection_t*)malloc(1);
+
+    atoms.WM_PROTOCOLS = 20;
+    atoms.WM_TAKE_FOCUS = 21;
+
+    list_init(&s.focus_history);
+    if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+
+    void *hot_ptr, *cold_ptr;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
+    memset(hot, 0, sizeof(*hot));
+    memset(cold, 0, sizeof(*cold));
+    render_init(&hot->render_ctx);
+    arena_init(&cold->string_arena, 128);
+    hot->self = h;
+    hot->xid = 123;
+    hot->state = STATE_MAPPED;
+    list_init(&hot->focus_node);
+    cold->protocols |= PROTOCOL_TAKE_FOCUS;
+    cold->can_focus = true;
+
+    stub_send_event_count = 0;
+    wm_set_focus(&s, h);
+    assert(stub_send_event_count == 1);
+    assert(stub_last_send_event_destination == hot->xid);
+    xcb_client_message_event_t* ev = (xcb_client_message_event_t*)stub_last_event;
+    assert(ev->type == atoms.WM_PROTOCOLS);
+    assert(ev->data.data32[0] == atoms.WM_TAKE_FOCUS);
+
+    printf("test_wm_take_focus_on_focus passed\n");
+    arena_destroy(&cold->string_arena);
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    free(s.conn);
+}
+
+void test_wm_state_manage_unmanage() {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+    s.is_test = true;
+    s.root = 1;
+    s.root_visual = 1;
+    s.root_depth = 24;
+    s.root_visual_type = xcb_get_visualtype(NULL, 0);
+    s.conn = (xcb_connection_t*)malloc(1);
+    config_init_defaults(&s.config);
+    list_init(&s.focus_history);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
+    hash_map_init(&s.window_to_client);
+    hash_map_init(&s.frame_to_client);
+
+    atoms.WM_STATE = 30;
+
+    if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
+    memset(hot, 0, sizeof(*hot));
+    memset(cold, 0, sizeof(*cold));
+    render_init(&hot->render_ctx);
+    arena_init(&cold->string_arena, 128);
+
+    hot->self = h;
+    hot->xid = 555;
+    hot->state = STATE_NEW;
+    hot->type = WINDOW_TYPE_NORMAL;
+    hot->focus_override = -1;
+    hot->transient_for = HANDLE_INVALID;
+    hot->desktop = 0;
+    hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
+    hot->desired = (rect_t){0, 0, 100, 80};
+    hot->visual_id = s.root_visual;
+    hot->depth = s.root_depth;
+    hot->layer = LAYER_NORMAL;
+    hot->base_layer = LAYER_NORMAL;
+    list_init(&hot->focus_node);
+    list_init(&hot->transients_head);
+    list_init(&hot->transient_sibling);
+    hash_map_insert(&s.window_to_client, hot->xid, handle_to_ptr(h));
+
+    client_finish_manage(&s, h);
+
+    const struct stub_prop_call* set = find_prop_call(hot->xid, atoms.WM_STATE, false);
+    assert(set != NULL);
+    const uint32_t* vals = (const uint32_t*)set->data;
+    assert(vals[0] == XCB_ICCCM_WM_STATE_NORMAL);
+
+    client_unmanage(&s, h);
+
+    const struct stub_prop_call* del = find_prop_call(hot->xid, atoms.WM_STATE, true);
+    assert(del != NULL);
+
+    printf("test_wm_state_manage_unmanage passed\n");
+    config_destroy(&s.config);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_destroy(&s.layers[i]);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    slotmap_destroy(&s.clients);
+    free(s.conn);
+}
+
 void test_name_fallback() {
     server_t s;
     memset(&s, 0, sizeof(s));
@@ -218,6 +364,8 @@ void test_name_fallback() {
 int main() {
     test_icccm_protocols();
     test_client_close();
+    test_wm_take_focus_on_focus();
+    test_wm_state_manage_unmanage();
     test_name_fallback();
     return 0;
 }

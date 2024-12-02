@@ -1,4 +1,5 @@
 #include <X11/keysym.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,9 +19,14 @@
 #define STUB_MAX_MAPPED 256
 #define STUB_MAX_PROP_BYTES 4096
 #define STUB_MAX_CONFIG_CALLS 64
+#define STUB_MAX_PROP_CALLS 128
+#define STUB_MAX_EVENTS 2048
+#define STUB_MAX_ATTR_REQUESTS 256
+#define STUB_MAX_KEY_GRABS 256
 
 // XID generator
 static uint32_t stub_xid_counter = 100;
+static uint32_t stub_cookie_seq = 1;
 
 // Extension data reply
 static xcb_query_extension_reply_t stub_ext_reply;
@@ -36,6 +42,10 @@ static xcb_visualtype_t stub_visual = {
     .visual_id = 1,
 };
 
+// QueryTree children override
+static xcb_window_t stub_query_tree_children[STUB_MAX_MAPPED];
+static int stub_query_tree_children_len = 0;
+
 // Selection owner
 static xcb_window_t stub_selection_owner = XCB_NONE;
 
@@ -48,6 +58,27 @@ xcb_atom_t stub_last_prop_atom = 0;
 xcb_atom_t stub_last_prop_type = 0;
 uint32_t stub_last_prop_len = 0;
 uint8_t stub_last_prop_data[STUB_MAX_PROP_BYTES];
+
+typedef struct stub_prop_call {
+    xcb_window_t window;
+    xcb_atom_t atom;
+    xcb_atom_t type;
+    uint8_t format;
+    uint32_t len;
+    uint8_t data[STUB_MAX_PROP_BYTES];
+    bool deleted;
+} stub_prop_call_t;
+
+stub_prop_call_t stub_prop_calls[STUB_MAX_PROP_CALLS];
+int stub_prop_calls_len = 0;
+
+typedef struct stub_attr_request {
+    uint32_t seq;
+    xcb_window_t window;
+} stub_attr_request_t;
+
+static stub_attr_request_t stub_attr_requests[STUB_MAX_ATTR_REQUESTS];
+static int stub_attr_requests_len = 0;
 
 // Map/unmap capture
 int stub_map_window_count = 0;
@@ -98,14 +129,30 @@ uint32_t stub_last_kill_client_resource = 0;
 
 // Grab button capture
 int stub_grab_button_count = 0;
+int stub_grab_key_count = 0;
+int stub_ungrab_key_count = 0;
+int stub_grab_pointer_count = 0;
+int stub_ungrab_pointer_count = 0;
+uint16_t stub_last_grab_key_mods = 0;
+xcb_keycode_t stub_last_grab_keycode = 0;
+xcb_cursor_t stub_last_grab_pointer_cursor = XCB_NONE;
 
 // Optional reply hook for cookie draining
 int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request, void** reply,
                                 xcb_generic_error_t** error) = NULL;
 
+// Event queues for poll stubs.
+static xcb_generic_event_t* stub_queued_events[STUB_MAX_EVENTS];
+static size_t stub_queued_head = 0;
+static size_t stub_queued_len = 0;
+static xcb_generic_event_t* stub_events[STUB_MAX_EVENTS];
+static size_t stub_event_head = 0;
+static size_t stub_event_len = 0;
+
 // Public reset helper for tests
 void xcb_stubs_reset(void) {
     stub_xid_counter = 100;
+    stub_cookie_seq = 1;
 
     memset(&stub_ext_reply, 0, sizeof(stub_ext_reply));
     stub_ext_reply.present = 1;
@@ -118,6 +165,12 @@ void xcb_stubs_reset(void) {
     stub_last_prop_type = 0;
     stub_last_prop_len = 0;
     memset(stub_last_prop_data, 0, sizeof(stub_last_prop_data));
+    stub_prop_calls_len = 0;
+    memset(stub_prop_calls, 0, sizeof(stub_prop_calls));
+    stub_attr_requests_len = 0;
+    memset(stub_attr_requests, 0, sizeof(stub_attr_requests));
+    stub_query_tree_children_len = 0;
+    memset(stub_query_tree_children, 0, sizeof(stub_query_tree_children));
 
     stub_map_window_count = 0;
     stub_unmap_window_count = 0;
@@ -148,8 +201,30 @@ void xcb_stubs_reset(void) {
     stub_last_kill_client_resource = 0;
 
     stub_grab_button_count = 0;
+    stub_grab_key_count = 0;
+    stub_ungrab_key_count = 0;
+    stub_grab_pointer_count = 0;
+    stub_ungrab_pointer_count = 0;
+    stub_last_grab_key_mods = 0;
+    stub_last_grab_keycode = 0;
+    stub_last_grab_pointer_cursor = XCB_NONE;
 
     stub_poll_for_reply_hook = NULL;
+
+    for (size_t i = 0; i < stub_queued_len; i++) {
+        size_t idx = (stub_queued_head + i) % STUB_MAX_EVENTS;
+        free(stub_queued_events[idx]);
+        stub_queued_events[idx] = NULL;
+    }
+    for (size_t i = 0; i < stub_event_len; i++) {
+        size_t idx = (stub_event_head + i) % STUB_MAX_EVENTS;
+        free(stub_events[idx]);
+        stub_events[idx] = NULL;
+    }
+    stub_queued_head = 0;
+    stub_queued_len = 0;
+    stub_event_head = 0;
+    stub_event_len = 0;
 }
 
 // Basic connection lifecycle
@@ -398,6 +473,21 @@ xcb_void_cookie_t xcb_change_property(xcb_connection_t* c, uint8_t mode, xcb_win
     if (byte_len > STUB_MAX_PROP_BYTES) byte_len = STUB_MAX_PROP_BYTES;
     if (byte_len && data) memcpy(stub_last_prop_data, data, byte_len);
 
+    if (stub_prop_calls_len < STUB_MAX_PROP_CALLS) {
+        stub_prop_call_t* call = &stub_prop_calls[stub_prop_calls_len++];
+        call->window = window;
+        call->atom = property;
+        call->type = type;
+        call->format = format;
+        call->len = data_len;
+        call->deleted = false;
+        if (byte_len && data) {
+            memcpy(call->data, data, byte_len);
+        } else {
+            memset(call->data, 0, sizeof(call->data));
+        }
+    }
+
     return (xcb_void_cookie_t){0};
 }
 
@@ -413,6 +503,16 @@ xcb_void_cookie_t xcb_delete_property(xcb_connection_t* c, xcb_window_t window, 
     stub_last_prop_atom = property;
     stub_last_prop_type = XCB_ATOM_NONE;
     stub_last_prop_len = 0;
+    if (stub_prop_calls_len < STUB_MAX_PROP_CALLS) {
+        stub_prop_call_t* call = &stub_prop_calls[stub_prop_calls_len++];
+        call->window = window;
+        call->atom = property;
+        call->type = XCB_ATOM_NONE;
+        call->format = 0;
+        call->len = 0;
+        call->deleted = true;
+        memset(call->data, 0, sizeof(call->data));
+    }
     return (xcb_void_cookie_t){0};
 }
 
@@ -423,14 +523,20 @@ xcb_void_cookie_t xcb_delete_property_checked(xcb_connection_t* c, xcb_window_t 
 // Queries and replies
 xcb_get_window_attributes_cookie_t xcb_get_window_attributes(xcb_connection_t* c, xcb_window_t window) {
     (void)c;
-    (void)window;
-    return (xcb_get_window_attributes_cookie_t){0};
+    xcb_get_window_attributes_cookie_t cookie;
+    cookie.sequence = stub_cookie_seq++;
+    if (stub_attr_requests_len < STUB_MAX_ATTR_REQUESTS) {
+        stub_attr_requests[stub_attr_requests_len++] = (stub_attr_request_t){cookie.sequence, window};
+    }
+    return cookie;
 }
 
 xcb_get_geometry_cookie_t xcb_get_geometry(xcb_connection_t* c, xcb_drawable_t drawable) {
     (void)c;
     (void)drawable;
-    return (xcb_get_geometry_cookie_t){0};
+    xcb_get_geometry_cookie_t cookie;
+    cookie.sequence = stub_cookie_seq++;
+    return cookie;
 }
 
 xcb_get_property_cookie_t xcb_get_property(xcb_connection_t* c, uint8_t _delete, xcb_window_t window,
@@ -443,7 +549,9 @@ xcb_get_property_cookie_t xcb_get_property(xcb_connection_t* c, uint8_t _delete,
     (void)type;
     (void)long_offset;
     (void)long_len;
-    return (xcb_get_property_cookie_t){0};
+    xcb_get_property_cookie_t cookie;
+    cookie.sequence = stub_cookie_seq++;
+    return cookie;
 }
 
 xcb_get_property_reply_t* xcb_get_property_reply(xcb_connection_t* c, xcb_get_property_cookie_t cookie,
@@ -472,18 +580,40 @@ xcb_query_tree_reply_t* xcb_query_tree_reply(xcb_connection_t* c, xcb_query_tree
     (void)cookie;
     (void)e;
 
-    // Valid reply with zero children
+    // Valid reply; children are provided by stub helpers.
     return (xcb_query_tree_reply_t*)calloc(1, sizeof(xcb_query_tree_reply_t));
 }
 
 xcb_window_t* xcb_query_tree_children(const xcb_query_tree_reply_t* R) {
     (void)R;
-    return NULL;
+    return stub_query_tree_children;
 }
 
 int xcb_query_tree_children_length(const xcb_query_tree_reply_t* R) {
     (void)R;
-    return 0;
+    return stub_query_tree_children_len;
+}
+
+void xcb_stubs_set_query_tree_children(const xcb_window_t* children, int len) {
+    if (len < 0) len = 0;
+    if (len > (int)(sizeof(stub_query_tree_children) / sizeof(stub_query_tree_children[0]))) {
+        len = (int)(sizeof(stub_query_tree_children) / sizeof(stub_query_tree_children[0]));
+    }
+    memset(stub_query_tree_children, 0, sizeof(stub_query_tree_children));
+    for (int i = 0; i < len; i++) {
+        stub_query_tree_children[i] = children[i];
+    }
+    stub_query_tree_children_len = len;
+}
+
+bool xcb_stubs_attr_request_window(uint32_t seq, xcb_window_t* out_window) {
+    for (int i = 0; i < stub_attr_requests_len; i++) {
+        if (stub_attr_requests[i].seq == seq) {
+            if (out_window) *out_window = stub_attr_requests[i].window;
+            return true;
+        }
+    }
+    return false;
 }
 
 // Input focus and grabs
@@ -517,10 +647,20 @@ xcb_void_cookie_t xcb_grab_key(xcb_connection_t* c, uint8_t owner_events, xcb_wi
     (void)c;
     (void)owner_events;
     (void)grab_window;
-    (void)modifiers;
-    (void)key;
+    stub_grab_key_count++;
+    stub_last_grab_key_mods = modifiers;
+    stub_last_grab_keycode = key;
     (void)pointer_mode;
     (void)keyboard_mode;
+    return (xcb_void_cookie_t){0};
+}
+
+xcb_void_cookie_t xcb_ungrab_key(xcb_connection_t* c, xcb_keycode_t key, xcb_window_t grab_window, uint16_t modifiers) {
+    (void)c;
+    (void)key;
+    (void)grab_window;
+    (void)modifiers;
+    stub_ungrab_key_count++;
     return (xcb_void_cookie_t){0};
 }
 
@@ -534,7 +674,8 @@ xcb_grab_pointer_cookie_t xcb_grab_pointer(xcb_connection_t* c, uint8_t owner_ev
     (void)pointer_mode;
     (void)keyboard_mode;
     (void)confine_to;
-    (void)cursor;
+    stub_grab_pointer_count++;
+    stub_last_grab_pointer_cursor = cursor;
     (void)time;
     return (xcb_grab_pointer_cookie_t){0};
 }
@@ -542,6 +683,7 @@ xcb_grab_pointer_cookie_t xcb_grab_pointer(xcb_connection_t* c, uint8_t owner_ev
 xcb_void_cookie_t xcb_ungrab_pointer(xcb_connection_t* c, xcb_timestamp_t time) {
     (void)c;
     (void)time;
+    stub_ungrab_pointer_count++;
     return (xcb_void_cookie_t){0};
 }
 
@@ -712,6 +854,51 @@ xcb_get_selection_owner_reply_t* xcb_get_selection_owner_reply(xcb_connection_t*
     return r;
 }
 
+// Stub helpers for selection ownership
+void xcb_stubs_set_selection_owner(xcb_window_t owner) { stub_selection_owner = owner; }
+
+xcb_window_t xcb_stubs_get_selection_owner(void) { return stub_selection_owner; }
+
+// Event queue helpers
+static bool stub_events_push(xcb_generic_event_t** buf, size_t* head, size_t* len, xcb_generic_event_t* ev) {
+    if (*len >= STUB_MAX_EVENTS) return false;
+    size_t idx = (*head + *len) % STUB_MAX_EVENTS;
+    buf[idx] = ev;
+    (*len)++;
+    return true;
+}
+
+static xcb_generic_event_t* stub_events_pop(xcb_generic_event_t** buf, size_t* head, size_t* len) {
+    if (*len == 0) return NULL;
+    xcb_generic_event_t* ev = buf[*head];
+    buf[*head] = NULL;
+    *head = (*head + 1) % STUB_MAX_EVENTS;
+    (*len)--;
+    return ev;
+}
+
+bool xcb_stubs_enqueue_queued_event(xcb_generic_event_t* ev) {
+    return stub_events_push(stub_queued_events, &stub_queued_head, &stub_queued_len, ev);
+}
+
+bool xcb_stubs_enqueue_event(xcb_generic_event_t* ev) {
+    return stub_events_push(stub_events, &stub_event_head, &stub_event_len, ev);
+}
+
+size_t xcb_stubs_queued_event_len(void) { return stub_queued_len; }
+
+size_t xcb_stubs_event_len(void) { return stub_event_len; }
+
+xcb_generic_event_t* xcb_poll_for_queued_event(xcb_connection_t* c) {
+    (void)c;
+    return stub_events_pop(stub_queued_events, &stub_queued_head, &stub_queued_len);
+}
+
+xcb_generic_event_t* xcb_poll_for_event(xcb_connection_t* c) {
+    (void)c;
+    return stub_events_pop(stub_events, &stub_event_head, &stub_event_len);
+}
+
 // GC and drawing
 xcb_void_cookie_t xcb_create_gc(xcb_connection_t* c, xcb_gcontext_t cid, xcb_drawable_t drawable, uint32_t value_mask,
                                 const void* value_list) {
@@ -828,8 +1015,11 @@ void xcb_key_symbols_free(xcb_key_symbols_t* syms) { free(syms); }
 
 xcb_keycode_t* xcb_key_symbols_get_keycode(xcb_key_symbols_t* syms, xcb_keysym_t keysym) {
     (void)syms;
-    (void)keysym;
-    return NULL;
+    xcb_keycode_t* codes = calloc(2, sizeof(*codes));
+    if (!codes) return NULL;
+    codes[0] = (xcb_keycode_t)(keysym ? (keysym & 0xFF) : 42);
+    codes[1] = 0;
+    return codes;
 }
 
 xcb_keysym_t xcb_key_symbols_get_keysym(xcb_key_symbols_t* syms, xcb_keycode_t keycode, int col) {

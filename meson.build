@@ -313,6 +313,55 @@ test_ewmh_check = executable('test_ewmh_check',
 )
 test('ewmh_check', test_ewmh_check)
 
+test_event_ingest = executable('test_event_ingest',
+  ['tests/test_event_ingest.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('event_ingest', test_event_ingest)
+
+test_manage_unmanage = executable('test_manage_unmanage',
+  ['tests/test_manage_unmanage.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('manage_unmanage', test_manage_unmanage)
+
+test_input_interaction = executable('test_input_interaction',
+  ['tests/test_input_interaction.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('input_interaction', test_input_interaction)
+
+test_ewmh_props = executable('test_ewmh_props',
+  ['tests/test_ewmh_props.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('ewmh_props', test_ewmh_props)
+
+test_configure_geometry = executable('test_configure_geometry',
+  ['tests/test_configure_geometry.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('configure_geometry', test_configure_geometry)
+
+test_expose_damage = executable('test_expose_damage',
+  ['tests/test_expose_damage.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('expose_damage', test_expose_damage)
+
+test_race_conditions = executable('test_race_conditions',
+  ['tests/test_race_conditions.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('race_conditions', test_race_conditions)
+
 # Install configuration files
 install_data('data/bbox.desktop', install_dir: get_option('datadir') / 'xsessions')
 install_data('data/bbox.conf', install_dir: get_option('sysconfdir') / 'bbox')

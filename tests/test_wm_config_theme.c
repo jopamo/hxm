@@ -39,7 +39,31 @@ void test_theme_parser() {
     printf("test_theme_parser passed!\n");
 }
 
+void test_theme_parser_invalid_keys() {
+    config_t config;
+    config_init_defaults(&config);
+
+    uint32_t default_border = config.theme.border_width;
+    uint32_t default_title = config.theme.title_height;
+
+    FILE* f = fopen("test_themerc_invalid", "w");
+    fprintf(f, "border.width 12\n");  // missing ':'
+    fprintf(f, "unknown.key: 123\n");
+    fprintf(f, "window.title.height: 30\n");
+    fclose(f);
+
+    bool loaded = theme_load(&config.theme, "test_themerc_invalid");
+    assert(loaded);
+    assert(config.theme.border_width == default_border);
+    assert(config.theme.title_height == 30);
+
+    remove("test_themerc_invalid");
+    printf("test_theme_parser_invalid_keys passed!\n");
+    config_destroy(&config);
+}
+
 int main() {
     test_theme_parser();
+    test_theme_parser_invalid_keys();
     return 0;
 }
