@@ -44,7 +44,6 @@ void test_theme_parser_invalid_keys() {
     config_init_defaults(&config);
 
     uint32_t default_border = config.theme.border_width;
-    uint32_t default_title = config.theme.title_height;
 
     FILE* f = fopen("test_themerc_invalid", "w");
     fprintf(f, "border.width 12\n");  // missing ':'

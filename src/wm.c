@@ -590,6 +590,18 @@ void wm_client_apply_state_set(server_t* s, handle_t h, const client_state_set_t
     if (set->sticky != hot->sticky) {
         wm_client_toggle_sticky(s, h);
     }
+
+    if (hot->skip_taskbar != set->skip_taskbar) {
+        hot->skip_taskbar = set->skip_taskbar;
+        hot->dirty |= DIRTY_STATE;
+        s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING;
+    }
+
+    if (hot->skip_pager != set->skip_pager) {
+        hot->skip_pager = set->skip_pager;
+        hot->dirty |= DIRTY_STATE;
+        s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING;
+    }
 }
 
 // Focus & keys
@@ -946,6 +958,10 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
             add = !hot->maximized_horz;
         else if (prop == atoms._NET_WM_STATE_MAXIMIZED_VERT)
             add = !hot->maximized_vert;
+        else if (prop == atoms._NET_WM_STATE_SKIP_TASKBAR)
+            add = !hot->skip_taskbar;
+        else if (prop == atoms._NET_WM_STATE_SKIP_PAGER)
+            add = !hot->skip_pager;
         else
             return;
     } else {
@@ -1028,6 +1044,24 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
 
     if (prop == atoms._NET_WM_STATE_STICKY) {
         if (hot->sticky != add) wm_client_toggle_sticky(s, h);
+        return;
+    }
+
+    if (prop == atoms._NET_WM_STATE_SKIP_TASKBAR) {
+        if (hot->skip_taskbar != add) {
+            hot->skip_taskbar = add;
+            hot->dirty |= DIRTY_STATE;
+            s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING;
+        }
+        return;
+    }
+
+    if (prop == atoms._NET_WM_STATE_SKIP_PAGER) {
+        if (hot->skip_pager != add) {
+            hot->skip_pager = add;
+            hot->dirty |= DIRTY_STATE;
+            s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING;
+        }
         return;
     }
 

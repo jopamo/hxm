@@ -11,8 +11,8 @@
 #include "config.h"
 #include "cookie_jar.h"
 #include "event.h"
+#include "src/wm_internal.h"
 #include "wm.h"
-#include "wm_internal.h"
 #include "xcb_utils.h"
 
 extern void xcb_stubs_reset(void);
@@ -183,6 +183,52 @@ static void test_client_list_add_remove(void) {
     assert(list_vals[0] == 2002);
 
     printf("test_client_list_add_remove passed\n");
+    cleanup_server(&s);
+}
+
+static void test_client_list_filters_skip_and_dock(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    atoms._NET_CLIENT_LIST = 320;
+    atoms._NET_CLIENT_LIST_STACKING = 321;
+    atoms._NET_WM_STATE = 322;
+    atoms._NET_WM_STATE_SKIP_TASKBAR = 323;
+    atoms._NET_WM_STATE_SKIP_PAGER = 324;
+
+    handle_t h1 = add_mapped_client(&s, 7001, 7101);
+    handle_t h2 = add_mapped_client(&s, 7002, 7102);
+    handle_t h3 = add_mapped_client(&s, 7003, 7103);
+    handle_t h4 = add_mapped_client(&s, 7004, 7104);
+
+    client_hot_t* dock = server_chot(&s, h4);
+    dock->type = WINDOW_TYPE_DOCK;
+
+    stack_raise(&s, h1);
+    stack_raise(&s, h2);
+    stack_raise(&s, h3);
+    stack_raise(&s, h4);
+
+    wm_client_update_state(&s, h2, 1, atoms._NET_WM_STATE_SKIP_TASKBAR);
+    wm_client_update_state(&s, h3, 1, atoms._NET_WM_STATE_SKIP_PAGER);
+
+    s.root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING;
+    wm_flush_dirty(&s);
+
+    const struct stub_prop_call* list = find_prop_call(s.root, atoms._NET_CLIENT_LIST, false);
+    assert(list != NULL);
+    assert(list->len == 1);
+    const uint32_t* list_vals = (const uint32_t*)list->data;
+    assert(list_vals[0] == 7001);
+
+    const struct stub_prop_call* list_stack = find_prop_call(s.root, atoms._NET_CLIENT_LIST_STACKING, false);
+    assert(list_stack != NULL);
+    assert(list_stack->len == 1);
+    const uint32_t* stack_vals = (const uint32_t*)list_stack->data;
+    assert(stack_vals[0] == 7001);
+
+    printf("test_client_list_filters_skip_and_dock passed\n");
     cleanup_server(&s);
 }
 
@@ -372,7 +418,7 @@ static void test_urgency_hint_maps_to_ewmh_state(void) {
     memset(&reply, 0, sizeof(reply));
     reply.r.format = 32;
     reply.r.value_len = 9;
-    reply.r.type = atoms.WM_HINTS;
+    reply.r.type = XCB_ATOM_WM_HINTS;
     reply.data[0] = XCB_ICCCM_WM_HINT_X_URGENCY;
 
     wm_handle_reply(&s, &slot, &reply.r, NULL);
@@ -389,6 +435,7 @@ static void test_urgency_hint_maps_to_ewmh_state(void) {
 int main(void) {
     test_active_window_updates();
     test_client_list_add_remove();
+    test_client_list_filters_skip_and_dock();
     test_desktop_props_publish_and_switch();
     test_strut_updates_workarea();
     test_window_type_dock_layer();

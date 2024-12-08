@@ -107,6 +107,9 @@ void client_manage_start(server_t* s, xcb_window_t win) {
 
     hot->state_above = false;
     hot->state_below = false;
+    hot->sticky = false;
+    hot->skip_taskbar = false;
+    hot->skip_pager = false;
 
     hot->focus_override = -1;
 

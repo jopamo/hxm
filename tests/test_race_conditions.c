@@ -168,6 +168,13 @@ static void test_out_of_order_reply_ignored(void) {
     hot->self = h;
     hot->xid = 9201;
     hot->state = STATE_NEW;
+    hot->layer = LAYER_NORMAL;
+    hot->base_layer = LAYER_NORMAL;
+    hot->stacking_index = -1;
+    hot->stacking_layer = -1;
+    list_init(&hot->focus_node);
+    list_init(&hot->transients_head);
+    list_init(&hot->transient_sibling);
 
     // Mark destroyed then unmanage to simulate stale replies arriving later.
     hot->state = STATE_DESTROYED;

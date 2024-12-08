@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcb/xcb_icccm.h>
 #include <xcb/xproto.h>
 
 #include "client.h"
