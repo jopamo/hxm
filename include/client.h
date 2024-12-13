@@ -6,9 +6,9 @@
 #include <xcb/damage.h>
 #include <xcb/xcb.h>
 
-#include "bbox.h"
 #include "containers.h"
 #include "handle.h"
+#include "hxm.h"
 #include "render.h"
 
 typedef struct rect {

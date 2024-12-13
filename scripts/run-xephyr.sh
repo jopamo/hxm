@@ -1,5 +1,5 @@
 #!/bin/bash
-# Launch bbox in Xephyr for testing
+# Launch hxm in Xephyr for testing
 
 XEPHYR_DISPLAY=":1"
 SCREEN_SIZE="1280x720"
@@ -19,16 +19,16 @@ XEPHYR_PID=$!
 
 sleep 1
 
-# Start bbox
-DISPLAY=$XEPHYR_DISPLAY ./build/bbox &
-BBOX_PID=$!
+# Start hxm
+DISPLAY=$XEPHYR_DISPLAY ./build/hxm &
+HXM_PID=$!
 
-echo "bbox started in Xephyr on $XEPHYR_DISPLAY (PID $BBOX_PID)"
+echo "hxm started in Xephyr on $XEPHYR_DISPLAY (PID $HXM_PID)"
 
 # Launch a test client if available
 # Dummy client launch disabled
 echo "Run 'DISPLAY=$XEPHYR_DISPLAY your-app' to test."
-trap "kill $BBOX_PID $XEPHYR_PID" SIGINT SIGTERM
+trap "kill $HXM_PID $XEPHYR_PID" SIGINT SIGTERM
 
 echo "Press Ctrl+C to stop"
 

@@ -1,8 +1,8 @@
 #ifndef WM_INTERNAL_H
 #define WM_INTERNAL_H
 
-#include "bbox.h"
 #include "event.h"
+#include "hxm.h"
 
 uint32_t wm_clean_mods(uint16_t state);
 

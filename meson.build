@@ -1,4 +1,4 @@
-project('bbox', 'c',
+project('hxm', 'c',
   version: '0.1.0',
   default_options: [
     'c_std=c11',
@@ -88,7 +88,7 @@ src = files(
 )
 
 # Create executable
-bbox = executable('bbox', src,
+hxm = executable('hxm', src,
   include_directories: incdir,
   dependencies: deps,
   install: true,
@@ -363,8 +363,8 @@ test_race_conditions = executable('test_race_conditions',
 test('race_conditions', test_race_conditions)
 
 # Install configuration files
-install_data('data/bbox.desktop', install_dir: get_option('datadir') / 'xsessions')
-install_data('data/bbox.conf', install_dir: get_option('sysconfdir') / 'bbox')
+install_data('data/hxm.desktop', install_dir: get_option('datadir') / 'xsessions')
+install_data('data/hxm.conf', install_dir: get_option('sysconfdir') / 'hxm')
 
 # Summary
 summary('Build type', get_option('buildtype'))

@@ -3,10 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "cookie_jar.h"
 #include "event.h"
+#include "hxm.h"
 #include "wm.h"
 #include "xcb_utils.h"
 

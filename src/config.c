@@ -11,8 +11,8 @@
 #include <string.h>
 #include <xkbcommon/xkbcommon.h>
 
-#include "bbox.h"
 #include "client.h"
+#include "hxm.h"
 
 #define DEFAULT_ACTIVE_BG 0x4c597d
 #define DEFAULT_ACTIVE_FG 0xffffff

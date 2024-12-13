@@ -5,9 +5,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "event.h"
+#include "hxm.h"
 #include "menu.h"
 #include "wm.h"
 

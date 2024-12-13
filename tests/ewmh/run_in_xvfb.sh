@@ -18,23 +18,23 @@ if ! $cc -std=c11 -O2 -Wall -Wextra -o "$client_bin" "$client_src" $(pkg-config 
   exit 1
 fi
 
-bbox_bin=${BBOX_BIN:-}
-if [ -z "$bbox_bin" ]; then
-  if [ -x "$repo_root/build/bbox" ]; then
-    bbox_bin="$repo_root/build/bbox"
-  elif [ -x "$repo_root/bbox" ]; then
-    bbox_bin="$repo_root/bbox"
+hxm_bin=${HXM_BIN:-}
+if [ -z "$hxm_bin" ]; then
+  if [ -x "$repo_root/build/hxm" ]; then
+    hxm_bin="$repo_root/build/hxm"
+  elif [ -x "$repo_root/hxm" ]; then
+    hxm_bin="$repo_root/hxm"
   else
-    echo "bbox binary not found; set BBOX_BIN" >&2
+    echo "hxm binary not found; set HXM_BIN" >&2
     exit 1
   fi
 fi
 
 tmp_home=$(mktemp -d)
 cleanup() {
-  if [ -n "${bbox_pid:-}" ] && kill -0 "$bbox_pid" 2>/dev/null; then
-    kill "$bbox_pid"
-    wait "$bbox_pid" || true
+  if [ -n "${hxm_pid:-}" ] && kill -0 "$hxm_pid" 2>/dev/null; then
+    kill "$hxm_pid"
+    wait "$hxm_pid" || true
   fi
   if [ -n "${xvfb_pid:-}" ] && kill -0 "$xvfb_pid" 2>/dev/null; then
     kill "$xvfb_pid"
@@ -46,8 +46,8 @@ trap cleanup EXIT
 
 export HOME="$tmp_home"
 export XDG_CONFIG_HOME="$tmp_home/.config"
-mkdir -p "$XDG_CONFIG_HOME/bbox"
-cat >"$XDG_CONFIG_HOME/bbox/bbox.conf" <<'EOF'
+mkdir -p "$XDG_CONFIG_HOME/hxm"
+cat >"$XDG_CONFIG_HOME/hxm/hxm.conf" <<'EOF'
 desktop_count = 3
 desktop_names = one,two,three
 EOF
@@ -63,8 +63,8 @@ for _ in $(seq 1 50); do
   sleep 0.05
 done
 
-"$bbox_bin" >/dev/null 2>&1 &
-bbox_pid=$!
+"$hxm_bin" >/dev/null 2>&1 &
+hxm_pid=$!
 
 for _ in $(seq 1 50); do
   if "$client_bin" get-root-cardinals _NET_SUPPORTED >/dev/null 2>&1; then
@@ -76,6 +76,6 @@ done
 "$script_dir/test_desktops.sh" "$client_bin"
 "$script_dir/test_strut_removal.sh" "$client_bin"
 "$script_dir/test_state_remove.sh" "$client_bin"
-# Export bbox_pid for test_restart.sh
-export bbox_pid
+# Export hxm_pid for test_restart.sh
+export hxm_pid
 "$script_dir/test_restart.sh" "$client_bin"

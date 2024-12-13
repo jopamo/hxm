@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "bbox.h"
 #include "config.h"
+#include "hxm.h"
 #include "theme.h"
 
 // Stub required globals

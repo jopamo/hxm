@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-#include "bbox.h"
 #include "handle.h"
+#include "hxm.h"
 
 typedef struct server server_t;
 

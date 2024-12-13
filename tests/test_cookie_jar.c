@@ -6,8 +6,8 @@
 #include <string.h>
 #include <time.h>
 
-#include "bbox.h"
 #include "cookie_jar.h"
+#include "hxm.h"
 #include "wm.h"
 
 // Externs from xcb_stubs.c

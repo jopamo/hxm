@@ -37,7 +37,7 @@ def main():
     try:
         for _ in range(100):
             # Pick a random window (we don't know IDs easily, but we can just spam events)
-            # Actually, let's just wait and see if bbox crashes.
+            # Actually, let's just wait and see if hxm crashes.
             time.sleep(0.1)
     except KeyboardInterrupt:
         pass

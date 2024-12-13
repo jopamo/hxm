@@ -17,8 +17,8 @@
 #include <xcb/damage.h>
 #include <xcb/xcb_keysyms.h>
 
-#include "bbox.h"
 #include "frame.h"
+#include "hxm.h"
 #include "wm.h"
 #include "xcb_utils.h"
 
@@ -289,7 +289,7 @@ static void run_autostart(void) {
 
     // Check XDG_CONFIG_HOME
     if (xdg_config_home) {
-        snprintf(path, sizeof(path), "%s/bbox/autostart", xdg_config_home);
+        snprintf(path, sizeof(path), "%s/hxm/autostart", xdg_config_home);
         if (access(path, X_OK) == 0) {
             exec_path = path;
         }
@@ -297,7 +297,7 @@ static void run_autostart(void) {
 
     // Check ~/.config
     if (!exec_path && home) {
-        snprintf(path, sizeof(path), "%s/.config/bbox/autostart", home);
+        snprintf(path, sizeof(path), "%s/.config/hxm/autostart", home);
         if (access(path, X_OK) == 0) {
             exec_path = path;
         }
@@ -305,8 +305,8 @@ static void run_autostart(void) {
 
     // Check /etc
     if (!exec_path) {
-        if (access("/etc/bbox/autostart", X_OK) == 0) {
-            exec_path = "/etc/bbox/autostart";
+        if (access("/etc/hxm/autostart", X_OK) == 0) {
+            exec_path = "/etc/hxm/autostart";
         }
     }
 
@@ -333,33 +333,33 @@ static void load_config_from_home(server_t* s) {
     const char* home = getenv("HOME");
 
     if (xdg_config_home) {
-        snprintf(path, sizeof(path), "%s/bbox/bbox.conf", xdg_config_home);
+        snprintf(path, sizeof(path), "%s/hxm/hxm.conf", xdg_config_home);
         config_loaded = config_load(&s->config, path);
     }
 
     if (!config_loaded && home) {
-        snprintf(path, sizeof(path), "%s/.config/bbox/bbox.conf", home);
+        snprintf(path, sizeof(path), "%s/.config/hxm/hxm.conf", home);
         config_loaded = config_load(&s->config, path);
     }
 
     if (!config_loaded) {
-        config_load(&s->config, "/etc/bbox/bbox.conf");
+        config_load(&s->config, "/etc/hxm/hxm.conf");
     }
 
     // Now try to load the theme
     bool theme_loaded = false;
     if (xdg_config_home) {
-        snprintf(path, sizeof(path), "%s/bbox/themerc", xdg_config_home);
+        snprintf(path, sizeof(path), "%s/hxm/themerc", xdg_config_home);
         theme_loaded = theme_load(&s->config.theme, path);
     }
 
     if (!theme_loaded && home) {
-        snprintf(path, sizeof(path), "%s/.config/bbox/themerc", home);
+        snprintf(path, sizeof(path), "%s/.config/hxm/themerc", home);
         theme_loaded = theme_load(&s->config.theme, path);
     }
 
     if (!theme_loaded) {
-        theme_load(&s->config.theme, "/etc/bbox/themerc");
+        theme_load(&s->config.theme, "/etc/hxm/themerc");
     }
 }
 
@@ -850,30 +850,30 @@ static void apply_reload(server_t* s) {
     bool loaded = false;
 
     if (xdg_config_home) {
-        snprintf(path, sizeof(path), "%s/bbox/bbox.conf", xdg_config_home);
+        snprintf(path, sizeof(path), "%s/hxm/hxm.conf", xdg_config_home);
         loaded = config_load(&next_config, path);
     }
 
     if (!loaded && home) {
-        snprintf(path, sizeof(path), "%s/.config/bbox/bbox.conf", home);
+        snprintf(path, sizeof(path), "%s/.config/hxm/hxm.conf", home);
         loaded = config_load(&next_config, path);
     }
 
     if (!loaded) {
-        loaded = config_load(&next_config, "/etc/bbox/bbox.conf");
+        loaded = config_load(&next_config, "/etc/hxm/hxm.conf");
     }
 
     bool theme_loaded = false;
     if (xdg_config_home) {
-        snprintf(path, sizeof(path), "%s/bbox/themerc", xdg_config_home);
+        snprintf(path, sizeof(path), "%s/hxm/themerc", xdg_config_home);
         theme_loaded = theme_load(&next_config.theme, path);
     }
     if (!theme_loaded && home) {
-        snprintf(path, sizeof(path), "%s/.config/bbox/themerc", home);
+        snprintf(path, sizeof(path), "%s/.config/hxm/themerc", home);
         theme_loaded = theme_load(&next_config.theme, path);
     }
     if (!theme_loaded) {
-        theme_load(&next_config.theme, "/etc/bbox/themerc");
+        theme_load(&next_config.theme, "/etc/hxm/themerc");
     }
 
     config_destroy(&s->config);
@@ -945,7 +945,7 @@ void server_run(server_t* s) {
         if (g_shutdown_pending) break;
 
         if (g_restart_pending) {
-            LOG_INFO("Restarting bbox...");
+            LOG_INFO("Restarting hxm...");
             s->restarting = true;
             char path[1024];
             ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);

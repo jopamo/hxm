@@ -15,9 +15,9 @@
 #include <unistd.h>
 #include <xcb/xcb_icccm.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "event.h"
+#include "hxm.h"
 #include "wm.h"
 #include "xcb_utils.h"
 
@@ -171,7 +171,7 @@ static void menu_populate_root(server_t* s) {
 
     menu_add_item(s, NULL, MENU_ACTION_SEPARATOR, NULL, HANDLE_INVALID, NULL);
 
-    menu_add_item(s, "Exit", MENU_ACTION_EXEC, "bbox --exit", HANDLE_INVALID, NULL);
+    menu_add_item(s, "Exit", MENU_ACTION_EXEC, "hxm --exit", HANDLE_INVALID, NULL);
 }
 
 void menu_show(server_t* s, int16_t x, int16_t y) {
@@ -555,10 +555,10 @@ static void menu_activate_selected(server_t* s) {
             exit(0);
             break;
         case MENU_ACTION_RESTART:
-            spawn("bbox --restart");
+            spawn("hxm --restart");
             break;
         case MENU_ACTION_RELOAD:
-            spawn("bbox --reconfigure");
+            spawn("hxm --reconfigure");
             break;
         case MENU_ACTION_RESTORE:
             menu_do_restore(s, item->client);

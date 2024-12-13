@@ -4,13 +4,13 @@
 
 #include <stdlib.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "event.h"
+#include "hxm.h"
 #include "wm.h"
 #include "xcb_utils.h"
 
-#ifdef BBOX_DEBUG_TRACE
+#ifdef HXM_DEBUG_TRACE
 static void debug_dump_focus_history(const server_t* s, const char* tag) {
     if (!s) return;
     const list_node_t* head = &s->focus_history;

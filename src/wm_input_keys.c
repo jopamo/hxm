@@ -11,10 +11,10 @@
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "config.h"
 #include "event.h"
+#include "hxm.h"
 #include "menu.h"
 #include "wm.h"
 #include "wm_internal.h"

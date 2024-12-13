@@ -5,8 +5,8 @@
 #include <xcb/damage.h>
 #include <xcb/xproto.h>
 
-#include "bbox.h"
 #include "event.h"
+#include "hxm.h"
 #include "xcb_utils.h"
 
 extern void xcb_stubs_reset(void);

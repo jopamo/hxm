@@ -8,9 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "event.h"
+#include "hxm.h"
 #include "render.h"
 
 void frame_init_resources(server_t* s) {

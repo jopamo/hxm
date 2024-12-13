@@ -1,5 +1,5 @@
-#ifndef BBOX_H
-#define BBOX_H
+#ifndef HXM_H
+#define HXM_H
 
 #include <signal.h>
 #include <stdbool.h>
@@ -163,14 +163,14 @@ enum log_level {
     LOG_ERROR,
 };
 
-void bbox_log(enum log_level level, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
+void hxm_log(enum log_level level, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
 
-#define LOG_DEBUG(...) bbox_log(LOG_DEBUG, __VA_ARGS__)
-#define LOG_INFO(...) bbox_log(LOG_INFO, __VA_ARGS__)
-#define LOG_WARN(...) bbox_log(LOG_WARN, __VA_ARGS__)
-#define LOG_ERROR(...) bbox_log(LOG_ERROR, __VA_ARGS__)
+#define LOG_DEBUG(...) hxm_log(LOG_DEBUG, __VA_ARGS__)
+#define LOG_INFO(...) hxm_log(LOG_INFO, __VA_ARGS__)
+#define LOG_WARN(...) hxm_log(LOG_WARN, __VA_ARGS__)
+#define LOG_ERROR(...) hxm_log(LOG_ERROR, __VA_ARGS__)
 
-#ifdef BBOX_DEBUG_TRACE
+#ifdef HXM_DEBUG_TRACE
 #define TRACE_LOG(...) LOG_DEBUG(__VA_ARGS__)
 #define TRACE_WARN(...) LOG_WARN(__VA_ARGS__)
 #define TRACE_ONLY(...) \
@@ -207,4 +207,4 @@ extern struct counters counters;
 void counters_init(void);
 void counters_dump(void);
 
-#endif  // BBOX_H
+#endif  // HXM_H

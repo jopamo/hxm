@@ -6,11 +6,11 @@
 #include <xcb/xcb_icccm.h>
 #include <xcb/xproto.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "config.h"
 #include "cookie_jar.h"
 #include "event.h"
+#include "hxm.h"
 #include "src/wm_internal.h"
 #include "wm.h"
 #include "xcb_utils.h"

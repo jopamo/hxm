@@ -1,7 +1,7 @@
 [Desktop Entry]
-Name=bbox
+Name=hxm
 Comment=A lightweight stacking window manager
-Exec=bbox
+Exec=hxm
 Type=Application
-DesktopNames=BBOX
+DesktopNames=HXM
 Keywords=window manager;

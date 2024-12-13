@@ -1,6 +1,6 @@
-# BBox Application Flow
+# Hxm Application Flow
 
-This document summarizes how bbox starts, owns the X server, and processes events.
+This document summarizes how hxm starts, owns the X server, and processes events.
 
 ## High-level execution path
 
@@ -29,9 +29,9 @@ locate the running WM via `WM_S0` and `_NET_WM_PID`, then signal it.
 - Allocate keysyms for keybinding lookup.
 - Detect XDamage extension availability.
 - Load config and theme in priority order:
-  - `$XDG_CONFIG_HOME/bbox/bbox.conf` and `themerc`
-  - `$HOME/.config/bbox/bbox.conf` and `themerc`
-  - `/etc/bbox/bbox.conf` and `themerc`
+  - `$XDG_CONFIG_HOME/hxm/hxm.conf` and `themerc`
+  - `$HOME/.config/hxm/hxm.conf` and `themerc`
+  - `/etc/hxm/hxm.conf` and `themerc`
 - Initialize workspace state (`desktop_count`, `current_desktop`).
 - Become WM (`wm_become`):
   - Acquire `WM_S0` selection on the root window.

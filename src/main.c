@@ -8,8 +8,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "bbox.h"
 #include "event.h"
+#include "hxm.h"
 #include "xcb_utils.h"
 
 static server_t server;
@@ -38,9 +38,9 @@ static void handle_signal(int sig) {
 static void print_help(const char* prog) {
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
-    printf("  --exit          Exit the running bbox instance\n");
-    printf("  --restart       Restart the running bbox instance\n");
-    printf("  --reconfigure   Reload the configuration of the running bbox instance\n");
+    printf("  --exit          Exit the running hxm instance\n");
+    printf("  --restart       Restart the running hxm instance\n");
+    printf("  --reconfigure   Reload the configuration of the running hxm instance\n");
     printf("  --dump-stats    Print performance counters and exit\n");
     printf("  --help          Print this help and exit\n");
 }
@@ -57,7 +57,7 @@ static int send_signal_to_wm(int sig) {
     xcb_get_selection_owner_reply_t* owner =
         xcb_get_selection_owner_reply(conn, xcb_get_selection_owner(conn, atoms.WM_S0), NULL);
     if (!owner || owner->owner == XCB_NONE) {
-        fprintf(stderr, "No running bbox instance found (WM_S0 selection not owned)\n");
+        fprintf(stderr, "No running hxm instance found (WM_S0 selection not owned)\n");
         free(owner);
         xcb_disconnect(conn);
         return -1;
@@ -69,7 +69,7 @@ static int send_signal_to_wm(int sig) {
     xcb_get_property_reply_t* prop = xcb_get_property_reply(
         conn, xcb_get_property(conn, 0, wm_win, atoms._NET_WM_PID, XCB_ATOM_CARDINAL, 0, 1), NULL);
     if (!prop || prop->type != XCB_ATOM_CARDINAL || xcb_get_property_value_length(prop) == 0) {
-        fprintf(stderr, "Could not find PID of running bbox instance (_NET_WM_PID missing on supporting window)\n");
+        fprintf(stderr, "Could not find PID of running hxm instance (_NET_WM_PID missing on supporting window)\n");
         free(prop);
         xcb_disconnect(conn);
         return -1;
@@ -116,7 +116,7 @@ int main(int argc, char** argv) {
     signal(SIGUSR1, handle_signal);
     signal(SIGUSR2, handle_signal);
 
-    LOG_INFO("bbox starting");
+    LOG_INFO("hxm starting");
 
     server_init(&server);
     server_run(&server);  // never returns

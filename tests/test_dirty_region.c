@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "bbox.h"
+#include "hxm.h"
 
 void test_dirty_region_union_and_clamp() {
     dirty_region_t r;

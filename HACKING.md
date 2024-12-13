@@ -6,7 +6,7 @@
 - `include/` holds public and internal headers used across modules.
 - `tests/` contains unit and integration-style C tests; `tests/ewmh/` hosts EWMH shell tests and helpers.
 - `scripts/` provides developer utilities (Xephyr runner, headless and integration test drivers).
-- `data/` includes default configuration and desktop entry files (example: `data/bbox.conf`).
+- `data/` includes default configuration and desktop entry files (example: `data/hxm.conf`).
 - `FLOW.md` documents the runtime flow and core invariants; refer to it before deep changes.
 
 ## Build, Test, and Development Commands
@@ -19,7 +19,7 @@ meson compile -C build
 
 Run locally (on an X11 session):
 ```bash
-./build/bbox
+./build/hxm
 ```
 
 Run unit tests registered in Meson:
@@ -29,7 +29,7 @@ meson test -C build
 
 Useful scripts:
 ```bash
-./scripts/run-xephyr.sh          # run bbox in a nested Xephyr session
+./scripts/run-xephyr.sh          # run hxm in a nested Xephyr session
 ./scripts/test-headless.sh       # headless smoke + stress test
 ./scripts/test-integration.sh    # integration client checks
 ./tests/ewmh/run_in_xvfb.sh       # EWMH tests under Xvfb

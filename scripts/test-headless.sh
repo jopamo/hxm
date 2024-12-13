@@ -11,10 +11,10 @@ XVFB_PID=$!
 
 sleep 2
 
-# Start bbox
-echo "Starting bbox..."
-./build/bbox &
-BBOX_PID=$!
+# Start hxm
+echo "Starting hxm..."
+./build/hxm &
+HXM_PID=$!
 
 sleep 2
 
@@ -25,5 +25,5 @@ echo "Running stress test..."
 echo "Stress test complete."
 
 # Cleanup
-kill $BBOX_PID
+kill $HXM_PID
 kill $XVFB_PID

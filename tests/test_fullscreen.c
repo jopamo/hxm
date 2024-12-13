@@ -4,10 +4,10 @@
 #include <string.h>
 #include <xcb/xcb_icccm.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "config.h"
 #include "event.h"
+#include "hxm.h"
 #include "slotmap.h"
 #include "wm.h"
 #include "xcb_utils.h"

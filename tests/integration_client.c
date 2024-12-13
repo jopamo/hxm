@@ -100,8 +100,8 @@ static xcb_window_t create_window(uint16_t w, uint16_t h) {
                       screen->root_visual, mask, values);
 
     // give the WM something to chew on
-    xcb_icccm_set_wm_class(c, win, (uint16_t)strlen("bbox-test\0bbox-test"), "bbox-test\0bbox-test");
-    xcb_icccm_set_wm_name(c, win, XCB_ATOM_STRING, 8, (uint32_t)strlen("bbox-test-window"), "bbox-test-window");
+    xcb_icccm_set_wm_class(c, win, (uint16_t)strlen("hxm-test\0hxm-test"), "hxm-test\0hxm-test");
+    xcb_icccm_set_wm_name(c, win, XCB_ATOM_STRING, 8, (uint32_t)strlen("hxm-test-window"), "hxm-test-window");
 
     return win;
 }

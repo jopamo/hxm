@@ -10,7 +10,7 @@
 #include <string.h>
 #include <xcb/xcbext.h>
 
-#include "bbox.h"
+#include "hxm.h"
 
 #define COOKIE_JAR_TIMEOUT_NS 5000000000ULL
 #define COOKIE_JAR_MAX_LOAD_NUM 7

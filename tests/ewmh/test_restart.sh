@@ -18,7 +18,7 @@ echo "Created window $win"
 # Window is already mapped by create-window-and-sleep
 sleep 1.0
 
-# Check if bbox manages it
+# Check if hxm manages it
 json=$("$client" get-root-cardinals _NET_CLIENT_LIST)
 echo "Client list: $json"
 
@@ -48,15 +48,15 @@ if [ "$val" != "1" ]; then
   exit 1
 fi
 
-echo "Window on desktop 1. Current desktop 1. Restarting bbox..."
+echo "Window on desktop 1. Current desktop 1. Restarting hxm..."
 
-if [ -z "${bbox_pid:-}" ]; then
-  echo "bbox_pid not found"
+if [ -z "${hxm_pid:-}" ]; then
+  echo "hxm_pid not found"
   kill "$client_pid" || true
   exit 1
 fi
 
-kill -USR2 "$bbox_pid"
+kill -USR2 "$hxm_pid"
 sleep 2.0
 
 # Verify current desktop is still 1

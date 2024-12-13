@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <xcb/xcb.h>
 
-#include "bbox.h"
+#include "hxm.h"
 #include "theme.h"
 
 // Holds persistent resources to prevent allocation churn

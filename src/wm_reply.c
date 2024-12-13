@@ -8,12 +8,12 @@
 #include <xcb/sync.h>
 #include <xcb/xcb_icccm.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "config.h"
 #include "cookie_jar.h"
 #include "event.h"
 #include "frame.h"
+#include "hxm.h"
 #include "wm.h"
 
 // Motif Hints

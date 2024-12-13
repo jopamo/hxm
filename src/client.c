@@ -8,14 +8,14 @@
 #include <string.h>
 #include <xcb/xcb_icccm.h>
 
-#include "bbox.h"
 #include "event.h"
 #include "frame.h"
+#include "hxm.h"
 #include "slotmap.h"
 #include "wm.h"
 #include "xcb_utils.h"
 
-#ifdef BBOX_DEBUG_TRACE
+#ifdef HXM_DEBUG_TRACE
 static void debug_dump_focus_history(const server_t* s, const char* tag) {
     if (!s) return;
     const list_node_t* head = &s->focus_history;
@@ -669,12 +669,12 @@ void client_unmanage(server_t* s, handle_t h) {
         // Fallback to MRU
         if (next_h == HANDLE_INVALID) {
             list_node_t* node = s->focus_history.next;
-#ifdef BBOX_DEBUG_TRACE
+#ifdef HXM_DEBUG_TRACE
             int guard = 0;
 #endif
             while (node != &s->focus_history) {
                 client_hot_t* cand = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
-#ifdef BBOX_DEBUG_TRACE
+#ifdef HXM_DEBUG_TRACE
                 if (guard < 64) {
                     TRACE_LOG("unmanage focus scan[%d] node=%p h=%lx xid=%u state=%d", guard, (void*)node, cand->self,
                               cand->xid, cand->state);

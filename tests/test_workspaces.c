@@ -4,9 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "event.h"
+#include "hxm.h"
 #include "wm.h"
 
 // Externs from xcb_stubs.c

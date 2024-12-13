@@ -17,7 +17,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "bbox.h"
+#include "hxm.h"
 
 static enum log_level min_level = LOG_INFO;
 static bool use_utc = false;
@@ -58,12 +58,12 @@ static void log_init_once(void) {
     if (initialized) return;
     initialized = true;
 
-    min_level = parse_level(getenv("BBOX_LOG"));
+    min_level = parse_level(getenv("HXM_LOG"));
 
-    const char* utc = getenv("BBOX_LOG_UTC");
+    const char* utc = getenv("HXM_LOG_UTC");
     if (utc && (strcmp(utc, "1") == 0 || strcmp(utc, "true") == 0)) use_utc = true;
 
-    const char* mono = getenv("BBOX_LOG_MONO");
+    const char* mono = getenv("HXM_LOG_MONO");
     if (mono && (strcmp(mono, "1") == 0 || strcmp(mono, "true") == 0)) use_monotonic = true;
 }
 
@@ -90,7 +90,7 @@ static void format_timestamp(char* out, size_t out_sz, long* ms_out) {
     strftime(out, out_sz, "%H:%M:%S", &tm);
 }
 
-void bbox_log(enum log_level level, const char* fmt, ...) {
+void hxm_log(enum log_level level, const char* fmt, ...) {
     log_init_once();
 
     if (level < min_level) return;

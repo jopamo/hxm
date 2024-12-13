@@ -2,8 +2,8 @@
 set -e
 
 # Setup config
-mkdir -p ~/.config/bbox
-cat > ~/.config/bbox/bbox.conf <<EOF
+mkdir -p ~/.config/hxm
+cat > ~/.config/hxm/hxm.conf <<EOF
 rule = class:Special -> desktop:3
 EOF
 
@@ -20,11 +20,11 @@ trap "kill $XVFB_PID 2>/dev/null || true" EXIT
 
 sleep 1
 
-# Start bbox
-echo "Starting bbox..."
-./build-meson-asan/bbox &
-BBOX_PID=$!
-trap "kill $BBOX_PID $XVFB_PID 2>/dev/null || true" EXIT
+# Start hxm
+echo "Starting hxm..."
+./build-meson-asan/hxm &
+HXM_PID=$!
+trap "kill $HXM_PID $XVFB_PID 2>/dev/null || true" EXIT
 
 sleep 1
 

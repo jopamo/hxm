@@ -8,10 +8,10 @@
 #include <xcb/xcb.h>
 #include <xcb/xcb_icccm.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "event.h"
 #include "frame.h"
+#include "hxm.h"
 #include "wm.h"
 #include "wm_internal.h"
 

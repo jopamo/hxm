@@ -13,7 +13,7 @@
 #include <string.h>
 #include <time.h>
 
-#include "bbox.h"
+#include "hxm.h"
 
 struct counters counters;
 
@@ -72,7 +72,7 @@ static void print_event_stats(void) {
 }
 
 void counters_dump(void) {
-    printf("=== BBOX counters ===\n");
+    printf("=== HXM counters ===\n");
 
     print_tick_stats();
 

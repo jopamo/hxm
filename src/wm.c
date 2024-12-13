@@ -20,10 +20,10 @@
 #include <xcb/xcb_icccm.h>
 #include <xcb/xcb_keysyms.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "event.h"
 #include "frame.h"
+#include "hxm.h"
 #include "wm_internal.h"
 
 // Small helpers
@@ -368,7 +368,7 @@ void wm_become(server_t* s) {
                         XCB_ATOM_WINDOW, 32, 1, &s->supporting_wm_check);
 
     // Set _NET_WM_NAME on supporting window (and optionally root)
-    const char* wm_name = "bbox";
+    const char* wm_name = "hxm";
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, s->supporting_wm_check, atoms._NET_WM_NAME, atoms.UTF8_STRING, 8,
                         (uint32_t)strlen(wm_name), wm_name);
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_WM_NAME, atoms.UTF8_STRING, 8,

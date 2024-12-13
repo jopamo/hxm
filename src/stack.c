@@ -10,9 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "bbox.h"
 #include "client.h"
 #include "event.h"
+#include "hxm.h"
 #include "wm.h"
 
 /* Forward */
@@ -68,7 +68,7 @@ static bool stack_vec_remove(server_t* s, small_vec_t* v, size_t idx) {
     return true;
 }
 
-#ifdef BBOX_DEBUG_TRACE
+#ifdef HXM_DEBUG_TRACE
 static void debug_dump_layer(const server_t* s, int layer, const char* tag) {
     if (!s || layer < 0 || layer >= LAYER_COUNT) return;
 
