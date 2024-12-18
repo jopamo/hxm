@@ -1,4 +1,3 @@
-# hxm
 <div style="background-color: #1e1e1e; padding: 1em; display: inline-block; border-radius: 8px;">
   <img src="assets/hxm-clear.png" alt="hxm-clear logo" width="300">
 </div>
