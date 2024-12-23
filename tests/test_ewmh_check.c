@@ -11,6 +11,8 @@
 
 // From tests/xcb_stubs.c
 extern void xcb_stubs_reset(void);
+extern int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request, void** reply,
+                                       xcb_generic_error_t** error);
 
 extern int stub_map_window_count;
 extern xcb_window_t stub_mapped_windows[256];
@@ -95,6 +97,24 @@ extern struct stub_prop_call {
 extern void xcb_stubs_set_selection_owner(xcb_window_t owner);
 extern xcb_window_t xcb_stubs_get_selection_owner(void);
 
+static bool g_force_badaccess_once = false;
+
+static int poll_badaccess_once(xcb_connection_t* c, unsigned int request, void** reply, xcb_generic_error_t** error) {
+    (void)c;
+    (void)request;
+
+    if (!g_force_badaccess_once) return 0;
+
+    g_force_badaccess_once = false;
+    *reply = NULL;
+    *error = malloc(sizeof(xcb_generic_error_t));
+    if (*error) {
+        memset(*error, 0, sizeof(xcb_generic_error_t));
+        (*error)->error_code = XCB_ACCESS;
+    }
+    return 1;
+}
+
 static void test_net_client_list_published(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
@@ -137,6 +157,76 @@ static const struct stub_prop_call* find_prop_call(xcb_window_t win, xcb_atom_t 
         }
     }
     return NULL;
+}
+
+static void test_refuse_when_substructure_redirect_fails(void) {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+
+    s.conn = xcb_connect(NULL, NULL);
+    s.root = 42;
+    atoms_init(s.conn);
+    slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
+    s.desktop_count = 1;
+
+    xcb_stubs_reset();
+    g_force_badaccess_once = true;
+    stub_poll_for_reply_hook = poll_badaccess_once;
+
+    wm_become(&s);
+
+    assert(s.supporting_wm_check == XCB_WINDOW_NONE);
+    assert(stub_map_window_count == 0);
+    assert(xcb_stubs_get_selection_owner() == XCB_NONE);
+
+    stub_poll_for_reply_hook = NULL;
+    printf("PASS: WM refuses when SubstructureRedirect is unavailable\n");
+
+    slotmap_destroy(&s.clients);
+    xcb_disconnect(s.conn);
+}
+
+static void test_existing_wm_keeps_selection_owner(void) {
+    server_t s1;
+    memset(&s1, 0, sizeof(s1));
+
+    s1.conn = xcb_connect(NULL, NULL);
+    s1.root = 7;
+    atoms_init(s1.conn);
+    slotmap_init(&s1.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
+    s1.desktop_count = 1;
+
+    xcb_stubs_reset();
+    wm_become(&s1);
+
+    xcb_window_t owner = xcb_stubs_get_selection_owner();
+    assert(owner == s1.supporting_wm_check);
+    int map_count = stub_map_window_count;
+
+    const struct stub_prop_call* root_call = find_prop_call(s1.root, atoms._NET_SUPPORTING_WM_CHECK);
+    assert(root_call != NULL);
+    const uint32_t* root_val = (const uint32_t*)root_call->data;
+    assert(root_val[0] == owner);
+
+    server_t s2;
+    memset(&s2, 0, sizeof(s2));
+    s2.conn = xcb_connect(NULL, NULL);
+    s2.root = s1.root;
+    slotmap_init(&s2.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
+    s2.desktop_count = 1;
+
+    wm_become(&s2);
+
+    assert(s2.supporting_wm_check == XCB_WINDOW_NONE);
+    assert(xcb_stubs_get_selection_owner() == owner);
+    assert(stub_map_window_count == map_count);
+
+    printf("PASS: existing WM keeps WM_S0 ownership after second start\n");
+
+    slotmap_destroy(&s2.clients);
+    xcb_disconnect(s2.conn);
+    slotmap_destroy(&s1.clients);
+    xcb_disconnect(s1.conn);
 }
 
 static void test_wm_s0_selection_and_supporting_check(void) {
@@ -202,7 +292,9 @@ static void test_refuse_when_selection_owned(void) {
 int main(void) {
     test_supporting_wm_check_mapped();
     test_net_client_list_published();
+    test_refuse_when_substructure_redirect_fails();
     test_wm_s0_selection_and_supporting_check();
+    test_existing_wm_keeps_selection_owner();
     test_refuse_when_selection_owned();
     return 0;
 }
