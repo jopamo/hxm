@@ -85,6 +85,8 @@ int stub_map_window_count = 0;
 int stub_unmap_window_count = 0;
 xcb_window_t stub_last_mapped_window = 0;
 xcb_window_t stub_last_unmapped_window = 0;
+int stub_set_input_focus_count = 0;
+xcb_window_t stub_last_input_focus_window = 0;
 
 xcb_window_t stub_mapped_windows[STUB_MAX_MAPPED];
 int stub_mapped_windows_len = 0;
@@ -176,6 +178,8 @@ void xcb_stubs_reset(void) {
     stub_unmap_window_count = 0;
     stub_last_mapped_window = 0;
     stub_last_unmapped_window = 0;
+    stub_set_input_focus_count = 0;
+    stub_last_input_focus_window = 0;
     stub_mapped_windows_len = 0;
     memset(stub_mapped_windows, 0, sizeof(stub_mapped_windows));
 
@@ -621,7 +625,8 @@ xcb_void_cookie_t xcb_set_input_focus(xcb_connection_t* c, uint8_t revert_to, xc
                                       xcb_timestamp_t time) {
     (void)c;
     (void)revert_to;
-    (void)focus;
+    stub_set_input_focus_count++;
+    stub_last_input_focus_window = focus;
     (void)time;
     return (xcb_void_cookie_t){0};
 }

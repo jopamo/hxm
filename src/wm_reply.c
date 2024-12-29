@@ -450,6 +450,17 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 if (str) {
                     cold->wm_client_machine = arena_strndup(&cold->string_arena, str, (size_t)len);
                 }
+            } else if (atom == atoms.WM_COMMAND) {
+                int len = 0;
+                char* str = prop_get_string(r, &len);
+                if (str && len > 0) {
+                    size_t n = (size_t)len;
+                    char* nul = memchr(str, '\0', n);
+                    size_t cmd_len = nul ? (size_t)(nul - str) : n;
+                    if (cmd_len > 0) {
+                        cold->wm_command = arena_strndup(&cold->string_arena, str, cmd_len);
+                    }
+                }
 
             } else if (atom == atoms._NET_WM_NAME || atom == atoms._NET_WM_ICON_NAME) {
                 parse_net_wm_name_like(s, slot->client, hot, cold, atom, r);
