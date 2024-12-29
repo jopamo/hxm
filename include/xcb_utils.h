@@ -14,6 +14,7 @@ struct atoms {
     xcb_atom_t WM_STATE;
     xcb_atom_t WM_CLASS;
     xcb_atom_t WM_CLIENT_MACHINE;
+    xcb_atom_t WM_COMMAND;
     xcb_atom_t WM_NAME;
     xcb_atom_t WM_ICON_NAME;
     xcb_atom_t WM_HINTS;

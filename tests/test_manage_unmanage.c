@@ -277,6 +277,53 @@ static void test_unmap_destroy_unmanages(void) {
     cleanup_server(&s);
 }
 
+static void test_iconify_ignores_unmap_notify_send_event(void) {
+    server_t s;
+    setup_server(&s);
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
+    memset(hot, 0, sizeof(*hot));
+    memset(cold, 0, sizeof(*cold));
+
+    render_init(&hot->render_ctx);
+    arena_init(&cold->string_arena, 512);
+
+    hot->self = h;
+    hot->xid = 4001;
+    hot->frame = 4002;
+    hot->state = STATE_MAPPED;
+    hot->layer = LAYER_NORMAL;
+    hot->base_layer = LAYER_NORMAL;
+    hot->stacking_layer = -1;
+    hot->stacking_index = -1;
+    list_init(&hot->focus_node);
+    list_init(&hot->transients_head);
+    list_init(&hot->transient_sibling);
+
+    hash_map_insert(&s.window_to_client, hot->xid, handle_to_ptr(h));
+    hash_map_insert(&s.frame_to_client, hot->frame, handle_to_ptr(h));
+
+    wm_client_iconify(&s, h);
+    assert(hot->state == STATE_UNMAPPED);
+    assert(hot->ignore_unmap > 0);
+
+    xcb_unmap_notify_event_t unmap;
+    memset(&unmap, 0, sizeof(unmap));
+    unmap.response_type = XCB_UNMAP_NOTIFY | 0x80;
+    unmap.window = hot->xid;
+    unmap.event = s.root;
+    wm_handle_unmap_notify(&s, &unmap);
+
+    assert(server_get_client_by_window(&s, hot->xid) == h);
+    assert(hot->ignore_unmap == 0);
+
+    printf("test_iconify_ignores_unmap_notify_send_event passed\n");
+    cleanup_server(&s);
+}
+
 static void test_reparent_notify_ignored(void) {
     server_t s;
     setup_server(&s);
@@ -307,6 +354,7 @@ int main(void) {
     test_map_request_starts_manage_once();
     test_finish_manage_maps_client_then_frame();
     test_unmap_destroy_unmanages();
+    test_iconify_ignores_unmap_notify_send_event();
     test_reparent_notify_ignored();
     return 0;
 }

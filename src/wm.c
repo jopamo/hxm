@@ -1596,6 +1596,7 @@ void wm_client_iconify(server_t* s, handle_t h) {
     TRACE_LOG("iconify h=%lx xid=%u frame=%u layer=%d", h, hot->xid, hot->frame, hot->layer);
 
     hot->state = STATE_UNMAPPED;
+    if (hot->ignore_unmap < UINT8_MAX) hot->ignore_unmap++;
     xcb_unmap_window(s->conn, hot->frame);
     stack_remove(s, h);
 

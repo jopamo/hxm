@@ -74,6 +74,37 @@ static void* get_property_any(xcb_window_t win, xcb_atom_t prop, xcb_atom_t type
     return val;
 }
 
+static xcb_get_geometry_reply_t* get_geometry(xcb_window_t win) {
+    xcb_get_geometry_cookie_t ck = xcb_get_geometry(c, win);
+    return xcb_get_geometry_reply(c, ck, NULL);
+}
+
+static bool window_has_child(xcb_window_t parent, xcb_window_t child) {
+    xcb_query_tree_cookie_t ck = xcb_query_tree(c, parent);
+    xcb_query_tree_reply_t* r = xcb_query_tree_reply(c, ck, NULL);
+    if (!r) return false;
+    int len = xcb_query_tree_children_length(r);
+    xcb_window_t* kids = xcb_query_tree_children(r);
+    for (int i = 0; i < len; i++) {
+        if (kids[i] == child) {
+            free(r);
+            return true;
+        }
+    }
+    free(r);
+    return false;
+}
+
+static bool translate_to_root(xcb_window_t win, int16_t* out_x, int16_t* out_y) {
+    xcb_translate_coordinates_cookie_t ck = xcb_translate_coordinates(c, win, root, 0, 0);
+    xcb_translate_coordinates_reply_t* r = xcb_translate_coordinates_reply(c, ck, NULL);
+    if (!r) return false;
+    if (out_x) *out_x = r->dst_x;
+    if (out_y) *out_y = r->dst_y;
+    free(r);
+    return true;
+}
+
 static bool wait_until_us(uint64_t deadline_us, bool (*pred)(void*), void* ctx) {
     while (now_us() < deadline_us) {
         if (pred(ctx)) return true;
@@ -90,13 +121,12 @@ static bool wait_until_us(uint64_t deadline_us, bool (*pred)(void*), void* ctx) 
     return false;
 }
 
-static xcb_window_t create_window(uint16_t w, uint16_t h) {
+static xcb_window_t create_window_ex(uint16_t w, uint16_t h, uint16_t border, uint32_t event_mask) {
     xcb_window_t win = xcb_generate_id(c);
     uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
-    uint32_t values[] = {screen->white_pixel, XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_PROPERTY_CHANGE |
-                                                  XCB_EVENT_MASK_FOCUS_CHANGE};
+    uint32_t values[] = {screen->white_pixel, event_mask};
 
-    xcb_create_window(c, XCB_COPY_FROM_PARENT, win, root, 0, 0, w, h, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT,
+    xcb_create_window(c, XCB_COPY_FROM_PARENT, win, root, 0, 0, w, h, border, XCB_WINDOW_CLASS_INPUT_OUTPUT,
                       screen->root_visual, mask, values);
 
     // give the WM something to chew on
@@ -104,6 +134,11 @@ static xcb_window_t create_window(uint16_t w, uint16_t h) {
     xcb_icccm_set_wm_name(c, win, XCB_ATOM_STRING, 8, (uint32_t)strlen("hxm-test-window"), "hxm-test-window");
 
     return win;
+}
+
+static xcb_window_t create_window(uint16_t w, uint16_t h) {
+    uint32_t mask = XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_FOCUS_CHANGE;
+    return create_window_ex(w, h, 0, mask);
 }
 
 static void map_window(xcb_window_t win) {
@@ -163,6 +198,48 @@ static bool client_list_contains(xcb_atom_t prop, xcb_window_t win) {
     }
     free(list);
     return false;
+}
+
+static bool get_wm_state(xcb_window_t win, uint32_t* out_state) {
+    xcb_atom_t wm_state = get_atom("WM_STATE");
+    uint32_t nbytes = 0;
+    uint32_t* v = (uint32_t*)get_property_any(win, wm_state, wm_state, &nbytes);
+    if (!v || nbytes < sizeof(uint32_t)) {
+        free(v);
+        return false;
+    }
+    if (out_state) *out_state = v[0];
+    free(v);
+    return true;
+}
+
+static bool wait_for_wm_state(xcb_window_t win, uint32_t state, uint32_t timeout_ms) {
+    uint64_t deadline = now_us() + (uint64_t)timeout_ms * 1000ull;
+    while (now_us() < deadline) {
+        uint32_t cur = 0;
+        if (get_wm_state(win, &cur) && cur == state) return true;
+        for (int i = 0; i < 16; i++) {
+            xcb_generic_event_t* ev = xcb_poll_for_event(c);
+            if (!ev) break;
+            free(ev);
+        }
+        usleep(2000);
+    }
+    return false;
+}
+
+static void send_wm_change_state(xcb_window_t win, uint32_t state) {
+    xcb_atom_t wm_change = get_atom("WM_CHANGE_STATE");
+    xcb_client_message_event_t ev = {0};
+    ev.response_type = XCB_CLIENT_MESSAGE;
+    ev.format = 32;
+    ev.window = win;
+    ev.type = wm_change;
+    ev.data.data32[0] = state;
+
+    xcb_send_event(c, 0, root, XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                   (const char*)&ev);
+    xflush();
 }
 
 static void require_eventual_reparent(xcb_window_t win, uint32_t timeout_ms, xcb_window_t* out_parent) {
@@ -232,6 +309,24 @@ static void require_eventual_client_list_membership(xcb_window_t win, uint32_t t
     }
 
     fail("Window not present in _NET_CLIENT_LIST and/or _NET_CLIENT_LIST_STACKING");
+}
+
+static void require_eventual_client_list_absence(xcb_window_t win, uint32_t timeout_ms) {
+    xcb_atom_t net_client_list = get_atom("_NET_CLIENT_LIST");
+
+    uint64_t deadline = now_us() + (uint64_t)timeout_ms * 1000ull;
+
+    while (now_us() < deadline) {
+        if (!client_list_contains(net_client_list, win)) return;
+        for (int i = 0; i < 16; i++) {
+            xcb_generic_event_t* ev = xcb_poll_for_event(c);
+            if (!ev) break;
+            free(ev);
+        }
+        usleep(2000);
+    }
+
+    fail("Window still present in _NET_CLIENT_LIST after unmanage");
 }
 
 static void require_eventual_active_window(xcb_window_t win, uint32_t timeout_ms) {
@@ -395,6 +490,259 @@ static void test_management_and_lists(void) {
     destroy_window(w);
 
     printf("PASS: Management + client lists\n");
+}
+
+static void test_wm_state_normal_on_manage(void) {
+    printf("Test: WM_STATE Normal on manage+map\n");
+
+    xcb_window_t w = create_window(120, 80);
+    map_window(w);
+
+    require_eventual_reparent(w, 1000, NULL);
+    require_eventual_mapped(w, 1000);
+
+    if (!wait_for_wm_state(w, XCB_ICCCM_WM_STATE_NORMAL, 1000)) {
+        uint32_t cur = 0;
+        if (get_wm_state(w, &cur)) {
+            failf("WM_STATE not Normal (got %u)", cur);
+        }
+        fail("WM_STATE missing after manage+map");
+    }
+
+    destroy_window(w);
+    printf("PASS: WM_STATE Normal on manage+map\n");
+}
+
+static void test_wm_state_iconify_and_restore(void) {
+    printf("Test: WM_STATE Iconic via WM_CHANGE_STATE\n");
+
+    xcb_window_t w = create_window(120, 80);
+    map_window(w);
+
+    require_eventual_reparent(w, 1000, NULL);
+    require_eventual_mapped(w, 1000);
+
+    send_wm_change_state(w, XCB_ICCCM_WM_STATE_ICONIC);
+    if (!wait_for_wm_state(w, XCB_ICCCM_WM_STATE_ICONIC, 1000)) {
+        uint32_t cur = 0;
+        if (get_wm_state(w, &cur)) {
+            failf("WM_STATE not Iconic after request (got %u)", cur);
+        }
+        fail("WM_STATE missing after iconify request");
+    }
+
+    send_wm_change_state(w, XCB_ICCCM_WM_STATE_NORMAL);
+    if (!wait_for_wm_state(w, XCB_ICCCM_WM_STATE_NORMAL, 1000)) {
+        uint32_t cur = 0;
+        if (get_wm_state(w, &cur)) {
+            failf("WM_STATE not Normal after restore (got %u)", cur);
+        }
+        fail("WM_STATE missing after restore");
+    }
+
+    destroy_window(w);
+    printf("PASS: WM_STATE Iconic via WM_CHANGE_STATE\n");
+}
+
+static void test_withdraw_unmanage_cleans_state(void) {
+    printf("Test: Withdraw/unmanage clears WM_STATE and frame\n");
+
+    xcb_window_t w = create_window(120, 80);
+    map_window(w);
+
+    xcb_window_t frame = XCB_WINDOW_NONE;
+    require_eventual_reparent(w, 1000, &frame);
+    require_eventual_mapped(w, 1000);
+
+    xcb_unmap_window(c, w);
+    xflush();
+
+    require_eventual_client_list_absence(w, 1000);
+
+    uint64_t deadline = now_us() + 1000ull * 1000ull;
+    bool state_gone = false;
+    bool parent_root = false;
+    bool frame_unmapped = false;
+
+    while (now_us() < deadline) {
+        uint32_t cur = 0;
+        if (!get_wm_state(w, &cur) || cur == XCB_ICCCM_WM_STATE_WITHDRAWN) state_gone = true;
+        if (get_parent(w) == root) parent_root = true;
+        if (frame != XCB_WINDOW_NONE && !is_mapped(frame)) frame_unmapped = true;
+
+        if (state_gone && parent_root && frame_unmapped) break;
+
+        xcb_generic_event_t* ev = xcb_poll_for_event(c);
+        if (ev) free(ev);
+        usleep(2000);
+    }
+
+    if (!state_gone) fail("WM_STATE still present after withdraw");
+    if (!parent_root) fail("Client not reparented back to root after withdraw");
+    if (!frame_unmapped) fail("Frame still mapped after withdraw");
+
+    destroy_window(w);
+    printf("PASS: Withdraw/unmanage clears WM_STATE and frame\n");
+}
+
+static void test_no_false_iconify_on_reparent(void) {
+    printf("Test: No false iconify during reparent\n");
+
+    xcb_window_t w = create_window(120, 80);
+    map_window(w);
+
+    require_eventual_reparent(w, 1000, NULL);
+    require_eventual_mapped(w, 1000);
+    require_eventual_client_list_membership(w, 1000);
+
+    uint32_t cur = 0;
+    if (!get_wm_state(w, &cur)) fail("WM_STATE missing after reparent");
+    if (cur != XCB_ICCCM_WM_STATE_NORMAL) {
+        failf("WM_STATE not Normal after reparent (got %u)", cur);
+    }
+
+    destroy_window(w);
+    printf("PASS: No false iconify during reparent\n");
+}
+
+static void test_reparent_hierarchy_and_border(void) {
+    printf("Test: Reparent hierarchy + border width\n");
+
+    uint32_t mask = XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_EXPOSURE;
+    xcb_window_t w = create_window_ex(160, 90, 5, mask);
+    map_window(w);
+
+    xcb_window_t frame = XCB_WINDOW_NONE;
+    require_eventual_reparent(w, 1000, &frame);
+
+    if (frame == XCB_WINDOW_NONE) fail("Reparent did not produce a frame window");
+
+    xcb_window_t parent = get_parent(w);
+    if (parent != frame) fail("Client parent is not the frame");
+
+    xcb_window_t frame_parent = get_parent(frame);
+    if (frame_parent != root) fail("Frame parent is not root");
+
+    if (!window_has_child(frame, w)) fail("Frame does not list client as a child");
+
+    xcb_get_geometry_reply_t* geom = get_geometry(w);
+    if (!geom) fail("Failed to get client geometry");
+    if (!(geom->border_width == 0 || geom->border_width == 5)) {
+        failf("Client border width unexpected: %u", geom->border_width);
+    }
+    free(geom);
+
+    destroy_window(w);
+    printf("PASS: Reparent hierarchy + border width\n");
+}
+
+static void test_client_expose_delivery(void) {
+    printf("Test: Client Expose delivery\n");
+
+    uint32_t mask = XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_EXPOSURE;
+    xcb_window_t w = create_window_ex(120, 80, 0, mask);
+    map_window(w);
+    require_eventual_reparent(w, 1000, NULL);
+    require_eventual_mapped(w, 1000);
+
+    xcb_clear_area(c, 1, w, 0, 0, 0, 0);
+    xflush();
+
+    uint64_t deadline = now_us() + 1000ull * 1000ull;
+    bool got = false;
+    while (now_us() < deadline) {
+        xcb_generic_event_t* ev = xcb_poll_for_event(c);
+        if (!ev) {
+            usleep(2000);
+            continue;
+        }
+        uint8_t rt = (ev->response_type & ~0x80);
+        if (rt == XCB_EXPOSE) {
+            xcb_expose_event_t* ex = (xcb_expose_event_t*)ev;
+            if (ex->window == w) got = true;
+        }
+        free(ev);
+        if (got) break;
+    }
+
+    if (!got) fail("Did not receive Expose on client window");
+
+    destroy_window(w);
+    printf("PASS: Client Expose delivery\n");
+}
+
+static void test_configure_notify_after_request(void) {
+    printf("Test: ConfigureNotify after ConfigureRequest\n");
+
+    xcb_window_t w = create_window(140, 90);
+    map_window(w);
+    require_eventual_reparent(w, 1000, NULL);
+    require_eventual_mapped(w, 1000);
+
+    const int16_t req_x = 60;
+    const int16_t req_y = 70;
+    const uint16_t req_w = 220;
+    const uint16_t req_h = 160;
+
+    xcb_configure_request_event_t ev = {0};
+    ev.response_type = XCB_CONFIGURE_REQUEST;
+    ev.window = w;
+    ev.value_mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+    ev.x = req_x;
+    ev.y = req_y;
+    ev.width = req_w;
+    ev.height = req_h;
+
+    xcb_send_event(c, 0, root, XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                   (const char*)&ev);
+    xflush();
+
+    uint64_t deadline = now_us() + 1500ull * 1000ull;
+    bool got = false;
+    xcb_configure_notify_event_t last = {0};
+    while (now_us() < deadline) {
+        xcb_generic_event_t* gev = xcb_poll_for_event(c);
+        if (!gev) {
+            usleep(2000);
+            continue;
+        }
+        uint8_t rt = (gev->response_type & ~0x80);
+        if (rt == XCB_CONFIGURE_NOTIFY) {
+            xcb_configure_notify_event_t* cn = (xcb_configure_notify_event_t*)gev;
+            if (cn->window == w) {
+                last = *cn;
+                got = true;
+            }
+        }
+        free(gev);
+        if (got) break;
+    }
+
+    if (!got) fail("Did not receive ConfigureNotify on client after ConfigureRequest");
+
+    xcb_get_geometry_reply_t* geom = get_geometry(w);
+    if (!geom) fail("Failed to get geometry after ConfigureRequest");
+
+    int16_t root_x = 0;
+    int16_t root_y = 0;
+    if (!translate_to_root(w, &root_x, &root_y)) {
+        free(geom);
+        fail("Failed to translate client coordinates to root");
+    }
+
+    if (last.width != geom->width || last.height != geom->height) {
+        free(geom);
+        failf("ConfigureNotify size mismatch: event %ux%u, geom %ux%u", last.width, last.height, geom->width,
+              geom->height);
+    }
+    if (last.x != root_x || last.y != root_y) {
+        free(geom);
+        failf("ConfigureNotify pos mismatch: event %d,%d, root %d,%d", last.x, last.y, root_x, root_y);
+    }
+
+    free(geom);
+    destroy_window(w);
+    printf("PASS: ConfigureNotify after ConfigureRequest\n");
 }
 
 static void test_focus_policy(void) {
@@ -573,6 +921,13 @@ int main(void) {
 
     test_wm_presence_ewmh();
     test_management_and_lists();
+    test_wm_state_normal_on_manage();
+    test_wm_state_iconify_and_restore();
+    test_withdraw_unmanage_cleans_state();
+    test_no_false_iconify_on_reparent();
+    test_reparent_hierarchy_and_border();
+    test_client_expose_delivery();
+    test_configure_notify_after_request();
     test_focus_policy();
     test_wm_delete_window();
     test_fullscreen_state();
