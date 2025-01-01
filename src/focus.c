@@ -30,9 +30,24 @@ static void debug_dump_focus_history(const server_t* s, const char* tag) {
 }
 #endif
 
-/*
-static void install_client_colormap(server_t* s, client_hot_t* hot) {
-    if (!hot) return;
+void wm_install_client_colormap(server_t* s, client_hot_t* hot) {
+    if (!s || !hot) return;
+
+    client_cold_t* cold = server_ccold(s, hot->self);
+    bool use_list = cold && cold->colormap_windows && cold->colormap_windows_len > 0;
+
+    if (use_list) {
+        for (uint32_t i = 0; i < cold->colormap_windows_len; i++) {
+            xcb_window_t win = cold->colormap_windows[i];
+            if (win == hot->xid && hot->colormap != XCB_NONE) {
+                xcb_install_colormap(s->conn, hot->colormap);
+            } else if (win == hot->frame && hot->frame_colormap_owned && hot->frame_colormap != XCB_NONE) {
+                xcb_install_colormap(s->conn, hot->frame_colormap);
+            }
+        }
+        return;
+    }
+
     if (hot->colormap != XCB_NONE) {
         xcb_install_colormap(s->conn, hot->colormap);
     }
@@ -40,7 +55,6 @@ static void install_client_colormap(server_t* s, client_hot_t* hot) {
         xcb_install_colormap(s->conn, hot->frame_colormap);
     }
 }
-*/
 
 void wm_set_focus(server_t* s, handle_t h) {
     TRACE_LOG("set_focus from=%lx to=%lx", s->focused_client, h);
@@ -82,6 +96,8 @@ void wm_set_focus(server_t* s, handle_t h) {
         list_insert(&c->focus_node, &s->focus_history, s->focus_history.next);
         TRACE_ONLY(debug_dump_focus_history(s, "after focus insert"));
 
+        wm_install_client_colormap(s, c);
+
         // Set X input focus
         if (cold && cold->can_focus) {
             TRACE_LOG("set_focus set_input_focus h=%lx xid=%u", h, c->xid);
@@ -98,7 +114,7 @@ void wm_set_focus(server_t* s, handle_t h) {
             ev.window = c->xid;
             ev.type = atoms.WM_PROTOCOLS;
             ev.data.data32[0] = atoms.WM_TAKE_FOCUS;
-            ev.data.data32[1] = XCB_CURRENT_TIME;
+            ev.data.data32[1] = c->user_time ? c->user_time : XCB_CURRENT_TIME;
 
             xcb_send_event(s->conn, 0, c->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
         }
@@ -113,7 +129,9 @@ void wm_set_focus(server_t* s, handle_t h) {
     } else {
         // Focus root or None
         TRACE_LOG("set_focus root");
-        // xcb_install_colormap(s->conn, s->default_colormap);
+        if (s->default_colormap != XCB_NONE) {
+            xcb_install_colormap(s->conn, s->default_colormap);
+        }
         xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, s->root, XCB_CURRENT_TIME);
         s->root_dirty |= ROOT_DIRTY_ACTIVE_WINDOW;
     }

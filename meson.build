@@ -179,6 +179,13 @@ test_wm_icon_invalid = executable('test_wm_icon_invalid',
 )
 test('wm_icon_invalid', test_wm_icon_invalid)
 
+test_colormap = executable('test_colormap',
+  ['tests/test_colormap.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('colormap', test_colormap)
+
 test_workarea_compute = executable('test_workarea_compute',
   ['tests/test_workarea_compute.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
@@ -206,6 +213,13 @@ test_size_hints = executable('test_size_hints',
   dependencies: deps,
 )
 test('size_hints', test_size_hints)
+
+test_position_hints = executable('test_position_hints',
+  ['tests/test_position_hints.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('position_hints', test_position_hints)
 
 test_focus = executable('test_focus',
   ['tests/test_focus.c', 'tests/xcb_stubs.c'] + test_src,

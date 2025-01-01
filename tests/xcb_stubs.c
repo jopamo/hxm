@@ -87,6 +87,7 @@ xcb_window_t stub_last_mapped_window = 0;
 xcb_window_t stub_last_unmapped_window = 0;
 int stub_set_input_focus_count = 0;
 xcb_window_t stub_last_input_focus_window = 0;
+uint8_t stub_last_input_focus_revert = 0;
 
 xcb_window_t stub_mapped_windows[STUB_MAX_MAPPED];
 int stub_mapped_windows_len = 0;
@@ -138,6 +139,11 @@ int stub_ungrab_pointer_count = 0;
 uint16_t stub_last_grab_key_mods = 0;
 xcb_keycode_t stub_last_grab_keycode = 0;
 xcb_cursor_t stub_last_grab_pointer_cursor = XCB_NONE;
+int stub_install_colormap_count = 0;
+xcb_colormap_t stub_last_installed_colormap = XCB_NONE;
+int stub_save_set_insert_count = 0;
+int stub_save_set_delete_count = 0;
+xcb_window_t stub_last_save_set_window = XCB_NONE;
 
 // Optional reply hook for cookie draining
 int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request, void** reply,
@@ -180,6 +186,7 @@ void xcb_stubs_reset(void) {
     stub_last_unmapped_window = 0;
     stub_set_input_focus_count = 0;
     stub_last_input_focus_window = 0;
+    stub_last_input_focus_revert = 0;
     stub_mapped_windows_len = 0;
     memset(stub_mapped_windows, 0, sizeof(stub_mapped_windows));
 
@@ -212,6 +219,11 @@ void xcb_stubs_reset(void) {
     stub_last_grab_key_mods = 0;
     stub_last_grab_keycode = 0;
     stub_last_grab_pointer_cursor = XCB_NONE;
+    stub_install_colormap_count = 0;
+    stub_last_installed_colormap = XCB_NONE;
+    stub_save_set_insert_count = 0;
+    stub_save_set_delete_count = 0;
+    stub_last_save_set_window = XCB_NONE;
 
     stub_poll_for_reply_hook = NULL;
 
@@ -624,9 +636,9 @@ bool xcb_stubs_attr_request_window(uint32_t seq, xcb_window_t* out_window) {
 xcb_void_cookie_t xcb_set_input_focus(xcb_connection_t* c, uint8_t revert_to, xcb_window_t focus,
                                       xcb_timestamp_t time) {
     (void)c;
-    (void)revert_to;
     stub_set_input_focus_count++;
     stub_last_input_focus_window = focus;
+    stub_last_input_focus_revert = revert_to;
     (void)time;
     return (xcb_void_cookie_t){0};
 }
@@ -737,8 +749,12 @@ xcb_void_cookie_t xcb_ungrab_keyboard(xcb_connection_t* c, xcb_timestamp_t time)
 // Save-set and reparenting
 xcb_void_cookie_t xcb_change_save_set(xcb_connection_t* c, uint8_t mode, xcb_window_t window) {
     (void)c;
-    (void)mode;
-    (void)window;
+    if (mode == XCB_SET_MODE_INSERT) {
+        stub_save_set_insert_count++;
+    } else if (mode == XCB_SET_MODE_DELETE) {
+        stub_save_set_delete_count++;
+    }
+    stub_last_save_set_window = window;
     return (xcb_void_cookie_t){0};
 }
 
@@ -1037,6 +1053,8 @@ xcb_keysym_t xcb_key_symbols_get_keysym(xcb_key_symbols_t* syms, xcb_keycode_t k
 // Colormap stubs
 xcb_void_cookie_t xcb_install_colormap(xcb_connection_t* c, xcb_colormap_t cmap) {
     (void)c;
+    stub_install_colormap_count++;
+    stub_last_installed_colormap = cmap;
     (void)cmap;
     return (xcb_void_cookie_t){0};
 }

@@ -139,7 +139,59 @@ void test_transient_cycle_prevention() {
     free(s.conn);
 }
 
+void test_transient_orphan_handled(void) {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+    s.is_test = true;
+    s.conn = (xcb_connection_t*)malloc(1);
+    atoms.WM_TRANSIENT_FOR = 100;
+
+    if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+
+    hash_map_init(&s.window_to_client);
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
+    hot->xid = 40;
+    hot->self = h;
+    hot->state = STATE_MAPPED;
+    list_init(&hot->transients_head);
+    list_init(&hot->transient_sibling);
+    hash_map_insert(&s.window_to_client, 40, handle_to_ptr(h));
+
+    struct {
+        xcb_get_property_reply_t reply;
+        xcb_window_t win;
+    } mock;
+    memset(&mock, 0, sizeof(mock));
+    mock.reply.format = 32;
+    mock.reply.type = XCB_ATOM_WINDOW;
+    mock.reply.value_len = 1;
+    mock.win = 9999;
+
+    cookie_slot_t slot;
+    slot.type = COOKIE_GET_PROPERTY;
+    slot.client = h;
+    slot.data = ((uint64_t)40 << 32) | atoms.WM_TRANSIENT_FOR;
+
+    wm_handle_reply(&s, &slot, &mock, NULL);
+
+    assert(cold->transient_for_xid == 9999);
+    assert(hot->transient_for == HANDLE_INVALID);
+    assert(hot->transient_sibling.next == &hot->transient_sibling);
+    assert(hot->transient_sibling.prev == &hot->transient_sibling);
+
+    printf("test_transient_orphan_handled passed\n");
+
+    hash_map_destroy(&s.window_to_client);
+    slotmap_destroy(&s.clients);
+    free(s.conn);
+}
+
 int main() {
     test_transient_cycle_prevention();
+    test_transient_orphan_handled();
     return 0;
 }

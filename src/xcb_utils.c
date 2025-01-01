@@ -19,6 +19,7 @@ static const char* atom_names[] = {
     "WM_STATE",
     "WM_CLASS",
     "WM_CLIENT_MACHINE",
+    "WM_COLORMAP_WINDOWS",
     "WM_COMMAND",
     "WM_NAME",
     "WM_ICON_NAME",

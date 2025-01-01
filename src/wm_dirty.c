@@ -258,6 +258,10 @@ void wm_flush_dirty(server_t* s) {
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_HINTS,
                             wm_handle_reply);
 
+            c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_COLORMAP_WINDOWS, XCB_ATOM_WINDOW, 0, 64).sequence;
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
+                            ((uint64_t)hot->xid << 32) | atoms.WM_COLORMAP_WINDOWS, wm_handle_reply);
+
             c = xcb_get_property(s->conn, 0, hot->xid, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
                             ((uint64_t)hot->xid << 32) | atoms._MOTIF_WM_HINTS, wm_handle_reply);

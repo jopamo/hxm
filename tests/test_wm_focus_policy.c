@@ -18,6 +18,9 @@ extern int stub_unmap_window_count;
 extern xcb_atom_t stub_last_prop_atom;
 extern uint32_t stub_last_prop_len;
 extern uint8_t stub_last_prop_data[4096];
+extern int stub_set_input_focus_count;
+extern xcb_window_t stub_last_input_focus_window;
+extern uint8_t stub_last_input_focus_revert;
 
 static void setup_server_for_manage(server_t* s) {
     memset(s, 0, sizeof(*s));
@@ -673,6 +676,43 @@ void test_set_focus_ignores_unmapped() {
     free(s.conn);
 }
 
+void test_set_focus_revert_policy_and_root_fallback() {
+    server_t s;
+    setup_server_for_manage(&s);
+
+    handle_t h1 = alloc_test_client(&s, 703, 0);
+    set_client_mapped(&s, h1, 1703);
+    client_cold_t* cold = server_ccold(&s, h1);
+    cold->can_focus = true;
+
+    stub_set_input_focus_count = 0;
+    wm_set_focus(&s, h1);
+    assert(stub_set_input_focus_count == 1);
+    assert(stub_last_input_focus_window == 703);
+    assert(stub_last_input_focus_revert == XCB_INPUT_FOCUS_POINTER_ROOT);
+
+    client_unmanage(&s, h1);
+    assert(s.focused_client == HANDLE_INVALID);
+    assert(stub_last_input_focus_window == s.root);
+    assert(stub_last_input_focus_revert == XCB_INPUT_FOCUS_POINTER_ROOT);
+
+    printf("test_set_focus_revert_policy_and_root_fallback passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
 void test_unmanage_focus_prefers_parent() {
     server_t s;
     setup_server_for_manage(&s);
@@ -761,6 +801,7 @@ int main() {
     test_iconify_updates_focus();
     test_restore_maps_window();
     test_set_focus_ignores_unmapped();
+    test_set_focus_revert_policy_and_root_fallback();
     test_unmanage_focus_prefers_parent();
     test_unmanage_focus_falls_back_to_mru();
     return 0;

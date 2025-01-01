@@ -215,9 +215,45 @@ static void test_synthetic_configure_notify_sent(void) {
     cleanup_server(&s);
 }
 
+static void test_configure_request_ignores_border_and_stack_fields(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    handle_t h = add_client(&s, 4001, 4101);
+    client_hot_t* hot = server_chot(&s, h);
+
+    pending_config_t pc = {0};
+    pc.window = hot->xid;
+    pc.mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT |
+              XCB_CONFIG_WINDOW_BORDER_WIDTH | XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE;
+    pc.x = 12;
+    pc.y = 24;
+    pc.width = 180;
+    pc.height = 90;
+    pc.border_width = 7;
+    pc.sibling = 9999;
+    pc.stack_mode = 3;
+
+    wm_handle_configure_request(&s, h, &pc);
+    assert(hot->desired.x == 12);
+    assert(hot->desired.y == 24);
+    assert(hot->desired.w == 180);
+    assert(hot->desired.h == 90);
+    assert(hot->dirty & DIRTY_GEOM);
+
+    stub_send_event_count = 0;
+    wm_flush_dirty(&s);
+    assert(stub_send_event_count == 1);
+
+    printf("test_configure_request_ignores_border_and_stack_fields passed\n");
+    cleanup_server(&s);
+}
+
 int main(void) {
     test_configure_request_applies_and_extents();
     test_configure_request_mask_respects_existing();
     test_synthetic_configure_notify_sent();
+    test_configure_request_ignores_border_and_stack_fields();
     return 0;
 }

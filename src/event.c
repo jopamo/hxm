@@ -520,6 +520,12 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
             break;
         }
 
+        case XCB_COLORMAP_NOTIFY: {
+            xcb_colormap_notify_event_t* e = (xcb_colormap_notify_event_t*)ev;
+            wm_handle_colormap_notify(s, e);
+            break;
+        }
+
         case XCB_REPARENT_NOTIFY: {
             xcb_reparent_notify_event_t* e = (xcb_reparent_notify_event_t*)ev;
             (void)e;

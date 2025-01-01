@@ -15,6 +15,7 @@
 #include "frame.h"
 #include "hxm.h"
 #include "wm.h"
+#include "wm_internal.h"
 
 // Motif Hints
 #define MWM_HINTS_DECORATIONS (1L << 1)
@@ -126,6 +127,25 @@ static bool prop_is_empty(const xcb_get_property_reply_t* r) { return !r || xcb_
 
 static bool prop_is_cardinal(const xcb_get_property_reply_t* r) {
     return r && r->type == XCB_ATOM_CARDINAL && r->format == 32;
+}
+
+static void client_set_colormap_windows(client_cold_t* cold, const xcb_window_t* wins, uint32_t count) {
+    const uint32_t max_windows = 64;
+    if (!cold) return;
+
+    if (cold->colormap_windows) {
+        free(cold->colormap_windows);
+        cold->colormap_windows = NULL;
+        cold->colormap_windows_len = 0;
+    }
+
+    if (!wins || count == 0) return;
+    if (count > max_windows) count = max_windows;
+
+    cold->colormap_windows = malloc(sizeof(xcb_window_t) * count);
+    if (!cold->colormap_windows) return;
+    memcpy(cold->colormap_windows, wins, sizeof(xcb_window_t) * count);
+    cold->colormap_windows_len = count;
 }
 
 static char* prop_get_string(const xcb_get_property_reply_t* r, int* out_len) {
@@ -460,6 +480,21 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     if (cmd_len > 0) {
                         cold->wm_command = arena_strndup(&cold->string_arena, str, cmd_len);
                     }
+                }
+            } else if (atom == atoms.WM_COLORMAP_WINDOWS) {
+                if (!prop_is_empty(r) && r->format == 32 && r->type == XCB_ATOM_WINDOW) {
+                    int bytes = xcb_get_property_value_length(r);
+                    if (bytes >= 4) {
+                        uint32_t count = (uint32_t)(bytes / (int)sizeof(xcb_window_t));
+                        client_set_colormap_windows(cold, (xcb_window_t*)xcb_get_property_value(r), count);
+                    } else {
+                        client_set_colormap_windows(cold, NULL, 0);
+                    }
+                } else {
+                    client_set_colormap_windows(cold, NULL, 0);
+                }
+                if (s->focused_client == slot->client) {
+                    wm_install_client_colormap(s, hot);
                 }
 
             } else if (atom == atoms._NET_WM_NAME || atom == atoms._NET_WM_ICON_NAME) {

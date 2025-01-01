@@ -541,6 +541,8 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
         hot->dirty |= DIRTY_HINTS | DIRTY_STATE;
     } else if (ev->atom == atoms.WM_NORMAL_HINTS) {
         hot->dirty |= DIRTY_HINTS | DIRTY_STATE;
+    } else if (ev->atom == atoms.WM_COLORMAP_WINDOWS) {
+        hot->dirty |= DIRTY_HINTS;
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
         s->root_dirty |= ROOT_DIRTY_WORKAREA;
@@ -552,6 +554,34 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
         hot->dirty |= DIRTY_HINTS | DIRTY_FRAME_STYLE;
     } else if (ev->atom == atoms._NET_WM_BYPASS_COMPOSITOR) {
         LOG_INFO("Client %lx changed _NET_WM_BYPASS_COMPOSITOR", h);
+    }
+}
+
+static bool colormap_list_contains(const client_cold_t* cold, xcb_window_t win) {
+    if (!cold || !cold->colormap_windows || cold->colormap_windows_len == 0) return false;
+    for (uint32_t i = 0; i < cold->colormap_windows_len; i++) {
+        if (cold->colormap_windows[i] == win) return true;
+    }
+    return false;
+}
+
+void wm_handle_colormap_notify(server_t* s, xcb_colormap_notify_event_t* ev) {
+    if (!s || !ev) return;
+    if (s->focused_client == HANDLE_INVALID) return;
+
+    client_hot_t* hot = server_chot(s, s->focused_client);
+    if (!hot) return;
+    client_cold_t* cold = server_ccold(s, s->focused_client);
+
+    bool match = false;
+    if (cold && cold->colormap_windows_len > 0) {
+        match = colormap_list_contains(cold, ev->window);
+    } else {
+        match = (ev->window == hot->xid || ev->window == hot->frame);
+    }
+
+    if (match) {
+        wm_install_client_colormap(s, hot);
     }
 }
 

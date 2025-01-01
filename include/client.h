@@ -210,6 +210,8 @@ typedef struct client_cold {
     char* wm_class;
     char* wm_client_machine;
     char* wm_command;
+    xcb_window_t* colormap_windows;
+    uint32_t colormap_windows_len;
     arena_t string_arena;
 
     bool has_net_wm_name;
