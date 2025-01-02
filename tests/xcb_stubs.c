@@ -129,6 +129,8 @@ char stub_last_event[32];
 // Kill client capture
 int stub_kill_client_count = 0;
 uint32_t stub_last_kill_client_resource = 0;
+int stub_destroy_window_count = 0;
+xcb_window_t stub_last_destroyed_window = 0;
 
 // Grab button capture
 int stub_grab_button_count = 0;
@@ -210,6 +212,8 @@ void xcb_stubs_reset(void) {
 
     stub_kill_client_count = 0;
     stub_last_kill_client_resource = 0;
+    stub_destroy_window_count = 0;
+    stub_last_destroyed_window = 0;
 
     stub_grab_button_count = 0;
     stub_grab_key_count = 0;
@@ -371,7 +375,8 @@ xcb_void_cookie_t xcb_change_window_attributes_checked(xcb_connection_t* c, xcb_
 
 xcb_void_cookie_t xcb_destroy_window(xcb_connection_t* c, xcb_window_t window) {
     (void)c;
-    (void)window;
+    stub_destroy_window_count++;
+    stub_last_destroyed_window = window;
     return (xcb_void_cookie_t){0};
 }
 
