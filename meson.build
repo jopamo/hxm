@@ -172,6 +172,13 @@ test_icccm_props_extra = executable('test_icccm_props_extra',
 )
 test('icccm_props_extra', test_icccm_props_extra)
 
+test_icccm_fuzz = executable('test_icccm_fuzz',
+  ['tests/test_icccm_fuzz.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('icccm_fuzz', test_icccm_fuzz)
+
 test_wm_icon_invalid = executable('test_wm_icon_invalid',
   ['tests/test_wm_icon_invalid.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
