@@ -373,6 +373,20 @@ xcb_void_cookie_t xcb_change_window_attributes_checked(xcb_connection_t* c, xcb_
     return xcb_change_window_attributes(c, window, value_mask, value_list);
 }
 
+xcb_generic_error_t* xcb_request_check(xcb_connection_t* c, xcb_void_cookie_t cookie) {
+    if (stub_poll_for_reply_hook) {
+        void* reply = NULL;
+        xcb_generic_error_t* err = NULL;
+        if (stub_poll_for_reply_hook(c, cookie.sequence, &reply, &err)) {
+            if (reply) free(reply);
+            return err;
+        }
+    }
+    (void)c;
+    (void)cookie;
+    return NULL;
+}
+
 xcb_void_cookie_t xcb_destroy_window(xcb_connection_t* c, xcb_window_t window) {
     (void)c;
     stub_destroy_window_count++;

@@ -13,6 +13,8 @@
 extern int stub_set_input_focus_count;
 extern xcb_window_t stub_last_input_focus_window;
 
+static void reset_atoms(void) { memset(&atoms, 0, sizeof(atoms)); }
+
 static xcb_get_property_reply_t* make_string_reply(xcb_atom_t type, const char* value, int len) {
     size_t total = sizeof(xcb_get_property_reply_t) + (size_t)len;
     xcb_get_property_reply_t* rep = calloc(1, total);
@@ -20,8 +22,23 @@ static xcb_get_property_reply_t* make_string_reply(xcb_atom_t type, const char* 
     rep->format = 8;
     rep->type = type;
     rep->value_len = (uint32_t)len;
+    rep->length = (uint32_t)((len + 3) / 4);
     if (len > 0 && value) {
         memcpy(xcb_get_property_value(rep), value, (size_t)len);
+    }
+    return rep;
+}
+
+static xcb_get_property_reply_t* make_atom_reply(const xcb_atom_t* atoms_list, uint32_t count) {
+    size_t total = sizeof(xcb_get_property_reply_t) + sizeof(xcb_atom_t) * count;
+    xcb_get_property_reply_t* rep = calloc(1, total);
+    if (!rep) return NULL;
+    rep->format = 32;
+    rep->type = XCB_ATOM_ATOM;
+    rep->value_len = count;
+    rep->length = count;
+    if (count > 0 && atoms_list) {
+        memcpy(xcb_get_property_value(rep), atoms_list, sizeof(xcb_atom_t) * count);
     }
     return rep;
 }
@@ -40,11 +57,13 @@ static void cleanup_server(server_t* s) {
         }
     }
     slotmap_destroy(&s->clients);
+    cookie_jar_destroy(&s->cookie_jar);
     free(s->conn);
 }
 
 static void test_wm_icon_name_fallback(void) {
     server_t s;
+    reset_atoms();
     memset(&s, 0, sizeof(s));
     s.is_test = true;
     s.root_depth = 24;
@@ -103,6 +122,7 @@ static void test_wm_icon_name_fallback(void) {
 
 static void test_wm_class_invalid_no_nul(void) {
     server_t s;
+    reset_atoms();
     memset(&s, 0, sizeof(s));
     s.is_test = true;
     s.root_depth = 24;
@@ -146,6 +166,7 @@ static void test_wm_class_invalid_no_nul(void) {
 
 static void test_wm_client_machine_large(void) {
     server_t s;
+    reset_atoms();
     memset(&s, 0, sizeof(s));
     s.is_test = true;
     s.root_depth = 24;
@@ -189,6 +210,7 @@ static void test_wm_client_machine_large(void) {
 
 static void test_wm_command_first_token(void) {
     server_t s;
+    reset_atoms();
     memset(&s, 0, sizeof(s));
     s.is_test = true;
     s.root_depth = 24;
@@ -226,6 +248,7 @@ static void test_wm_command_first_token(void) {
 
 static void test_wm_hints_input_affects_focus(void) {
     server_t s;
+    reset_atoms();
     memset(&s, 0, sizeof(s));
     s.is_test = true;
     s.root_depth = 24;
@@ -292,6 +315,7 @@ static void test_wm_hints_input_affects_focus(void) {
 
 static void test_wm_hints_icon_safe(void) {
     server_t s;
+    reset_atoms();
     memset(&s, 0, sizeof(s));
     s.is_test = true;
     s.root_depth = 24;
@@ -339,6 +363,7 @@ static void test_wm_hints_icon_safe(void) {
 
 static void test_property_deletions_reset_defaults(void) {
     server_t s;
+    reset_atoms();
     memset(&s, 0, sizeof(s));
     s.is_test = true;
     s.root_depth = 24;
@@ -409,21 +434,22 @@ static void test_property_deletions_reset_defaults(void) {
     assert(hot->hints.min_w == 0);
 
     struct {
-        xcb_get_property_reply_t r;
         xcb_atom_t atoms_list[2];
-    } proto_reply;
-    memset(&proto_reply, 0, sizeof(proto_reply));
-    proto_reply.r.format = 32;
-    proto_reply.r.type = XCB_ATOM_ATOM;
-    proto_reply.r.value_len = 2;
-    proto_reply.atoms_list[0] = atoms.WM_DELETE_WINDOW;
-    proto_reply.atoms_list[1] = atoms.WM_TAKE_FOCUS;
-    slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_PROTOCOLS;
-    wm_handle_reply(&s, &slot, &proto_reply.r, NULL);
+    } proto_atoms;
+    proto_atoms.atoms_list[0] = atoms.WM_DELETE_WINDOW;
+    proto_atoms.atoms_list[1] = atoms.WM_TAKE_FOCUS;
+    slot.data = atoms.WM_PROTOCOLS;
+    xcb_get_property_reply_t* proto_reply = make_atom_reply(proto_atoms.atoms_list, 2);
+    wm_handle_reply(&s, &slot, proto_reply, NULL);
+    free(proto_reply);
     assert(cold->protocols & PROTOCOL_DELETE_WINDOW);
 
-    proto_reply.r.value_len = 0;
-    wm_handle_reply(&s, &slot, &proto_reply.r, NULL);
+    xcb_get_property_reply_t empty_proto;
+    memset(&empty_proto, 0, sizeof(empty_proto));
+    empty_proto.format = 32;
+    empty_proto.type = XCB_ATOM_ATOM;
+    empty_proto.value_len = 0;
+    wm_handle_reply(&s, &slot, &empty_proto, NULL);
     assert(cold->protocols == 0);
 
     struct {
