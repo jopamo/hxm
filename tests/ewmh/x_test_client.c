@@ -32,6 +32,15 @@ static uint32_t parse_u32(const char* str) {
     return (uint32_t)val;
 }
 
+static bool has_extension(xcb_connection_t* conn, const char* name) {
+    xcb_query_extension_cookie_t cookie = xcb_query_extension(conn, (uint16_t)strlen(name), name);
+    xcb_query_extension_reply_t* reply = xcb_query_extension_reply(conn, cookie, NULL);
+    if (!reply) return false;
+    bool present = reply->present;
+    free(reply);
+    return present;
+}
+
 static void print_cardinal_json(uint32_t* vals, int count) {
     printf("{\"values\":[");
     for (int i = 0; i < count; i++) {
@@ -46,6 +55,7 @@ static void usage(void) {
             "Usage:\n"
             "  x_test_client get-atom <name>\n"
             "  x_test_client create-window\n"
+            "  x_test_client create-window-and-sleep <seconds>\n"
             "  x_test_client map-window <window>\n"
             "  x_test_client get-root-cardinals <atom>\n"
             "  x_test_client get-window-cardinals <window> <atom>\n"
@@ -54,7 +64,10 @@ static void usage(void) {
             "  x_test_client set-window-string <window> <atom> <type> <value>\n"
             "  x_test_client set-window-empty <window> <atom> <type>\n"
             "  x_test_client delete-window-prop <window> <atom>\n"
-            "  x_test_client send-client-message <window> <atom> <d0> <d1> <d2> <d3> <d4>\n");
+            "  x_test_client send-client-message <window> <atom> <d0> <d1> <d2> <d3> <d4>\n"
+            "  x_test_client has-extension <name>\n"
+            "  x_test_client assert-substructure-redirect\n"
+            "  x_test_client sleep <seconds>\n");
     exit(2);
 }
 
@@ -251,6 +264,35 @@ int main(int argc, char** argv) {
         xcb_flush(conn);
         xcb_disconnect(conn);
         return 0;
+    }
+
+    if (strcmp(cmd, "has-extension") == 0) {
+        if (argc != 3) usage();
+        printf("%s\n", has_extension(conn, argv[2]) ? "yes" : "no");
+        xcb_disconnect(conn);
+        return 0;
+    }
+
+    if (strcmp(cmd, "assert-substructure-redirect") == 0) {
+        if (argc != 2) usage();
+        uint32_t mask = XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT;
+        xcb_void_cookie_t ck = xcb_change_window_attributes_checked(conn, root, XCB_CW_EVENT_MASK, &mask);
+        xcb_generic_error_t* err = xcb_request_check(conn, ck);
+        if (!err) {
+            fprintf(stderr, "x_test_client: SubstructureRedirect available (WM not running)\n");
+            xcb_disconnect(conn);
+            return 1;
+        }
+        if (err->error_code == XCB_ACCESS) {
+            free(err);
+            printf("owned\n");
+            xcb_disconnect(conn);
+            return 0;
+        }
+        fprintf(stderr, "x_test_client: SubstructureRedirect check failed: %d\n", err->error_code);
+        free(err);
+        xcb_disconnect(conn);
+        return 1;
     }
 
     if (strcmp(cmd, "sleep") == 0) {

@@ -14,7 +14,7 @@ fi
 pkill -f "Xephyr $XEPHYR_DISPLAY"
 
 # Start Xephyr
-Xephyr $XEPHYR_DISPLAY -screen $SCREEN_SIZE -ac -br -noreset &
+Xephyr $XEPHYR_DISPLAY -screen $SCREEN_SIZE -ac -br -noreset +extension RANDR &
 XEPHYR_PID=$!
 
 sleep 1

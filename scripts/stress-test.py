@@ -6,10 +6,11 @@ import os
 
 def spawn_windows(count):
     procs = []
-    cmd = ["./tests/dummy_client"]
+    client = os.environ.get("DUMMY_CLIENT", "./tests/dummy_client")
+    cmd = [client]
     if not os.path.exists(cmd[0]):
         print(f"Error: {cmd[0]} not found. Compile it first.")
-        return []
+        raise SystemExit(1)
 
     for _ in range(count):
         p = subprocess.Popen(cmd)
@@ -20,7 +21,7 @@ def main():
     display = os.environ.get("DISPLAY")
     if not display:
         print("DISPLAY not set. Run this in Xephyr or Xvfb.")
-        return
+        raise SystemExit(1)
 
     print(f"Starting stress test on {display}")
     

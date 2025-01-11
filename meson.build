@@ -297,6 +297,18 @@ parity_client = executable('parity_client',
   dependencies: deps,
 )
 
+integration_client = executable('integration_client',
+  'tests/integration_client.c',
+  include_directories: incdir,
+  dependencies: [xcb_dep, xcb_icccm_dep],
+)
+
+dummy_client = executable('dummy_client',
+  'tests/dummy_client.c',
+  include_directories: incdir,
+  dependencies: [xcb_dep],
+)
+
 test_transient_cycle = executable('test_transient_cycle',
   ['tests/test_transient_cycle.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
@@ -396,6 +408,44 @@ test_race_conditions = executable('test_race_conditions',
   dependencies: deps,
 )
 test('race_conditions', test_race_conditions)
+
+bash = find_program('bash')
+source_root = meson.project_source_root()
+integration_script = join_paths(source_root, 'scripts', 'test-integration.sh')
+headless_script = join_paths(source_root, 'scripts', 'test-headless.sh')
+ewmh_script = join_paths(source_root, 'tests', 'ewmh', 'run_in_xvfb.sh')
+
+script_env = environment()
+script_env.set('HXM_BIN', hxm.full_path())
+script_env.set('INTEGRATION_CLIENT', integration_client.full_path())
+script_env.set('DUMMY_CLIENT', dummy_client.full_path())
+
+test('integration_script', bash,
+  args: [integration_script],
+  env: script_env,
+  workdir: source_root,
+  is_parallel: false,
+  timeout: 120,
+  depends: [hxm, integration_client],
+)
+
+test('headless_script', bash,
+  args: [headless_script],
+  env: script_env,
+  workdir: source_root,
+  is_parallel: false,
+  timeout: 120,
+  depends: [hxm, dummy_client],
+)
+
+test('ewmh_xvfb', bash,
+  args: [ewmh_script],
+  env: script_env,
+  workdir: source_root,
+  is_parallel: false,
+  timeout: 120,
+  depends: [hxm],
+)
 
 # Install configuration files
 install_data('data/hxm.desktop', install_dir: get_option('datadir') / 'xsessions')
