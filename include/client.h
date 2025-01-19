@@ -110,6 +110,7 @@ typedef struct client_hot {
     size_hints_t hints;
     uint32_t hints_flags;
     uint32_t pending_epoch;
+    uint16_t original_border_width;
 
     rect_t saved_geom;
     rect_t saved_maximize_geom;

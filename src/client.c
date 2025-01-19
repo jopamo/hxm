@@ -151,6 +151,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->gtk_extents.right = 0;
     hot->gtk_extents.top = 0;
     hot->gtk_extents.bottom = 0;
+    hot->original_border_width = 0;
 
     // Phase 1 cookie budget
     // Attrs, Geom, Class, ClientMachine, ColormapWindows, Command, Hints, NormalHints, Transient, Type, Protocols,
@@ -429,6 +430,10 @@ void client_finish_manage(server_t* s, handle_t h) {
     }
     */
     xcb_reparent_window(s->conn, hot->xid, hot->frame, rx, ry);
+    if (hot->original_border_width != 0) {
+        uint32_t bw_values[] = {0};
+        xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_BORDER_WIDTH, bw_values);
+    }
 
     // 4.5. Apply initial sizes/positions after reparenting.
     int32_t frame_x = geom.x;
@@ -709,6 +714,10 @@ void client_unmanage(server_t* s, handle_t h) {
 
     // Reparent back to root if window still exists
     if (!destroyed) {
+        if (hot->original_border_width != 0) {
+            uint32_t bw_values[] = {hot->original_border_width};
+            xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_BORDER_WIDTH, bw_values);
+        }
         int16_t root_x = hot->server.x;
         int16_t root_y = hot->server.y;
 

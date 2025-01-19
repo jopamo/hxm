@@ -101,9 +101,6 @@ static uint32_t wm_build_client_list_stacking(server_t* s, xcb_window_t* out, ui
             client_hot_t* hot = server_chot(s, h);
             if (!hot) continue;
             if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
-            // Filter docks and clients opting out of taskbar/pager lists.
-            if (hot->type == WINDOW_TYPE_DOCK) continue;
-            if (hot->skip_taskbar || hot->skip_pager) continue;
             if (idx >= cap) return idx;
             out[idx++] = hot->xid;
         }
@@ -121,9 +118,6 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
 
         client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
-        // Filter docks and clients opting out of taskbar/pager lists.
-        if (hot->type == WINDOW_TYPE_DOCK) continue;
-        if (hot->skip_taskbar || hot->skip_pager) continue;
 
         if (idx >= cap) return idx;
         out[idx++] = hot->xid;
