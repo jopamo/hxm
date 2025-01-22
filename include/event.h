@@ -98,6 +98,8 @@ typedef struct server {
     bool damage_supported;
     uint8_t damage_event_base;
     uint8_t damage_error_base;
+    bool randr_supported;
+    uint8_t randr_event_base;
 
     // Root dirty bits
     uint32_t root_dirty;

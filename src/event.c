@@ -15,6 +15,7 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <xcb/damage.h>
+#include <xcb/randr.h>
 #include <xcb/xcb_keysyms.h>
 
 #include "frame.h"
@@ -102,6 +103,21 @@ void server_init(server_t* s) {
         free(reply);
     }
 
+    s->randr_supported = false;
+    s->randr_event_base = 0;
+    const xcb_query_extension_reply_t* randr_ext = xcb_get_extension_data(s->conn, &xcb_randr_id);
+    if (randr_ext && randr_ext->present) {
+        s->randr_supported = true;
+        s->randr_event_base = randr_ext->first_event;
+        xcb_randr_query_version_cookie_t rc = xcb_randr_query_version(s->conn, 1, 5);
+        xcb_randr_query_version_reply_t* rr = xcb_randr_query_version_reply(s->conn, rc, NULL);
+        if (!rr) {
+            s->randr_supported = false;
+            s->randr_event_base = 0;
+        }
+        free(rr);
+    }
+
     // Initialize configuration (defaults then optional load)
     config_init_defaults(&s->config);
     load_config_from_home(s);
@@ -143,6 +159,9 @@ void server_init(server_t* s) {
     // Become WM (WM_S0 selection + supporting WM check + _NET_SUPPORTED baseline)
     wm_become(s);
     xcb_install_colormap(s->conn, s->default_colormap);
+    if (s->randr_supported) {
+        xcb_randr_select_input(s->conn, s->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
+    }
 
     // Adopt existing windows (must happen after we are the WM)
     wm_adopt_children(s);
@@ -457,6 +476,20 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
             *copy = dirty_region_make(e->area.x, e->area.y, e->area.width, e->area.height);
             hash_map_insert(&s->buckets.damage_regions, e->drawable, copy);
         }
+        free(ev);
+        return;
+    }
+
+    if (s->randr_supported && type == (uint8_t)(s->randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY)) {
+        xcb_randr_screen_change_notify_event_t* e = (xcb_randr_screen_change_notify_event_t*)ev;
+        uint32_t geometry[] = {e->width, e->height};
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32,
+                            2, geometry);
+
+        rect_t wa;
+        wm_compute_workarea(s, &wa);
+        wm_publish_workarea(s, &wa);
+
         free(ev);
         return;
     }
@@ -884,6 +917,28 @@ static void apply_reload(server_t* s) {
 
     config_destroy(&s->config);
     s->config = next_config;
+
+    uint32_t desired = s->config.desktop_count ? s->config.desktop_count : s->desktop_count;
+    if (desired == 0) desired = 1;
+    if (desired != s->desktop_count) {
+        s->desktop_count = desired;
+        if (s->current_desktop >= s->desktop_count) s->current_desktop = 0;
+
+        for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+            if (!slotmap_is_used_idx(&s->clients, i)) continue;
+            client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+            if (hot->sticky) continue;
+            if (hot->desktop >= (int32_t)s->desktop_count) {
+                hot->desktop = (int32_t)s->current_desktop;
+                uint32_t prop_val = (uint32_t)hot->desktop;
+                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL,
+                                    32, 1, &prop_val);
+            }
+        }
+    }
+
+    wm_publish_desktop_props(s);
+    s->root_dirty |= ROOT_DIRTY_WORKAREA;
 
     frame_cleanup_resources(s);
     frame_init_resources(s);
