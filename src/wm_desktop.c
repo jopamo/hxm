@@ -159,12 +159,29 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
         client_cold_t* cold = (client_cold_t*)slotmap_cold_at(&s->clients, i);
         if (!cold) continue;
 
-        if ((int32_t)cold->strut.left > l) l = (int32_t)cold->strut.left;
-        if ((int32_t)((int32_t)screen->width_in_pixels - (int32_t)cold->strut.right) < r)
-            r = (int32_t)screen->width_in_pixels - (int32_t)cold->strut.right;
-        if ((int32_t)cold->strut.top > t) t = (int32_t)cold->strut.top;
-        if ((int32_t)((int32_t)screen->height_in_pixels - (int32_t)cold->strut.bottom) < b)
-            b = (int32_t)screen->height_in_pixels - (int32_t)cold->strut.bottom;
+        bool partial = cold->strut_partial_active;
+        int32_t screen_w = (int32_t)screen->width_in_pixels;
+        int32_t screen_h = (int32_t)screen->height_in_pixels;
+
+        bool left_full =
+            !partial || ((cold->strut.left_start_y == 0 && cold->strut.left_end_y == 0) ||
+                         (cold->strut.left_start_y == 0 && cold->strut.left_end_y >= (uint32_t)(screen_h - 1)));
+        bool right_full =
+            !partial || ((cold->strut.right_start_y == 0 && cold->strut.right_end_y == 0) ||
+                         (cold->strut.right_start_y == 0 && cold->strut.right_end_y >= (uint32_t)(screen_h - 1)));
+        bool top_full =
+            !partial || ((cold->strut.top_start_x == 0 && cold->strut.top_end_x == 0) ||
+                         (cold->strut.top_start_x == 0 && cold->strut.top_end_x >= (uint32_t)(screen_w - 1)));
+        bool bottom_full =
+            !partial || ((cold->strut.bottom_start_x == 0 && cold->strut.bottom_end_x == 0) ||
+                         (cold->strut.bottom_start_x == 0 && cold->strut.bottom_end_x >= (uint32_t)(screen_w - 1)));
+
+        if (left_full && (int32_t)cold->strut.left > l) l = (int32_t)cold->strut.left;
+        if (right_full && (int32_t)(screen_w - (int32_t)cold->strut.right) < r)
+            r = (int32_t)screen_w - (int32_t)cold->strut.right;
+        if (top_full && (int32_t)cold->strut.top > t) t = (int32_t)cold->strut.top;
+        if (bottom_full && (int32_t)(screen_h - (int32_t)cold->strut.bottom) < b)
+            b = (int32_t)screen_h - (int32_t)cold->strut.bottom;
     }
 
     out->x = (int16_t)l;

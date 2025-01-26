@@ -2,6 +2,7 @@
  * Window manager dirty state flushing and property publishing
  */
 
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <xcb/xcb.h>
@@ -102,6 +103,11 @@ static uint32_t wm_build_client_list_stacking(server_t* s, xcb_window_t* out, ui
             if (!hot) continue;
             if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
             if (idx >= cap) return idx;
+#ifndef NDEBUG
+            for (uint32_t j = 0; j < idx; j++) {
+                assert(out[j] != hot->xid);
+            }
+#endif
             out[idx++] = hot->xid;
         }
     }
@@ -120,6 +126,11 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
 
         if (idx >= cap) return idx;
+#ifndef NDEBUG
+        for (uint32_t j = 0; j < idx; j++) {
+            assert(out[j] != hot->xid);
+        }
+#endif
         out[idx++] = hot->xid;
     }
     return idx;
@@ -202,13 +213,15 @@ void wm_flush_dirty(server_t* s) {
             //                         XCB_ATOM_CARDINAL, 32, 4, extents);
             // }
             // Original logic above, modified:
-            if ((hot->flags & CLIENT_FLAG_UNDECORATED)) {
-                xcb_delete_property(s->conn, hot->xid, atoms._NET_FRAME_EXTENTS);
-            } else {
-                uint32_t extents[4] = {bw, bw, th + bw, bw};
-                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS,
-                                    XCB_ATOM_CARDINAL, 32, 4, extents);
+            uint32_t extents[4] = {bw, bw, th + bw, bw};
+            if (hot->flags & CLIENT_FLAG_UNDECORATED) {
+                extents[0] = 0;
+                extents[1] = 0;
+                extents[2] = 0;
+                extents[3] = 0;
             }
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL,
+                                32, 4, extents);
 
             // Update server state immediately to ensure redraw uses correct geometry
             hot->server.x = (int16_t)frame_x;

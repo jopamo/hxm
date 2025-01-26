@@ -136,7 +136,7 @@ static void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool 
                         extents);
 }
 
-static void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
+void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
     // Default to full screen
     xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
     out_geom->x = 0;
@@ -1265,6 +1265,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     }
 
     if (ev->type == atoms._NET_WM_STATE) {
+        if (ev->format != 32) return;
         handle_t h = server_get_client_by_window(s, ev->window);
         if (h != HANDLE_INVALID) {
             uint32_t action = ev->data.data32[0];

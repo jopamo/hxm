@@ -184,6 +184,14 @@ static void client_update_effective_strut(client_cold_t* cold) {
     }
 }
 
+static void sanitize_strut_range(uint32_t* start, uint32_t* end) {
+    if (!start || !end) return;
+    if (*start > *end) {
+        *start = 1;
+        *end = 0;
+    }
+}
+
 static bool client_type_forces_undecorated(uint8_t type) {
     switch (type) {
         case WINDOW_TYPE_DOCK:
@@ -745,10 +753,14 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_TOOLBAR) {
                             hot->type = WINDOW_TYPE_TOOLBAR;
+                            hot->base_layer = LAYER_NORMAL;
+                            hot->placement = PLACEMENT_DEFAULT;
                             hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_UTILITY) {
                             hot->type = WINDOW_TYPE_UTILITY;
+                            hot->base_layer = LAYER_NORMAL;
+                            hot->placement = PLACEMENT_DEFAULT;
                             hot->type_from_net = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_MENU) {
@@ -789,6 +801,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_NORMAL) {
                             hot->type = WINDOW_TYPE_NORMAL;
+                            hot->base_layer = LAYER_NORMAL;
+                            hot->placement = PLACEMENT_DEFAULT;
                             hot->type_from_net = true;
                             break;
                         }
@@ -874,6 +888,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         target->top_end_x = val[9];
                         target->bottom_start_x = val[10];
                         target->bottom_end_x = val[11];
+                        sanitize_strut_range(&target->left_start_y, &target->left_end_y);
+                        sanitize_strut_range(&target->right_start_y, &target->right_end_y);
+                        sanitize_strut_range(&target->top_start_x, &target->top_end_x);
+                        sanitize_strut_range(&target->bottom_start_x, &target->bottom_end_x);
                     }
                     *active = true;
                 } else {
@@ -993,7 +1011,15 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
                         cairo_surface_mark_dirty(hot->icon_surface);
                         changed = true;
+                    } else if (hot->icon_surface) {
+                        cairo_surface_destroy(hot->icon_surface);
+                        hot->icon_surface = NULL;
+                        changed = true;
                     }
+                } else if (hot->icon_surface) {
+                    cairo_surface_destroy(hot->icon_surface);
+                    hot->icon_surface = NULL;
+                    changed = true;
                 }
 
             } else if (atom == atoms._NET_WM_PID) {

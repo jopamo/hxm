@@ -218,15 +218,21 @@ static void test_client_list_filters_skip_and_dock(void) {
 
     const struct stub_prop_call* list = find_prop_call(s.root, atoms._NET_CLIENT_LIST, false);
     assert(list != NULL);
-    assert(list->len == 1);
+    assert(list->len == 4);
     const uint32_t* list_vals = (const uint32_t*)list->data;
     assert(list_vals[0] == 7001);
+    assert(list_vals[1] == 7002);
+    assert(list_vals[2] == 7003);
+    assert(list_vals[3] == 7004);
 
     const struct stub_prop_call* list_stack = find_prop_call(s.root, atoms._NET_CLIENT_LIST_STACKING, false);
     assert(list_stack != NULL);
-    assert(list_stack->len == 1);
+    assert(list_stack->len == 4);
     const uint32_t* stack_vals = (const uint32_t*)list_stack->data;
     assert(stack_vals[0] == 7001);
+    assert(stack_vals[1] == 7002);
+    assert(stack_vals[2] == 7003);
+    assert(stack_vals[3] == 7004);
 
     printf("test_client_list_filters_skip_and_dock passed\n");
     cleanup_server(&s);
