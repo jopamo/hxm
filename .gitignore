@@ -2,3 +2,5 @@ build*
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+tests/ewmh/x_test_client
+tests/ewmh/panel_simulator

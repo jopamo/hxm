@@ -107,22 +107,6 @@ static bool translate_to_root(xcb_window_t win, int16_t* out_x, int16_t* out_y) 
     return true;
 }
 
-static bool wait_until_us(uint64_t deadline_us, bool (*pred)(void*), void* ctx) {
-    while (now_us() < deadline_us) {
-        if (pred(ctx)) return true;
-
-        // drain some events so the connection doesn't starve
-        for (int i = 0; i < 32; i++) {
-            xcb_generic_event_t* ev = xcb_poll_for_event(c);
-            if (!ev) break;
-            free(ev);
-        }
-
-        usleep(2000);
-    }
-    return false;
-}
-
 static xcb_window_t create_window_ex(uint16_t w, uint16_t h, uint16_t border, uint32_t event_mask) {
     xcb_window_t win = xcb_generate_id(c);
     uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;

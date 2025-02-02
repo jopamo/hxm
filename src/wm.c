@@ -28,12 +28,6 @@
 
 // Small helpers
 
-// Motif hints (subset)
-#define MWM_HINTS_DECORATIONS (1L << 1)
-#define MWM_DECOR_ALL (1L << 0)
-#define MWM_DECOR_BORDER (1L << 1)
-#define MWM_DECOR_TITLE (1L << 3)
-
 enum {
     NET_WM_MOVERESIZE_SIZE_TOPLEFT = 0,
     NET_WM_MOVERESIZE_SIZE_TOP = 1,
@@ -92,43 +86,7 @@ static bool wm_is_above_in_layer(const server_t* s, const client_hot_t* a, const
     return false;
 }
 
-static bool wm_window_wants_undecorated(server_t* s, xcb_window_t win) {
-    /*
-    if (atoms._GTK_FRAME_EXTENTS != XCB_ATOM_NONE) {
-        xcb_get_property_cookie_t ck =
-            xcb_get_property(s->conn, 0, win, atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 0, 4);
-        xcb_get_property_reply_t* r = xcb_get_property_reply(s->conn, ck, NULL);
-        if (r) {
-            bool has_extents = (r->format == 32 && xcb_get_property_value_length(r) >= (int)(4 * sizeof(uint32_t)));
-            free(r);
-            if (has_extents) return true;
-        }
-    }
-    */
-
-    xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5);
-    xcb_get_property_reply_t* r = xcb_get_property_reply(s->conn, ck, NULL);
-    if (!r) return false;
-
-    bool undecorated = false;
-    if (r->format == 32 && xcb_get_property_value_length(r) >= (int)(3 * sizeof(uint32_t))) {
-        uint32_t* hints = (uint32_t*)xcb_get_property_value(r);
-        uint32_t flags = hints[0];
-        uint32_t decorations = hints[2];
-        if (flags & MWM_HINTS_DECORATIONS) {
-            bool want_border =
-                (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_BORDER) : (decorations & MWM_DECOR_BORDER);
-            bool want_title =
-                (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_TITLE) : (decorations & MWM_DECOR_TITLE);
-            undecorated = !(want_border && want_title);
-        }
-    }
-
-    free(r);
-    return undecorated;
-}
-
-static void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecorated) {
+void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecorated) {
     uint32_t bw = undecorated ? 0 : s->config.theme.border_width;
     uint32_t th = undecorated ? 0 : s->config.theme.title_height;
     uint32_t extents[4] = {bw, bw, th + bw, bw};
@@ -146,6 +104,7 @@ void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
 
     if (!s->conn) return;
 
+    // Sync boundary: RandR queries block; call sites are rare (fullscreen placement or RandR events).
     xcb_randr_get_screen_resources_current_cookie_t r_c = xcb_randr_get_screen_resources_current(s->conn, s->root);
     xcb_randr_get_screen_resources_current_reply_t* res =
         xcb_randr_get_screen_resources_current_reply(s->conn, r_c, NULL);
@@ -1309,12 +1268,16 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         if (h != HANDLE_INVALID) {
             client_hot_t* hot = server_chot(s, h);
             if (hot) undecorated = (hot->flags & CLIENT_FLAG_UNDECORATED) != 0;
-        } else {
-            undecorated = wm_window_wants_undecorated(s, target);
+            TRACE_LOG("_NET_REQUEST_FRAME_EXTENTS win=%u undecorated=%d (managed)", target, undecorated);
+            wm_set_frame_extents_for_window(s, target, undecorated);
+            return;
         }
 
-        TRACE_LOG("_NET_REQUEST_FRAME_EXTENTS win=%u undecorated=%d", target, undecorated);
-        wm_set_frame_extents_for_window(s, target, undecorated);
+        // Async path for unmanaged windows: ask for _MOTIF_WM_HINTS and reply later.
+        xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, target, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5);
+        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY_FRAME_EXTENTS, HANDLE_INVALID,
+                        (uintptr_t)target, wm_handle_reply);
+        TRACE_LOG("_NET_REQUEST_FRAME_EXTENTS win=%u queued async motif hints", target);
         return;
     }
 
