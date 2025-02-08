@@ -15,7 +15,7 @@ extern char stub_last_event[32];
 extern int stub_kill_client_count;
 extern uint32_t stub_last_kill_client_resource;
 
-void test_net_close_window() {
+void test_net_close_window(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -91,7 +91,7 @@ void test_net_close_window() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_net_close_window();
     return 0;
 }

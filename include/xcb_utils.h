@@ -118,6 +118,7 @@ struct atoms {
 };
 
 extern struct atoms atoms;
+const char* atom_name(xcb_atom_t atom);
 
 // Initialize connection and cache atoms
 xcb_connection_t* xcb_connect_cached(void);

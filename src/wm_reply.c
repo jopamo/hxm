@@ -890,17 +890,15 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 strut_t* target = is_partial ? &cold->strut_partial : &cold->strut_full;
                 bool* active = is_partial ? &cold->strut_partial_active : &cold->strut_full_active;
 
-                if (len >= 16) {
-                    uint32_t* val = prop_get_u32_array(r, 4, NULL);
+                if (r && r->type == XCB_ATOM_CARDINAL && r->format == 32 && len >= 16) {
+                    uint32_t* val = (uint32_t*)xcb_get_property_value(r);
                     memset(target, 0, sizeof(*target));
-                    if (val) {
-                        target->left = val[0];
-                        target->right = val[1];
-                        target->top = val[2];
-                        target->bottom = val[3];
-                    }
+                    target->left = val[0];
+                    target->right = val[1];
+                    target->top = val[2];
+                    target->bottom = val[3];
 
-                    if (is_partial && len >= 48 && val) {
+                    if (is_partial && len >= 48) {
                         target->left_start_y = val[4];
                         target->left_end_y = val[5];
                         target->right_start_y = val[6];
@@ -921,6 +919,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 }
 
                 client_update_effective_strut(cold);
+                TRACE_LOG("strut_reply xid=%u atom=%s len=%d active=%d top=%u", hot->xid,
+                          is_partial ? "_NET_WM_STRUT_PARTIAL" : "_NET_WM_STRUT", len, *active, cold->strut.top);
                 s->root_dirty |= ROOT_DIRTY_WORKAREA;
 
             } else if (atom == atoms.WM_HINTS) {

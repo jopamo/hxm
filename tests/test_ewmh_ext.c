@@ -15,7 +15,7 @@ extern xcb_atom_t stub_last_prop_type;
 extern uint32_t stub_last_prop_len;
 extern uint8_t stub_last_prop_data[1024];
 
-void test_frame_extents() {
+void test_frame_extents(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -123,7 +123,7 @@ void test_frame_extents() {
     free(s.conn);
 }
 
-void test_allowed_actions() {
+void test_allowed_actions(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -209,7 +209,7 @@ void test_allowed_actions() {
     free(s.conn);
 }
 
-void test_desktop_clamp_single() {
+void test_desktop_clamp_single(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -256,7 +256,7 @@ void test_desktop_clamp_single() {
     free(s.conn);
 }
 
-void test_dirty_stack_relayer() {
+void test_dirty_stack_relayer(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -303,7 +303,7 @@ void test_dirty_stack_relayer() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_frame_extents();
     test_allowed_actions();
     test_desktop_clamp_single();

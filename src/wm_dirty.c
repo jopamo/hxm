@@ -424,6 +424,7 @@ void wm_flush_dirty(server_t* s) {
     if (s->root_dirty & ROOT_DIRTY_WORKAREA) {
         rect_t wa;
         wm_compute_workarea(s, &wa);
+        TRACE_LOG("publish_workarea x=%d y=%d w=%u h=%u", wa.x, wa.y, wa.w, wa.h);
         wm_publish_workarea(s, &wa);
 
         s->root_dirty &= ~ROOT_DIRTY_WORKAREA;

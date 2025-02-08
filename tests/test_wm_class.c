@@ -9,7 +9,7 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-void test_wm_class_split() {
+void test_wm_class_split(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -84,7 +84,7 @@ void test_wm_class_split() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_wm_class_split();
     return 0;
 }

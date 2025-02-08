@@ -134,7 +134,8 @@ if [ "$("$client_bin" has-extension RANDR)" != "yes" ]; then
   echo "warning: RANDR extension not available on Xvfb" >&2
 fi
 
-"$hxm_bin" >/dev/null 2>&1 &
+hxm_log_file=${HXM_LOG_FILE:-/dev/null}
+"$hxm_bin" >"$hxm_log_file" 2>&1 &
 hxm_pid=$!
 
 if ! wait_for_supporting_wm_check; then

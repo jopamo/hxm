@@ -3,7 +3,7 @@
 
 #include "hxm.h"
 
-void test_dirty_region_union_and_clamp() {
+void test_dirty_region_union_and_clamp(void) {
     dirty_region_t r;
     dirty_region_reset(&r);
 
@@ -32,7 +32,7 @@ void test_dirty_region_union_and_clamp() {
     printf("test_dirty_region_union_and_clamp passed\n");
 }
 
-void test_dirty_region_invalid_inputs() {
+void test_dirty_region_invalid_inputs(void) {
     dirty_region_t r = dirty_region_make(0, 0, 5, 5);
     dirty_region_t invalid;
     dirty_region_reset(&invalid);
@@ -55,7 +55,7 @@ void test_dirty_region_invalid_inputs() {
     printf("test_dirty_region_invalid_inputs passed\n");
 }
 
-int main() {
+int main(void) {
     test_dirty_region_union_and_clamp();
     test_dirty_region_invalid_inputs();
     return 0;

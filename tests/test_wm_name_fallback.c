@@ -23,7 +23,7 @@ static xcb_get_property_reply_t* make_string_reply(xcb_atom_t type, const char* 
     return rep;
 }
 
-void test_net_wm_name_fallback() {
+void test_net_wm_name_fallback(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -82,7 +82,7 @@ void test_net_wm_name_fallback() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_net_wm_name_fallback();
     return 0;
 }

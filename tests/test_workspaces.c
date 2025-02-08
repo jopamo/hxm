@@ -35,7 +35,7 @@ void setup_server(server_t* s) {
     list_init(&s->focus_history);
 }
 
-void test_workspace_switch_basics() {
+void test_workspace_switch_basics(void) {
     server_t s;
     setup_server(&s);
 
@@ -149,7 +149,7 @@ void test_workspace_switch_basics() {
     xcb_disconnect(s.conn);
 }
 
-void test_client_move_to_workspace() {
+void test_client_move_to_workspace(void) {
     server_t s;
     setup_server(&s);
 
@@ -217,7 +217,7 @@ void test_client_move_to_workspace() {
     xcb_disconnect(s.conn);
 }
 
-void test_client_toggle_sticky() {
+void test_client_toggle_sticky(void) {
     server_t s;
     setup_server(&s);
 
@@ -260,7 +260,7 @@ void test_client_toggle_sticky() {
     xcb_disconnect(s.conn);
 }
 
-void test_workspace_relative() {
+void test_workspace_relative(void) {
     server_t s;
     setup_server(&s);
 
@@ -298,7 +298,7 @@ void test_workspace_relative() {
     xcb_disconnect(s.conn);
 }
 
-int main() {
+int main(void) {
     test_workspace_switch_basics();
     test_client_move_to_workspace();
     test_client_toggle_sticky();

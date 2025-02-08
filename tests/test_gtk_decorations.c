@@ -27,7 +27,7 @@ static void cleanup_server(server_t* s) {
     free(s->conn);
 }
 
-void test_gtk_extents_toggle_decorations() {
+void test_gtk_extents_toggle_decorations(void) {
     atoms._GTK_FRAME_EXTENTS = 100;
     atoms._NET_FRAME_EXTENTS = 200;
 
@@ -128,7 +128,7 @@ void test_gtk_extents_toggle_decorations() {
     cleanup_server(&s);
 }
 
-void test_gtk_configure_request_extents() {
+void test_gtk_configure_request_extents(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
 
@@ -176,7 +176,7 @@ void test_gtk_configure_request_extents() {
     slotmap_destroy(&s.clients);
 }
 
-int main() {
+int main(void) {
     test_gtk_extents_toggle_decorations();
     test_gtk_configure_request_extents();
     return 0;

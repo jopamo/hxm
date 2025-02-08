@@ -10,7 +10,7 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-void test_transient_cycle_prevention() {
+void test_transient_cycle_prevention(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -190,7 +190,7 @@ void test_transient_orphan_handled(void) {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_transient_cycle_prevention();
     test_transient_orphan_handled();
     return 0;

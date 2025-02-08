@@ -7,7 +7,7 @@
 #include "event.h"
 #include "wm.h"
 
-void test_adoption_logic() {
+void test_adoption_logic(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.conn = (xcb_connection_t*)0xDEADBEEF;  // Just not NULL
@@ -43,7 +43,7 @@ void test_adoption_logic() {
     hash_map_destroy(&s.window_to_client);
 }
 
-int main() {
+int main(void) {
     test_adoption_logic();
     return 0;
 }

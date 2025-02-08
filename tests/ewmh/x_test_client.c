@@ -56,6 +56,7 @@ static void usage(void) {
             "  x_test_client get-atom <name>\n"
             "  x_test_client create-window\n"
             "  x_test_client create-window-and-sleep <seconds>\n"
+            "  x_test_client create-unmapped-and-sleep <seconds>\n"
             "  x_test_client map-window <window>\n"
             "  x_test_client get-root-cardinals <atom>\n"
             "  x_test_client get-window-cardinals <window> <atom>\n"
@@ -114,6 +115,24 @@ int main(int argc, char** argv) {
         xcb_create_window(conn, XCB_COPY_FROM_PARENT, win, root, 0, 0, 100, 100, 1, XCB_WINDOW_CLASS_INPUT_OUTPUT,
                           screen->root_visual, mask, values);
         xcb_map_window(conn, win);
+        xcb_flush(conn);
+        printf("%" PRIu32 "\n", win);
+        fflush(stdout);
+        sleep(sec);
+        xcb_disconnect(conn);
+        return 0;
+    }
+
+    if (strcmp(cmd, "create-unmapped-and-sleep") == 0) {
+        if (argc != 3) usage();
+        uint32_t sec = parse_u32(argv[2]);
+
+        xcb_window_t win = xcb_generate_id(conn);
+        uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
+        uint32_t values[] = {screen->white_pixel, XCB_EVENT_MASK_STRUCTURE_NOTIFY | XCB_EVENT_MASK_PROPERTY_CHANGE};
+        xcb_create_window(conn, XCB_COPY_FROM_PARENT, win, root, 0, 0, 100, 100, 1, XCB_WINDOW_CLASS_INPUT_OUTPUT,
+                          screen->root_visual, mask, values);
+        xcb_set_close_down_mode(conn, XCB_CLOSE_DOWN_RETAIN_PERMANENT);
         xcb_flush(conn);
         printf("%" PRIu32 "\n", win);
         fflush(stdout);

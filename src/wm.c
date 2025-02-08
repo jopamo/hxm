@@ -518,7 +518,8 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
 
-    TRACE_LOG("property_notify h=%lx xid=%u atom=%u state=%u", h, hot->xid, ev->atom, ev->state);
+    TRACE_LOG("property_notify h=%lx xid=%u atom=%u (%s) state=%u", h, hot->xid, ev->atom, atom_name(ev->atom),
+              ev->state);
     if (ev->atom == atoms.WM_NAME || ev->atom == atoms._NET_WM_NAME) {
         hot->dirty |= DIRTY_TITLE;
     } else if (ev->atom == atoms.WM_HINTS) {
@@ -530,6 +531,10 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
         s->root_dirty |= ROOT_DIRTY_WORKAREA;
+        uint32_t long_len = (ev->atom == atoms._NET_WM_STRUT_PARTIAL) ? 12 : 4;
+        xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, ev->atom, XCB_ATOM_CARDINAL, 0, long_len);
+        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
+                        ((uint64_t)hot->xid << 32) | (uint32_t)ev->atom, wm_handle_reply);
     } else if (ev->atom == atoms._NET_WM_WINDOW_OPACITY) {
         hot->dirty |= DIRTY_OPACITY;
     } else if (ev->atom == atoms._MOTIF_WM_HINTS) {

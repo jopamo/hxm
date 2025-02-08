@@ -11,7 +11,7 @@
 
 // Stub required globals
 
-void test_resize_logic() {
+void test_resize_logic(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -211,7 +211,7 @@ void test_resize_logic() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_resize_logic();
     return 0;
 }

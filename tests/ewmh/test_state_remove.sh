@@ -42,7 +42,17 @@ wait_for_state() {
   fail "timeout waiting for state atom $want_atom present=$present"
 }
 
-win=$("$client" create-window)
+out=$(mktemp)
+"$client" create-window-and-sleep 10 >"$out" &
+client_pid=$!
+trap 'kill "$client_pid" 2>/dev/null || true; rm -f "$out"' EXIT
+
+sleep 0.1
+win=$(cat "$out")
+if [ -z "$win" ]; then
+  fail "failed to create window"
+fi
+
 "$client" map-window "$win"
 
 atom_above=$(get_atom _NET_WM_STATE_ABOVE)

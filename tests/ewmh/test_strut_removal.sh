@@ -33,13 +33,22 @@ wait_for_workarea_top() {
   fail "timeout waiting for workarea top=$expected"
 }
 
-win=$("$client" create-window)
+out=$(mktemp)
+"$client" create-window-and-sleep 10 >"$out" &
+client_pid=$!
+trap 'kill "$client_pid" 2>/dev/null || true; rm -f "$out"' EXIT
+
+sleep 0.1
+win=$(cat "$out")
+if [ -z "$win" ]; then
+  fail "failed to create window"
+fi
+
 "$client" set-window-atoms "$win" _NET_WM_WINDOW_TYPE _NET_WM_WINDOW_TYPE_DOCK
 "$client" set-window-cardinals "$win" _NET_WM_STRUT_PARTIAL \
   0 0 30 0 \
   0 0 0 0 \
   0 1024 0 0
-"$client" map-window "$win"
 
 wait_for_workarea_top 30
 

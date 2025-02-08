@@ -76,7 +76,7 @@ static void assert_layer_order(const server_t* s, int layer, const handle_t* han
     }
 }
 
-void test_stack_restack_single_and_sibling() {
+void test_stack_restack_single_and_sibling(void) {
     server_t s;
     if (!init_server(&s)) return;
 
@@ -122,7 +122,7 @@ void test_stack_restack_single_and_sibling() {
     cleanup_server(&s);
 }
 
-void test_stack_cross_layer_sibling() {
+void test_stack_cross_layer_sibling(void) {
     server_t s;
     if (!init_server(&s)) return;
 
@@ -146,7 +146,7 @@ void test_stack_cross_layer_sibling() {
     cleanup_server(&s);
 }
 
-void test_stack_raise_transients_restack_count() {
+void test_stack_raise_transients_restack_count(void) {
     server_t s;
     if (!init_server(&s)) return;
 
@@ -177,7 +177,7 @@ void test_stack_raise_transients_restack_count() {
     cleanup_server(&s);
 }
 
-void test_root_stacking_property_order() {
+void test_root_stacking_property_order(void) {
     server_t s;
     if (!init_server(&s)) return;
 
@@ -211,7 +211,7 @@ void test_root_stacking_property_order() {
     cleanup_server(&s);
 }
 
-void test_focus_raise_on_focus() {
+void test_focus_raise_on_focus(void) {
     server_t s;
     if (!init_server(&s)) return;
 
@@ -231,7 +231,7 @@ void test_focus_raise_on_focus() {
     cleanup_server(&s);
 }
 
-int main() {
+int main(void) {
     test_stack_restack_single_and_sibling();
     test_stack_cross_layer_sibling();
     test_stack_raise_transients_restack_count();

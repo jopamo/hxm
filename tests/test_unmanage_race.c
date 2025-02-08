@@ -9,7 +9,7 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-void test_idempotent_unmanage() {
+void test_idempotent_unmanage(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -49,7 +49,7 @@ void test_idempotent_unmanage() {
     free(s.conn);
 }
 
-void test_destroy_unmanage_race() {
+void test_destroy_unmanage_race(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -87,7 +87,7 @@ void test_destroy_unmanage_race() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_idempotent_unmanage();
     test_destroy_unmanage_race();
     return 0;

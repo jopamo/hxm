@@ -28,7 +28,7 @@ void setup_server(server_t* s) {
     menu_init(s);
 }
 
-void test_menu_basics() {
+void test_menu_basics(void) {
     server_t s;
     setup_server(&s);
 
@@ -85,7 +85,7 @@ void test_menu_basics() {
     FcFini();
 }
 
-void test_menu_esc() {
+void test_menu_esc(void) {
     server_t s;
     setup_server(&s);
 
@@ -126,7 +126,7 @@ void test_menu_esc() {
     FcFini();
 }
 
-int main() {
+int main(void) {
     test_menu_basics();
     test_menu_esc();
     return 0;

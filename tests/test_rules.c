@@ -31,7 +31,7 @@ void setup_server(server_t* s) {
     s->workarea.h = 1080;
 }
 
-void test_rules_matching() {
+void test_rules_matching(void) {
     server_t s;
     setup_server(&s);
 
@@ -104,7 +104,7 @@ void test_rules_matching() {
     xcb_disconnect(s.conn);
 }
 
-int main() {
+int main(void) {
     test_rules_matching();
     return 0;
 }

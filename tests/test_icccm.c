@@ -43,7 +43,7 @@ static const struct stub_prop_call* find_prop_call(xcb_window_t win, xcb_atom_t 
     return NULL;
 }
 
-void test_icccm_protocols() {
+void test_icccm_protocols(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -104,7 +104,7 @@ void test_icccm_protocols() {
     free(s.conn);
 }
 
-void test_client_close() {
+void test_client_close(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -165,7 +165,7 @@ void test_client_close() {
     free(s.conn);
 }
 
-void test_wm_take_focus_on_focus() {
+void test_wm_take_focus_on_focus(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -228,7 +228,7 @@ void test_wm_take_focus_on_focus() {
     free(s.conn);
 }
 
-void test_wm_state_manage_unmanage() {
+void test_wm_state_manage_unmanage(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -295,7 +295,7 @@ void test_wm_state_manage_unmanage() {
     free(s.conn);
 }
 
-void test_name_fallback() {
+void test_name_fallback(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -371,7 +371,7 @@ void test_name_fallback() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_icccm_protocols();
     test_client_close();
     test_wm_take_focus_on_focus();

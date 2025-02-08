@@ -655,11 +655,12 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
             if (hash_map_get(&s->buckets.property_notifies, key)) {
                 counters.coalesced_drops[type]++;
                 s->buckets.coalesced++;
-                TRACE_LOG("coalesce property_notify win=%u atom=%u", e->window, e->atom);
+                TRACE_LOG("coalesce property_notify win=%u atom=%u (%s)", e->window, e->atom, atom_name(e->atom));
                 break;
             }
 
-            TRACE_LOG("ingest property_notify win=%u atom=%u state=%u", e->window, e->atom, e->state);
+            TRACE_LOG("ingest property_notify win=%u atom=%u (%s) state=%u", e->window, e->atom, atom_name(e->atom),
+                      e->state);
             void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
             memcpy(copy, e, sizeof(*e));
             hash_map_insert(&s->buckets.property_notifies, key, copy);
@@ -886,7 +887,38 @@ void event_process(server_t* s) {
     wm_flush_dirty(s);
 }
 
-void event_drain_cookies(server_t* s) { cookie_jar_drain(&s->cookie_jar, s->conn, s, COOKIE_JAR_MAX_REPLIES_PER_TICK); }
+void event_drain_cookies(server_t* s) {
+    if (!s) return;
+
+    for (int pass = 0; pass < 3; pass++) {
+        size_t before_live = s->cookie_jar.live_count;
+
+        cookie_jar_drain(&s->cookie_jar, s->conn, s, COOKIE_JAR_MAX_REPLIES_PER_TICK);
+
+        bool cookies_progress = (s->cookie_jar.live_count != before_live);
+
+        bool need_flush = (s->root_dirty != 0);
+        if (!need_flush) {
+            for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+                if (!slotmap_is_used_idx(&s->clients, i)) continue;
+                client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+                if (hot->dirty != DIRTY_NONE) {
+                    need_flush = true;
+                    break;
+                }
+            }
+        }
+
+        bool flushed = false;
+        if (need_flush) {
+            wm_flush_dirty(s);
+            flushed = true;
+        }
+
+        if (!cookies_progress && !flushed) break;
+        if (s->cookie_jar.live_count == 0) break;
+    }
+}
 
 static void apply_reload(server_t* s) {
     LOG_INFO("Reloading configuration");
@@ -1051,9 +1083,7 @@ void server_run(server_t* s) {
         uint64_t start = monotonic_time_ns();
 
         event_ingest(s, x_ready);
-        if (x_ready) {
-            event_drain_cookies(s);
-        }
+        event_drain_cookies(s);
         event_process(s);
 
         xcb_flush(s->conn);

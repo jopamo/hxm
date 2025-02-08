@@ -83,7 +83,7 @@ static handle_t add_client(server_t* s) {
     return h;
 }
 
-void test_fullscreen_decorations() {
+void test_fullscreen_decorations(void) {
     server_t s;
     setup_server(&s);
 
@@ -115,7 +115,7 @@ void test_fullscreen_decorations() {
     cleanup_server(&s);
 }
 
-void test_fullscreen_restores_flags_and_layer() {
+void test_fullscreen_restores_flags_and_layer(void) {
     server_t s;
     setup_server(&s);
 
@@ -145,7 +145,7 @@ void test_fullscreen_restores_flags_and_layer() {
     cleanup_server(&s);
 }
 
-void test_above_below_state_layers() {
+void test_above_below_state_layers(void) {
     server_t s;
     setup_server(&s);
 
@@ -175,7 +175,7 @@ void test_above_below_state_layers() {
     cleanup_server(&s);
 }
 
-void test_hidden_state_iconify_restore() {
+void test_hidden_state_iconify_restore(void) {
     server_t s;
     setup_server(&s);
 
@@ -210,7 +210,7 @@ void test_hidden_state_iconify_restore() {
     cleanup_server(&s);
 }
 
-int main() {
+int main(void) {
     test_fullscreen_decorations();
     test_fullscreen_restores_flags_and_layer();
     test_above_below_state_layers();

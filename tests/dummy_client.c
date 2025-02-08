@@ -3,7 +3,7 @@
 #include <unistd.h>
 #include <xcb/xcb.h>
 
-int main() {
+int main(void) {
     xcb_connection_t* c = xcb_connect(NULL, NULL);
     if (xcb_connection_has_error(c)) return 1;
 

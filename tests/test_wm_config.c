@@ -6,7 +6,7 @@
 #include "event.h"
 #include "wm.h"
 
-void test_configure_request_managed() {
+void test_configure_request_managed(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
 
@@ -53,7 +53,7 @@ void test_configure_request_managed() {
     hash_map_destroy(&s.window_to_client);
 }
 
-int main() {
+int main(void) {
     test_configure_request_managed();
     return 0;
 }

@@ -21,7 +21,7 @@ static xcb_get_property_reply_t* make_icon_reply(uint32_t* data, uint32_t count)
     return rep;
 }
 
-void test_wm_icon_invalid() {
+void test_wm_icon_invalid(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -73,7 +73,7 @@ void test_wm_icon_invalid() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_wm_icon_invalid();
     return 0;
 }

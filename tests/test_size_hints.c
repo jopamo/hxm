@@ -7,7 +7,7 @@
 
 #include "client.h"
 
-void test_size_hints() {
+void test_size_hints(void) {
     size_hints_t s;
     memset(&s, 0, sizeof(s));
 
@@ -87,7 +87,7 @@ void test_size_hints() {
     printf("test_size_hints passed\n");
 }
 
-int main() {
+int main(void) {
     test_size_hints();
     return 0;
 }

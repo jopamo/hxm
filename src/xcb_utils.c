@@ -114,6 +114,15 @@ static const char* atom_names[] = {
     "_NET_WM_BYPASS_COMPOSITOR",
 };
 
+const char* atom_name(xcb_atom_t atom) {
+    const xcb_atom_t* values = (const xcb_atom_t*)&atoms;
+    size_t count = sizeof(atoms) / sizeof(xcb_atom_t);
+    for (size_t i = 0; i < count; i++) {
+        if (values[i] == atom) return atom_names[i];
+    }
+    return "unknown";
+}
+
 void atoms_init(xcb_connection_t* conn) {
     xcb_intern_atom_cookie_t cookies[sizeof(atom_names) / sizeof(atom_names[0])];
     const size_t count = sizeof(atom_names) / sizeof(atom_names[0]);

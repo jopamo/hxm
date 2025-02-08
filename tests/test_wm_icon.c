@@ -10,7 +10,7 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-void test_wm_icon() {
+void test_wm_icon(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -91,7 +91,7 @@ void test_wm_icon() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_wm_icon();
     return 0;
 }

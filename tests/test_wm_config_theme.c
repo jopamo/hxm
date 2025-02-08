@@ -9,7 +9,7 @@
 
 // Stub required globals
 
-void test_theme_parser() {
+void test_theme_parser(void) {
     theme_t theme;
     memset(&theme, 0, sizeof(theme));
 
@@ -39,7 +39,7 @@ void test_theme_parser() {
     printf("test_theme_parser passed!\n");
 }
 
-void test_theme_parser_invalid_keys() {
+void test_theme_parser_invalid_keys(void) {
     config_t config;
     config_init_defaults(&config);
 
@@ -61,7 +61,7 @@ void test_theme_parser_invalid_keys() {
     config_destroy(&config);
 }
 
-int main() {
+int main(void) {
     test_theme_parser();
     test_theme_parser_invalid_keys();
     return 0;

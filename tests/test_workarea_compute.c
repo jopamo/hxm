@@ -7,7 +7,7 @@
 #include "event.h"
 #include "wm.h"
 
-void test_workarea_compute() {
+void test_workarea_compute(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
 
@@ -44,7 +44,7 @@ void test_workarea_compute() {
     slotmap_destroy(&s.clients);
 }
 
-int main() {
+int main(void) {
     test_workarea_compute();
     return 0;
 }

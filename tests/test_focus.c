@@ -10,7 +10,7 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-void test_should_focus_on_map() {
+void test_should_focus_on_map(void) {
     client_hot_t hot = {0};
     render_init(&hot.render_ctx);
     hot.icon_surface = NULL;
@@ -57,14 +57,14 @@ void test_should_focus_on_map() {
     if (hot.icon_surface) cairo_surface_destroy(hot.icon_surface);
 }
 
-void test_focus_on_map_integration() {
+void test_focus_on_map_integration(void) {
     // Integration test: simulate client_finish_manage with a normal window
     // and verify focus not set.
     // This is more complex and requires full server setup.
     // TODO: implement if needed.
 }
 
-int main() {
+int main(void) {
     test_should_focus_on_map();
     return 0;
 }

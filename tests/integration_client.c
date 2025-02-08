@@ -367,19 +367,35 @@ static void set_wm_delete_window(xcb_window_t win) {
     xflush();
 }
 
-static void send_wm_delete_window(xcb_window_t win) {
-    xcb_atom_t wm_protocols = get_atom("WM_PROTOCOLS");
-    xcb_atom_t wm_delete = get_atom("WM_DELETE_WINDOW");
+static void request_net_active_window(xcb_window_t win) {
+    xcb_atom_t net_active = get_atom("_NET_ACTIVE_WINDOW");
 
     xcb_client_message_event_t ev = {0};
     ev.response_type = XCB_CLIENT_MESSAGE;
     ev.format = 32;
     ev.window = win;
-    ev.type = wm_protocols;
-    ev.data.data32[0] = wm_delete;
+    ev.type = net_active;
+    ev.data.data32[0] = 1;  // source indication: application
     ev.data.data32[1] = XCB_CURRENT_TIME;
 
-    xcb_send_event(c, 0, win, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
+    xcb_send_event(c, 0, root, XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                   (const char*)&ev);
+    xflush();
+}
+
+static void request_net_close_window(xcb_window_t win) {
+    xcb_atom_t net_close = get_atom("_NET_CLOSE_WINDOW");
+
+    xcb_client_message_event_t ev = {0};
+    ev.response_type = XCB_CLIENT_MESSAGE;
+    ev.format = 32;
+    ev.window = win;
+    ev.type = net_close;
+    ev.data.data32[0] = XCB_CURRENT_TIME;
+    ev.data.data32[1] = 1;  // source indication: application
+
+    xcb_send_event(c, 0, root, XCB_EVENT_MASK_SUBSTRUCTURE_REDIRECT | XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY,
+                   (const char*)&ev);
     xflush();
 }
 
@@ -745,6 +761,7 @@ static void test_focus_policy(void) {
     map_window(w2);
 
     require_eventual_reparent(w2, 1000, NULL);
+    request_net_active_window(w2);
     require_eventual_active_window(w2, 1000);
     require_best_effort_input_focus(w2, 250);
 
@@ -764,10 +781,12 @@ static void test_wm_delete_window(void) {
     require_eventual_reparent(w, 1000, NULL);
     require_eventual_mapped(w, 1000);
 
-    send_wm_delete_window(w);
+    request_net_close_window(w);
 
     // Expect the window to disappear: either DestroyNotify observed or removed from client list
     xcb_atom_t net_client_list = get_atom("_NET_CLIENT_LIST");
+    xcb_atom_t wm_protocols = get_atom("WM_PROTOCOLS");
+    xcb_atom_t wm_delete = get_atom("WM_DELETE_WINDOW");
     uint64_t deadline = now_us() + 1500ull * 1000ull;
     bool gone = false;
 
@@ -777,6 +796,12 @@ static void test_wm_delete_window(void) {
             xcb_generic_event_t* ev = xcb_poll_for_event(c);
             if (!ev) break;
             uint8_t rt = (ev->response_type & ~0x80);
+            if (rt == XCB_CLIENT_MESSAGE) {
+                xcb_client_message_event_t* ce = (xcb_client_message_event_t*)ev;
+                if (ce->window == w && ce->type == wm_protocols && ce->data.data32[0] == wm_delete) {
+                    destroy_window(w);
+                }
+            }
             if (rt == XCB_DESTROY_NOTIFY) {
                 xcb_destroy_notify_event_t* de = (xcb_destroy_notify_event_t*)ev;
                 if (de->window == w) gone = true;

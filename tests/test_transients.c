@@ -15,7 +15,7 @@ extern char stub_last_event[32];
 extern int stub_kill_client_count;
 extern uint32_t stub_last_kill_client_resource;
 
-void test_transient_stacking() {
+void test_transient_stacking(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -88,7 +88,7 @@ void test_transient_stacking() {
     free(s.conn);
 }
 
-void test_transient_focus_return() {
+void test_transient_focus_return(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -152,7 +152,7 @@ void test_transient_focus_return() {
     free(s.conn);
 }
 
-void test_transient_parent_unmanage_unlinks_child() {
+void test_transient_parent_unmanage_unlinks_child(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -215,7 +215,7 @@ void test_transient_parent_unmanage_unlinks_child() {
     free(s.conn);
 }
 
-void test_transient_unmanage_unlinks_from_parent() {
+void test_transient_unmanage_unlinks_from_parent(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -286,7 +286,7 @@ void test_transient_unmanage_unlinks_from_parent() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_transient_stacking();
     test_transient_focus_return();
     test_transient_parent_unmanage_unlinks_child();

@@ -88,7 +88,7 @@ static void set_client_mapped(server_t* s, handle_t h, xcb_window_t frame) {
     hot->server.h = 80;
 }
 
-void test_focus_on_finish_manage() {
+void test_focus_on_finish_manage(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -191,7 +191,7 @@ void test_focus_on_finish_manage() {
     free(s.conn);
 }
 
-void test_mru_cycling() {
+void test_mru_cycling(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -282,7 +282,7 @@ void test_mru_cycling() {
     free(s.conn);
 }
 
-void test_move_interaction() {
+void test_move_interaction(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -360,7 +360,7 @@ void test_move_interaction() {
     free(s.conn);
 }
 
-void test_title_update() {
+void test_title_update(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
     s.is_test = true;
@@ -427,7 +427,7 @@ void test_title_update() {
     free(s.conn);
 }
 
-void test_finish_manage_visibility() {
+void test_finish_manage_visibility(void) {
     server_t s;
     setup_server_for_manage(&s);
 
@@ -479,7 +479,7 @@ void test_finish_manage_visibility() {
     free(s.conn);
 }
 
-void test_finish_manage_show_desktop_hides() {
+void test_finish_manage_show_desktop_hides(void) {
     server_t s;
     setup_server_for_manage(&s);
     s.showing_desktop = true;
@@ -512,7 +512,7 @@ void test_finish_manage_show_desktop_hides() {
     free(s.conn);
 }
 
-void test_finish_manage_focus_override() {
+void test_finish_manage_focus_override(void) {
     server_t s;
     setup_server_for_manage(&s);
 
@@ -552,7 +552,7 @@ void test_finish_manage_focus_override() {
     free(s.conn);
 }
 
-void test_iconify_updates_focus() {
+void test_iconify_updates_focus(void) {
     server_t s;
     setup_server_for_manage(&s);
 
@@ -602,7 +602,7 @@ void test_iconify_updates_focus() {
     free(s.conn);
 }
 
-void test_restore_maps_window() {
+void test_restore_maps_window(void) {
     server_t s;
     setup_server_for_manage(&s);
 
@@ -642,7 +642,7 @@ void test_restore_maps_window() {
     free(s.conn);
 }
 
-void test_set_focus_ignores_unmapped() {
+void test_set_focus_ignores_unmapped(void) {
     server_t s;
     setup_server_for_manage(&s);
 
@@ -676,7 +676,7 @@ void test_set_focus_ignores_unmapped() {
     free(s.conn);
 }
 
-void test_set_focus_revert_policy_and_root_fallback() {
+void test_set_focus_revert_policy_and_root_fallback(void) {
     server_t s;
     setup_server_for_manage(&s);
 
@@ -713,7 +713,7 @@ void test_set_focus_revert_policy_and_root_fallback() {
     free(s.conn);
 }
 
-void test_unmanage_focus_prefers_parent() {
+void test_unmanage_focus_prefers_parent(void) {
     server_t s;
     setup_server_for_manage(&s);
 
@@ -749,7 +749,7 @@ void test_unmanage_focus_prefers_parent() {
     free(s.conn);
 }
 
-void test_unmanage_focus_falls_back_to_mru() {
+void test_unmanage_focus_falls_back_to_mru(void) {
     server_t s;
     setup_server_for_manage(&s);
 
@@ -790,7 +790,7 @@ void test_unmanage_focus_falls_back_to_mru() {
     free(s.conn);
 }
 
-int main() {
+int main(void) {
     test_focus_on_finish_manage();
     test_mru_cycling();
     test_move_interaction();

@@ -156,9 +156,10 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
         if (!slotmap_is_used_idx(&s->clients, i)) continue;
 
         client_hot_t* c = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-        if (c->state != STATE_MAPPED) continue;
         client_cold_t* cold = (client_cold_t*)slotmap_cold_at(&s->clients, i);
         if (!cold) continue;
+        bool has_strut = cold->strut_partial_active || cold->strut_full_active;
+        if (c->state != STATE_MAPPED && !has_strut) continue;
 
         bool partial = cold->strut_partial_active;
         int32_t screen_w = (int32_t)screen->width_in_pixels;
