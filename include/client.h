@@ -127,6 +127,9 @@ typedef struct client_hot {
     uint8_t initial_state;    // From WM_HINTS
     uint8_t pending_replies;  // Count of pending startup cookies
     uint8_t ignore_unmap;
+    uint8_t late_probe_ticks;     // Requery late-set properties after manage
+    uint8_t late_probe_attempts;  // Bound retries for late probes
+    uint64_t late_probe_deadline_ns;
 
     uint8_t layer;
     uint8_t base_layer;

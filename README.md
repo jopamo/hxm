@@ -1,9 +1,6 @@
 <div style="background-color:#1e1e1e; padding:1em; display:block; border-radius:8px; margin:0;">
   <img src="assets/hxm-clear.png" alt="hxm logo" width="300" style="display:block; margin:0;">
 </div>
-
-# hxm
-
 hxm is a lightweight, non-compositing X11 window manager focused on correctness,
 low latency, and predictable behavior on modern Linux systems.
 
