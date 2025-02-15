@@ -460,6 +460,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
             if (r->map_state == XCB_MAP_STATE_UNMAPPED) {
                 if (hot->ignore_unmap > 0) hot->ignore_unmap--;
+            } else if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1) {
+                if (hot->ignore_unmap < 2) hot->ignore_unmap = 2;
             }
 
             if (hot->override_redirect && hot->state == STATE_NEW) {
