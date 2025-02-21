@@ -121,7 +121,11 @@ void frame_redraw_region(server_t* s, handle_t h, const dirty_region_t* dirty) {
         clip = *dirty;
         dirty_region_clamp(&clip, 0, 0, frame_w, frame_h);
         if (!clip.valid) return;
-        clip_ptr = &clip;
+        if (clip.x == 0 && clip.y == 0 && clip.w == frame_w && clip.h == frame_h) {
+            clip_ptr = &clip;
+        } else {
+            clip_ptr = NULL;
+        }
     }
 
     render_frame(s->conn, hot->frame, visual, &hot->render_ctx, (int)hot->depth, s->is_test, cold ? cold->title : "",
