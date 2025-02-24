@@ -665,16 +665,6 @@ static void wm_update_cursor(server_t* s, xcb_window_t win, int dir) {
     xcb_change_window_attributes(s->conn, win, XCB_CW_CURSOR, &c);
 }
 
-static bool wm_query_pointer_root(server_t* s, int16_t* out_x, int16_t* out_y) {
-    xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
-    xcb_query_pointer_reply_t* rep = xcb_query_pointer_reply(s->conn, ck, NULL);
-    if (!rep) return false;
-    if (out_x) *out_x = rep->root_x;
-    if (out_y) *out_y = rep->root_y;
-    free(rep);
-    return true;
-}
-
 static void wm_cancel_interaction(server_t* s) {
     if (s->interaction_mode == INTERACTION_NONE) return;
     s->interaction_mode = INTERACTION_NONE;
@@ -1495,15 +1485,17 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
         int16_t root_x = (int16_t)ev->data.data32[0];
         int16_t root_y = (int16_t)ev->data.data32[1];
-        TRACE_LOG("_NET_WM_MOVERESIZE start root=%d,%d use_query=%d", root_x, root_y, use_pointer_query);
-        if (use_pointer_query) {
-            if (!wm_query_pointer_root(s, &root_x, &root_y)) {
-                root_x = hot->server.x;
-                root_y = hot->server.y;
-            }
-        }
+        use_pointer_query |= (root_x == -1 || root_y == -1);
 
-        wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y);
+        TRACE_LOG("_NET_WM_MOVERESIZE h=%lx root=%d,%d use_query=%d", h, root_x, root_y, use_pointer_query);
+
+        if (use_pointer_query) {
+            uintptr_t data = (start_move ? 0x100 : 0) | (uintptr_t)resize_dir;
+            xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
+            cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, wm_handle_reply);
+        } else {
+            wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y);
+        }
         return;
     }
 

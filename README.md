@@ -8,7 +8,6 @@ low latency, and predictable behavior on modern Linux systems.
 
 - Targeted ICCCM and EWMH compliance
 - Predictable focus and stacking behavior
-- Mixed stacking and tiling workflows
 - Signal-based runtime diagnostics
 - Integrated logging
 - Designed for long-running stability

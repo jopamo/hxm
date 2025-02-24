@@ -13,6 +13,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/signalfd.h>
+#include <sys/timerfd.h>
+#include <sys/wait.h>
 #include <unistd.h>
 #include <xcb/damage.h>
 #include <xcb/randr.h>
@@ -171,6 +174,36 @@ void server_init(server_t* s) {
     s->epoll_fd = make_epoll_or_die();
     epoll_add_fd_or_die(s->epoll_fd, s->xcb_fd);
 
+    // Setup signalfd
+    sigset_t mask;
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGINT);
+    sigaddset(&mask, SIGTERM);
+    sigaddset(&mask, SIGHUP);
+    sigaddset(&mask, SIGUSR1);
+    sigaddset(&mask, SIGUSR2);
+    sigaddset(&mask, SIGCHLD);
+
+    if (sigprocmask(SIG_BLOCK, &mask, NULL) < 0) {
+        LOG_ERROR("sigprocmask failed: %s", strerror(errno));
+        exit(1);
+    }
+
+    s->signal_fd = signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+    if (s->signal_fd < 0) {
+        LOG_ERROR("signalfd failed: %s", strerror(errno));
+        exit(1);
+    }
+    epoll_add_fd_or_die(s->epoll_fd, s->signal_fd);
+
+    // Setup timerfd (initially disarmed)
+    s->timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (s->timer_fd < 0) {
+        LOG_ERROR("timerfd_create failed: %s", strerror(errno));
+        exit(1);
+    }
+    epoll_add_fd_or_die(s->epoll_fd, s->timer_fd);
+
     // Initialize per-tick arena (64KB blocks)
     arena_init(&s->tick_arena, 64 * 1024);
 
@@ -246,6 +279,8 @@ void server_cleanup(server_t* s) {
     menu_destroy(s);
     config_destroy(&s->config);
 
+    if (s->signal_fd > 0) close(s->signal_fd);
+    if (s->timer_fd > 0) close(s->timer_fd);
     if (s->epoll_fd > 0) close(s->epoll_fd);
     if (s->conn) xcb_disconnect(s->conn);
     cookie_jar_destroy(&s->cookie_jar);
@@ -416,6 +451,10 @@ static void buckets_reset(event_buckets_t* b) {
     b->pointer_notify.enter_valid = false;
     b->pointer_notify.leave_valid = false;
 
+    b->randr_dirty = false;
+    b->randr_width = 0;
+    b->randr_height = 0;
+
     b->ingested = 0;
     b->coalesced = 0;
 }
@@ -482,23 +521,14 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 
     if (s->randr_supported && type == (uint8_t)(s->randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY)) {
         xcb_randr_screen_change_notify_event_t* e = (xcb_randr_screen_change_notify_event_t*)ev;
-        uint32_t geometry[] = {e->width, e->height};
-        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32,
-                            2, geometry);
-
-        rect_t wa;
-        wm_compute_workarea(s, &wa);
-        wm_publish_workarea(s, &wa);
-
-        if (!s->config.fullscreen_use_workarea) {
-            for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-                if (!slotmap_is_used_idx(&s->clients, i)) continue;
-                client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-                if (hot->layer != LAYER_FULLSCREEN) continue;
-                wm_get_monitor_geometry(s, hot, &hot->desired);
-                hot->dirty |= DIRTY_GEOM;
-            }
+        if (s->buckets.randr_dirty) {
+            counters.coalesced_drops[type]++;
+            s->buckets.coalesced++;
         }
+        s->buckets.randr_dirty = true;
+        s->buckets.randr_width = e->width;
+        s->buckets.randr_height = e->height;
+        TRACE_LOG("coalesce randr notify width=%u height=%u", e->width, e->height);
 
         free(ev);
         return;
@@ -882,7 +912,29 @@ void event_process(server_t* s) {
         }
     }
 
-    // 11. maintenance
+    // 11. RandR (coalesced)
+    if (s->buckets.randr_dirty) {
+        TRACE_LOG("process randr dirty width=%u height=%u", s->buckets.randr_width, s->buckets.randr_height);
+        uint32_t geometry[] = {s->buckets.randr_width, s->buckets.randr_height};
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32,
+                            2, geometry);
+
+        rect_t wa;
+        wm_compute_workarea(s, &wa);
+        wm_publish_workarea(s, &wa);
+
+        if (!s->config.fullscreen_use_workarea) {
+            for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+                if (!slotmap_is_used_idx(&s->clients, i)) continue;
+                client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+                if (hot->layer != LAYER_FULLSCREEN) continue;
+                wm_get_monitor_geometry(s, hot, &hot->desired);
+                hot->dirty |= DIRTY_GEOM;
+            }
+        }
+    }
+
+    // 12. maintenance
     wm_flush_dirty(s);
 }
 
@@ -1030,6 +1082,36 @@ static void apply_reload(server_t* s) {
     wm_publish_desktop_props(s);
 }
 
+static void event_handle_signals(server_t* s) {
+    struct signalfd_siginfo fdsi;
+    ssize_t s_size = read(s->signal_fd, &fdsi, sizeof(fdsi));
+    if (s_size != sizeof(fdsi)) return;
+
+    int sig = (int)fdsi.ssi_signo;
+    switch (sig) {
+        case SIGHUP:
+            LOG_INFO("Reload requested (signalfd)");
+            g_reload_pending = 1;
+            break;
+        case SIGINT:
+        case SIGTERM:
+            LOG_INFO("Shutting down (signalfd)");
+            g_shutdown_pending = 1;
+            break;
+        case SIGUSR1:
+            counters_dump();
+            break;
+        case SIGUSR2:
+            LOG_INFO("Restart requested (signalfd)");
+            g_restart_pending = 1;
+            break;
+        case SIGCHLD:
+            // Handle zombies if we fork processes
+            while (waitpid(-1, NULL, WNOHANG) > 0);
+            break;
+    }
+}
+
 static bool server_wait_for_events(server_t* s) {
     if (s->epoll_fd <= 0) return true;
 
@@ -1051,18 +1133,41 @@ static bool server_wait_for_events(server_t* s) {
         xcb_flush(s->conn);
     }
 
-    struct epoll_event ev;
+    struct epoll_event evs[8];
     int timeout_ms = -1;
     if (s->force_poll_ticks > 0) timeout_ms = 1;
+
     for (;;) {
-        int n = epoll_wait(s->epoll_fd, &ev, 1, timeout_ms);
+        int n = epoll_wait(s->epoll_fd, evs, 8, timeout_ms);
         if (n > 0) {
-            if (ev.events & (EPOLLERR | EPOLLHUP)) {
-                g_shutdown_pending = 1;
-                return false;
+            bool x_ready = false;
+            for (int i = 0; i < n; i++) {
+                if (evs[i].events & (EPOLLERR | EPOLLHUP)) {
+                    if (evs[i].data.fd == s->xcb_fd) {
+                        g_shutdown_pending = 1;
+                        return false;
+                    }
+                    continue;
+                }
+
+                if (evs[i].data.fd == s->xcb_fd) {
+                    x_ready = true;
+                } else if (evs[i].data.fd == s->signal_fd) {
+                    event_handle_signals(s);
+                } else if (evs[i].data.fd == s->timer_fd) {
+                    uint64_t expirations;
+                    (void)read(s->timer_fd, &expirations, sizeof(expirations));
+                    // Timer logic if needed
+                }
             }
-            // Only treat the X fd as "ready" if that's what woke us
-            return (ev.data.fd == s->xcb_fd) && (ev.events & EPOLLIN);
+
+            if (x_ready) return true;
+            if (g_shutdown_pending || g_restart_pending || g_reload_pending) return false;
+
+            // If we woke up but X wasn't ready (just signals), and we aren't stopping,
+            // we might want to continue waiting or return false to let the loop run once.
+            // Returning false will trigger a tick with 0 events, which is fine.
+            return false;
         }
         if (n == 0) return false;
         if (errno == EINTR) {

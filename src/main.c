@@ -14,27 +14,6 @@
 
 static server_t server;
 
-static void handle_signal(int sig) {
-    switch (sig) {
-        case SIGHUP:
-            LOG_INFO("Reload requested");
-            g_reload_pending = 1;
-            break;
-        case SIGINT:
-        case SIGTERM:
-            LOG_INFO("Shutting down");
-            g_shutdown_pending = 1;
-            break;
-        case SIGUSR1:
-            counters_dump();
-            break;
-        case SIGUSR2:
-            LOG_INFO("Restart requested");
-            g_restart_pending = 1;
-            break;
-    }
-}
-
 static void print_help(const char* prog) {
     printf("Usage: %s [options]\n", prog);
     printf("Options:\n");
@@ -109,12 +88,6 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
-
-    signal(SIGINT, handle_signal);
-    signal(SIGTERM, handle_signal);
-    signal(SIGHUP, handle_signal);
-    signal(SIGUSR1, handle_signal);
-    signal(SIGUSR2, handle_signal);
 
     LOG_INFO("hxm starting");
 

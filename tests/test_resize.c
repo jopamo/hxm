@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "client.h"
-#include "containers.h"
+#include "ds.h"
 #include "event.h"
 #include "handle_conv.h"
 #include "wm.h"

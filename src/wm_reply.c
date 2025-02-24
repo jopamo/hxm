@@ -1106,6 +1106,17 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             break;
         }
 
+        case COOKIE_QUERY_POINTER: {
+            xcb_query_pointer_reply_t* r = (xcb_query_pointer_reply_t*)reply;
+            int16_t root_x = r->root_x;
+            int16_t root_y = r->root_y;
+            bool is_move = (slot->data & 0x100) != 0;
+            int resize_dir = (int)(slot->data & 0xFF);
+
+            wm_start_interaction(s, slot->client, hot, is_move, resize_dir, root_x, root_y);
+            break;
+        }
+
         default:
             break;
     }

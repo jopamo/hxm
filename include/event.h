@@ -7,8 +7,8 @@
 
 #include "client.h"
 #include "config.h"
-#include "containers.h"
 #include "cookie_jar.h"
+#include "ds.h"
 #include "handle_conv.h"
 #include "menu.h"
 #include "slotmap.h"
@@ -66,6 +66,11 @@ typedef struct event_buckets {
     // Damage events coalesced by drawable with dirty region union
     hash_map_t damage_regions;  // drawable -> dirty_region_t
 
+    // RandR coalescing
+    bool randr_dirty;
+    uint16_t randr_width;
+    uint16_t randr_height;
+
     // Counters for this tick
     uint64_t ingested;
     uint64_t coalesced;
@@ -94,6 +99,8 @@ typedef struct server {
     xcb_window_t supporting_wm_check;
     int xcb_fd;
     int epoll_fd;
+    int signal_fd;
+    int timer_fd;
 
     bool damage_supported;
     uint8_t damage_event_base;

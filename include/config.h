@@ -6,7 +6,7 @@
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
 
-#include "containers.h"
+#include "ds.h"
 #include "theme.h"
 
 typedef enum {

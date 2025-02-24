@@ -317,7 +317,7 @@ static void test_key_grabs_from_config(void) {
 
     assert(stub_ungrab_key_count >= 1);
     assert(stub_grab_key_count >= 1);
-    assert(stub_last_grab_key_mods == XCB_MOD_MASK_1);
+    assert(wm_clean_mods(stub_last_grab_key_mods) == XCB_MOD_MASK_1);
     assert(stub_last_grab_keycode != 0);
 
     printf("test_key_grabs_from_config passed\n");

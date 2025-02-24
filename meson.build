@@ -69,7 +69,7 @@ src = files(
   'src/main.c',
   'src/core.c',
   'src/xcb_utils.c',
-  'src/containers.c',
+  'src/ds.c',
   'src/wm.c',
   'src/wm_dirty.c',
   'src/wm_desktop.c',
@@ -98,7 +98,7 @@ hxm = executable('hxm', src,
 test_src = [
   'src/core.c',
   'src/xcb_utils.c',
-  'src/containers.c',
+  'src/ds.c',
   'src/wm.c',
   'src/wm_dirty.c',
   'src/wm_desktop.c',
@@ -123,12 +123,12 @@ test_workspaces = executable('test_workspaces',
 )
 test('workspaces', test_workspaces)
 
-test_containers = executable('test_containers',
-  ['tests/test_containers.c', 'tests/xcb_stubs.c'] + test_src,
+test_ds = executable('test_ds',
+  ['tests/test_ds.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
   dependencies: deps,
 )
-test('containers', test_containers)
+test('ds', test_ds)
 
 test_icccm = executable('test_icccm',
   ['tests/test_icccm.c', 'tests/xcb_stubs.c'] + test_src,
