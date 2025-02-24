@@ -243,5 +243,7 @@ void client_close(server_t* s, handle_t h);
 void client_constrain_size(const size_hints_t* hints, uint32_t flags, uint16_t* w, uint16_t* h);
 bool should_focus_on_map(const client_hot_t* hot);
 void client_setup_grabs(server_t* s, handle_t h);
+bool client_can_move(const client_hot_t* hot);
+bool client_can_resize(const client_hot_t* hot);
 
 #endif  // CLIENT_H

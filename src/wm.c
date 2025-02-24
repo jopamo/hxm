@@ -804,6 +804,9 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
         }
     }
 
+    if (start_move && !client_can_move(hot)) start_move = false;
+    if (start_resize && !client_can_resize(hot)) start_resize = false;
+
     if (!start_move && !start_resize) {
         xcb_allow_events(s->conn, XCB_ALLOW_REPLAY_POINTER, ev->time);
         return;

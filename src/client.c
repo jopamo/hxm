@@ -906,3 +906,32 @@ void client_setup_grabs(server_t* s, handle_t h) {
                         XCB_NONE, XCB_NONE, buttons[i], XCB_MOD_MASK_ANY);
     }
 }
+
+bool client_can_move(const client_hot_t* hot) {
+    if (!hot) return false;
+    if (hot->layer == LAYER_FULLSCREEN) return false;
+
+    // Special types that should not be moved
+    switch (hot->type) {
+        case WINDOW_TYPE_DOCK:
+        case WINDOW_TYPE_DESKTOP:
+        case WINDOW_TYPE_SPLASH:
+        case WINDOW_TYPE_NOTIFICATION:
+            return false;
+        default:
+            return true;
+    }
+}
+
+bool client_can_resize(const client_hot_t* hot) {
+    if (!client_can_move(hot)) return false;
+
+    // Check for fixed size
+    if ((hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) && (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE)) {
+        if (hot->hints.min_w > 0 && hot->hints.min_w == hot->hints.max_w && hot->hints.min_h > 0 &&
+            hot->hints.min_h == hot->hints.max_h) {
+            return false;
+        }
+    }
+    return true;
+}

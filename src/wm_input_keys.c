@@ -245,6 +245,9 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
                     client_hot_t* hot = server_chot(s, s->focused_client);
                     if (!hot) break;
 
+                    if (b->action == ACTION_MOVE && !client_can_move(hot)) break;
+                    if (b->action == ACTION_RESIZE && !client_can_resize(hot)) break;
+
                     int16_t root_x, root_y;
 
                     if (b->action == ACTION_MOVE) {
