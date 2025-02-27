@@ -250,7 +250,6 @@ void wm_switch_workspace(server_t* s, uint32_t new_desktop) {
     }
 
     s->root_dirty |= ROOT_DIRTY_ACTIVE_WINDOW;
-    xcb_flush(s->conn);
 }
 
 void wm_switch_workspace_relative(server_t* s, int delta) {
@@ -320,7 +319,6 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
 
     c->dirty |= DIRTY_STATE;
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING | ROOT_DIRTY_ACTIVE_WINDOW;
-    xcb_flush(s->conn);
 }
 
 void wm_client_toggle_sticky(server_t* s, handle_t h) {
@@ -367,5 +365,4 @@ void wm_client_toggle_sticky(server_t* s, handle_t h) {
                         &desktop);
 
     c->dirty |= DIRTY_STATE;
-    xcb_flush(s->conn);
 }

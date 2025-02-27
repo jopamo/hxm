@@ -137,18 +137,16 @@ static void test_gtk_extents_inflation_order_and_state(void) {
     reset_config_captures();
     wm_flush_dirty(&ts.s);
 
-    // Expected: Standard Window (Extents Ignored)
-    // Frame: Positioned at desired (logical) pos, Sized to content + WM decorations
-    const int32_t exp_frame_x = 50;
-    const int32_t exp_frame_y = 50;
-    const uint32_t exp_frame_w = 400 + 2 * 5;   // 410
-    const uint32_t exp_frame_h = 300 + 20 + 5;  // 325
+    // Expected: CSD Window (Extents Respected)
+    // Frame: Positioned at desired (logical) pos MINUS extents, Sized to content (includes shadow)
+    const int32_t exp_frame_x = 50 - 10;
+    const int32_t exp_frame_y = 50 - 20;
+    const uint32_t exp_frame_w = 400;
+    const uint32_t exp_frame_h = 300;
 
-    // Client: Positioned inside frame with standard borders
-    // client_x = bw = 5
-    // client_y = th = 20
-    const int32_t exp_client_x = 5;
-    const int32_t exp_client_y = 20;
+    // Client: Positioned inside frame at 0,0
+    const int32_t exp_client_x = 0;
+    const int32_t exp_client_y = 0;
     const uint32_t exp_client_w = 400;
     const uint32_t exp_client_h = 300;
 
@@ -318,14 +316,14 @@ static void test_two_clients_both_configured(void) {
         const stub_config_call_t* c1 = &stub_config_calls[i + 1];
 
         if (!found_a && c0->win == 210 && c1->win == 110) {
-            // Client A: Now Standard Window (Extents Ignored)
-            const int32_t fx = 10;
-            const int32_t fy = 20;
-            const uint32_t fw = 100 + 2 * 5;  // 2*bw
-            const uint32_t fh = 200 + 25;     // th + bw
+            // Client A: Now CSD Window (Extents Respected)
+            const int32_t fx = 10 - 5;
+            const int32_t fy = 20 - 7;
+            const uint32_t fw = 100;
+            const uint32_t fh = 200;
 
-            const int32_t cx = 5;   // bw
-            const int32_t cy = 20;  // th
+            const int32_t cx = 0;
+            const int32_t cy = 0;
             const uint32_t cw = 100;
             const uint32_t ch = 200;
 

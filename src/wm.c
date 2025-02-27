@@ -473,20 +473,11 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT) hot->desired.h = ev->height;
 
     // Reworked GTK handling: treat as standard windows for now
-    /*
     if (hot->gtk_frame_extents_set) {
         if (ev->mask & XCB_CONFIG_WINDOW_X) hot->desired.x += (int16_t)hot->gtk_extents.left;
         if (ev->mask & XCB_CONFIG_WINDOW_Y) hot->desired.y += (int16_t)hot->gtk_extents.top;
-        if (ev->mask & XCB_CONFIG_WINDOW_WIDTH) {
-            uint32_t h_ext = hot->gtk_extents.left + hot->gtk_extents.right;
-            hot->desired.w = (hot->desired.w > h_ext) ? (hot->desired.w - (uint16_t)h_ext) : 1;
-        }
-        if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT) {
-            uint32_t v_ext = hot->gtk_extents.top + hot->gtk_extents.bottom;
-            hot->desired.h = (hot->desired.h > v_ext) ? (hot->desired.h - (uint16_t)v_ext) : 1;
-        }
+        // Do not adjust width/height; client requests full size including shadows
     }
-    */
 
     client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
     hot->dirty |= DIRTY_GEOM;
