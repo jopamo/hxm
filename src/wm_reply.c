@@ -46,14 +46,12 @@ static void client_apply_motif_hints(server_t* s, handle_t h, const xcb_get_prop
     if (r && r->format == 32 && len >= (int)(3 * sizeof(uint32_t))) {
         const motif_wm_hints_t* mh = (const motif_wm_hints_t*)xcb_get_property_value(r);
 
+        // Minimal MOTIF_WM_HINTS support: only honor MWM_HINTS_DECORATIONS flag.
+        // If decorations == 0, treat as request for no decorations.
+        // We ignore other bits and other flags (functions/input_mode/status).
         if (mh->flags & MWM_HINTS_DECORATIONS) {
-            bool want_border = (mh->decorations & MWM_DECOR_ALL) ? !(mh->decorations & MWM_DECOR_BORDER)
-                                                                 : (mh->decorations & MWM_DECOR_BORDER);
-            bool want_title = (mh->decorations & MWM_DECOR_ALL) ? !(mh->decorations & MWM_DECOR_TITLE)
-                                                                : (mh->decorations & MWM_DECOR_TITLE);
-
             decorations_set = true;
-            undecorated = !(want_border && want_title);
+            undecorated = (mh->decorations == 0);
         }
     }
 
@@ -418,11 +416,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 uint32_t flags = hints[0];
                 uint32_t decorations = hints[2];
                 if (flags & MWM_HINTS_DECORATIONS) {
-                    bool want_border = (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_BORDER)
-                                                                     : (decorations & MWM_DECOR_BORDER);
-                    bool want_title = (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_TITLE)
-                                                                    : (decorations & MWM_DECOR_TITLE);
-                    undecorated = !(want_border && want_title);
+                    undecorated = (decorations == 0);
                 }
             }
 
