@@ -262,6 +262,7 @@ static void test_desktop_props_publish_and_switch(void) {
     assert(cur_vals[0] == 1);
 
     wm_switch_workspace(&s, 2);
+    wm_flush_dirty(&s);
 
     const struct stub_prop_call* cur2 = find_prop_call(s.root, atoms._NET_CURRENT_DESKTOP, false);
     assert(cur2 != NULL);

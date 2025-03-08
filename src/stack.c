@@ -178,8 +178,6 @@ void stack_move_to_layer(server_t* s, handle_t h) {
     stack_remove(s, h);
     stack_insert_top(s, c, c->layer);
     TRACE_ONLY(debug_dump_layer(s, c->layer, "after move"));
-
-    stack_restack(s, h);
 }
 
 void stack_lower(server_t* s, handle_t h) {
@@ -352,7 +350,7 @@ static xcb_window_t find_window_above(server_t* s, client_hot_t* c) {
     return XCB_NONE;
 }
 
-static void stack_restack(server_t* s, handle_t h) {
+void stack_sync_to_xcb(server_t* s, handle_t h) {
     if (!s) return;
 
     client_hot_t* c = server_chot(s, h);
@@ -386,9 +384,14 @@ static void stack_restack(server_t* s, handle_t h) {
 
     TRACE_ONLY({
         uint32_t mode = (mask & XCB_CONFIG_WINDOW_SIBLING) ? values[1] : values[0];
-        TRACE_LOG("stack_restack h=%lx frame=%u sibling=%u mode=%u", h, c->frame, sibling, mode);
+        TRACE_LOG("stack_sync_to_xcb h=%lx frame=%u sibling=%u mode=%u", h, c->frame, sibling, mode);
     });
 
     xcb_configure_window(s->conn, c->frame, mask, values);
     counters.restacks_applied++;
+}
+
+static void stack_restack(server_t* s, handle_t h) {
+    client_hot_t* c = server_chot(s, h);
+    if (c) c->dirty |= DIRTY_STACK;
 }

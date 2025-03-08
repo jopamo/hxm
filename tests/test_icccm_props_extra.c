@@ -295,6 +295,7 @@ static void test_wm_hints_input_affects_focus(void) {
     stub_set_input_focus_count = 0;
     stub_last_input_focus_window = 0;
     wm_set_focus(&s, h);
+    wm_flush_dirty(&s);
     assert(stub_set_input_focus_count == 0);
 
     // input = true
@@ -303,9 +304,13 @@ static void test_wm_hints_input_affects_focus(void) {
     wm_handle_reply(&s, &slot, &reply.r, NULL);
     assert(cold->can_focus == true);
 
+    // Unfocus first to ensure focus change
+    wm_set_focus(&s, HANDLE_INVALID);
+    wm_flush_dirty(&s);
     stub_set_input_focus_count = 0;
     stub_last_input_focus_window = 0;
     wm_set_focus(&s, h);
+    wm_flush_dirty(&s);
     assert(stub_set_input_focus_count == 1);
     assert(stub_last_input_focus_window == hot->xid);
 

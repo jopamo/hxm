@@ -26,9 +26,7 @@ void wm_set_showing_desktop(server_t* s, bool show) {
     s->showing_desktop = show;
     TRACE_LOG("showing_desktop set=%d", show);
 
-    uint32_t val = show ? 1u : 0u;
-    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_SHOWING_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
-                        &val);
+    s->root_dirty |= ROOT_DIRTY_SHOWING_DESKTOP;
 
     if (show) {
         for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
@@ -201,35 +199,7 @@ void wm_switch_workspace(server_t* s, uint32_t new_desktop) {
 
     s->current_desktop = new_desktop;
 
-    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
-                        &new_desktop);
-
-    for (uint32_t i = 1; i < s->clients.cap; i++) {
-        if (!s->clients.hdr[i].live) continue;
-
-        handle_t h = handle_make(i, s->clients.hdr[i].gen);
-        client_hot_t* c = server_chot(s, h);
-        if (!c) continue;
-
-        if (c->state != STATE_MAPPED) continue;
-
-        bool visible = (c->desktop == (int32_t)new_desktop) || c->sticky;
-        if (visible) {
-            TRACE_LOG("switch_workspace map h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
-            xcb_map_window(s->conn, c->frame);
-            uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
-                                state_vals);
-            c->dirty |= DIRTY_STATE;
-        } else {
-            TRACE_LOG("switch_workspace unmap h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
-            xcb_unmap_window(s->conn, c->frame);
-            uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
-                                state_vals);
-            c->dirty |= DIRTY_STATE;
-        }
-    }
+    s->root_dirty |= ROOT_DIRTY_VISIBILITY | ROOT_DIRTY_CURRENT_DESKTOP;
 
     bool focused_visible = false;
     if (s->focused_client != HANDLE_INVALID) {
@@ -283,23 +253,9 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
         wm_switch_workspace(s, desktop);
         wm_set_focus(s, h);
     } else if (c->state == STATE_MAPPED) {
-        bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
-        if (visible) {
-            TRACE_LOG("move_workspace map h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
-            xcb_map_window(s->conn, c->frame);
-            uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
-                                state_vals);
-            c->dirty |= DIRTY_STATE;
-        } else {
-            TRACE_LOG("move_workspace unmap h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
-            xcb_unmap_window(s->conn, c->frame);
-            uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
-                                state_vals);
-            c->dirty |= DIRTY_STATE;
-        }
+        s->root_dirty |= ROOT_DIRTY_VISIBILITY;
 
+        bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
         if (!visible && s->focused_client == h) {
             handle_t new_focus = HANDLE_INVALID;
             for (list_node_t* node = s->focus_history.next; node != &s->focus_history; node = node->next) {

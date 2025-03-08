@@ -62,10 +62,8 @@ void wm_set_focus(server_t* s, handle_t h) {
     if (same_focus && h == HANDLE_INVALID) return;
 
     client_hot_t* c = NULL;
-    client_cold_t* cold = NULL;
     if (h != HANDLE_INVALID) {
         c = server_chot(s, h);
-        cold = server_ccold(s, h);
         // Only allow focusing mapped windows
         if (!c || c->state != STATE_MAPPED) return;
     }
@@ -99,29 +97,6 @@ void wm_set_focus(server_t* s, handle_t h) {
             TRACE_ONLY(debug_dump_focus_history(s, "after focus insert"));
         }
 
-        wm_install_client_colormap(s, c);
-
-        // Set X input focus
-        if (cold && cold->can_focus) {
-            TRACE_LOG("set_focus set_input_focus h=%lx xid=%u", h, c->xid);
-            xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, c->xid, XCB_CURRENT_TIME);
-        }
-
-        // Send WM_TAKE_FOCUS if supported
-        if (cold && (cold->protocols & PROTOCOL_TAKE_FOCUS)) {
-            TRACE_LOG("set_focus WM_TAKE_FOCUS h=%lx xid=%u", h, c->xid);
-            xcb_client_message_event_t ev;
-            memset(&ev, 0, sizeof(ev));
-            ev.response_type = XCB_CLIENT_MESSAGE;
-            ev.format = 32;
-            ev.window = c->xid;
-            ev.type = atoms.WM_PROTOCOLS;
-            ev.data.data32[0] = atoms.WM_TAKE_FOCUS;
-            ev.data.data32[1] = c->user_time ? c->user_time : XCB_CURRENT_TIME;
-
-            xcb_send_event(s->conn, 0, c->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
-        }
-
         if (s->config.focus_raise) {
             TRACE_LOG("set_focus raise h=%lx", h);
             stack_raise(s, h);
@@ -132,10 +107,6 @@ void wm_set_focus(server_t* s, handle_t h) {
     } else {
         // Focus root or None
         TRACE_LOG("set_focus root");
-        if (s->default_colormap != XCB_NONE) {
-            xcb_install_colormap(s->conn, s->default_colormap);
-        }
-        xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, s->root, XCB_CURRENT_TIME);
         s->root_dirty |= ROOT_DIRTY_ACTIVE_WINDOW;
     }
 }

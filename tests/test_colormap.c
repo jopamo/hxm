@@ -92,6 +92,7 @@ static void test_colormap_fallback_install(void) {
 
     stub_install_colormap_count = 0;
     wm_set_focus(&s, h);
+    wm_flush_dirty(&s);
     assert(stub_install_colormap_count == 2);
     assert(stub_last_installed_colormap == 11);
 
@@ -117,6 +118,7 @@ static void test_colormap_windows_list_install(void) {
 
     stub_install_colormap_count = 0;
     wm_set_focus(&s, h);
+    wm_flush_dirty(&s);
     assert(stub_install_colormap_count == 2);
     assert(stub_last_installed_colormap == 21);
 

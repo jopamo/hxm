@@ -81,7 +81,10 @@ enum {
     ROOT_DIRTY_CLIENT_LIST = 1u << 0,
     ROOT_DIRTY_ACTIVE_WINDOW = 1u << 1,
     ROOT_DIRTY_CLIENT_LIST_STACKING = 1u << 2,
-    ROOT_DIRTY_WORKAREA = 1u << 3
+    ROOT_DIRTY_WORKAREA = 1u << 3,
+    ROOT_DIRTY_VISIBILITY = 1u << 4,
+    ROOT_DIRTY_CURRENT_DESKTOP = 1u << 5,
+    ROOT_DIRTY_SHOWING_DESKTOP = 1u << 6
 };
 
 extern volatile sig_atomic_t g_shutdown_pending;
@@ -168,6 +171,7 @@ typedef struct server {
     // Focus
     handle_t focused_client;
     xcb_window_t initial_focus;
+    xcb_window_t committed_focus;
     list_node_t focus_history;  // Global MRU for now
 
     // Workspaces

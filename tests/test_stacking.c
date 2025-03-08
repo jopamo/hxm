@@ -85,6 +85,7 @@ void test_stack_restack_single_and_sibling(void) {
 
     stub_configure_window_count = 0;
     stack_raise(&s, ha);
+    wm_flush_dirty(&s);
 
     assert(stub_configure_window_count == 1);
     assert(stub_last_config_window == a->frame);
@@ -96,6 +97,7 @@ void test_stack_restack_single_and_sibling(void) {
     handle_t hb = add_client(&s, 20, 120, LAYER_NORMAL);
     client_hot_t* b = server_chot(&s, hb);
     stack_raise(&s, hb);
+    wm_flush_dirty(&s);
 
     {
         handle_t order[] = {ha, hb};
@@ -107,6 +109,7 @@ void test_stack_restack_single_and_sibling(void) {
     assert(stub_last_config_stack_mode == XCB_STACK_MODE_ABOVE);
 
     stack_lower(&s, hb);
+    wm_flush_dirty(&s);
 
     {
         handle_t order[] = {hb, ha};
@@ -135,6 +138,7 @@ void test_stack_cross_layer_sibling(void) {
     client_hot_t* c = server_chot(&s, h3);
     client_hot_t* top = server_chot(&s, h2);
     stack_raise(&s, h3);
+    wm_flush_dirty(&s);
 
     assert(stub_last_config_window == c->frame);
     assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
@@ -165,6 +169,7 @@ void test_stack_raise_transients_restack_count(void) {
 
     stub_configure_window_count = 0;
     stack_raise(&s, hp);
+    wm_flush_dirty(&s);
 
     assert(stub_configure_window_count == 3);
     {

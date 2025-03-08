@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <xcb/xcb.h>
+#include <xcb/xcb_icccm.h>
 
 #include "client.h"
 #include "event.h"
@@ -145,6 +146,40 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
  * as-is (or omit it) instead of incorrectly reusing stacking order.
  */
 void wm_flush_dirty(server_t* s) {
+    // 1. Visibility (Map/Unmap) - Must happen before focus
+    if (s->root_dirty & ROOT_DIRTY_VISIBILITY) {
+        for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+            if (!slotmap_is_used_idx(&s->clients, i)) continue;
+            client_hot_t* c = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+
+            if (c->state != STATE_MAPPED) continue;
+
+            bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
+            if (visible) {
+                // Ensure mapped
+                // We don't track "actually mapped" bit perfectly besides state=MAPPED.
+                // But since we use deferred visibility for workspace switch, we assume
+                // if it's MAPPED state, it SHOULD be mapped if visible.
+                // Ideally we'd check if it's already mapped to avoid redundant requests,
+                // but XCB map on mapped window is no-op.
+                // However, we want to update WM_STATE property too.
+
+                // Optimization: track visibility in client or just blindly apply?
+                // Blindly applying is safer for "commit" style.
+                xcb_map_window(s->conn, c->frame);
+                uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
+                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
+                                    state_vals);
+            } else {
+                xcb_unmap_window(s->conn, c->frame);
+                uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
+                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
+                                    state_vals);
+            }
+        }
+        s->root_dirty &= ~ROOT_DIRTY_VISIBILITY;
+    }
+
     for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
         if (!slotmap_is_used_idx(&s->clients, i)) continue;
 
@@ -300,8 +335,17 @@ void wm_flush_dirty(server_t* s) {
         }
 
         if (hot->dirty & DIRTY_STACK) {
-            TRACE_LOG("flush_dirty stack_move h=%lx layer=%d", h, hot->layer);
-            stack_move_to_layer(s, h);
+            TRACE_LOG("flush_dirty stack h=%lx layer=%d stack_layer=%d", h, hot->layer, hot->stacking_layer);
+
+            // If the client is not in the correct layer in the list, move it.
+            // This happens if layer changed but stack_move_to_layer wasn't called (which we shouldn't rely on anymore
+            // for X sync). Actually, we modified stack_move_to_layer to NOT sync. But we need to call it if the list is
+            // wrong. The list is wrong if hot->layer != hot->stacking_layer
+            if (hot->layer != hot->stacking_layer) {
+                stack_move_to_layer(s, h);
+            }
+
+            stack_sync_to_xcb(s, h);
             hot->dirty &= ~DIRTY_STACK;
         }
 
@@ -363,6 +407,62 @@ void wm_flush_dirty(server_t* s) {
         }
     }
 
+    // Commit Focus
+    if (s->committed_focus != s->initial_focus) {
+        // Handle initial condition where they might be different?
+        // Just use s->focused_client
+    }
+
+    // Check if focus changed from committed state
+    // We need to resolve the handle to window
+    xcb_window_t desired_focus = XCB_NONE;
+    client_hot_t* focus_hot = NULL;
+    client_cold_t* focus_cold = NULL;
+
+    if (s->focused_client != HANDLE_INVALID) {
+        focus_hot = server_chot(s, s->focused_client);
+        focus_cold = server_ccold(s, s->focused_client);
+        if (focus_hot && focus_hot->state == STATE_MAPPED) {
+            desired_focus = focus_hot->xid;
+        } else {
+            // Fallback to root if focused client invalid/unmapped
+            desired_focus = s->root;
+        }
+    } else {
+        desired_focus = s->root;
+    }
+
+    if (desired_focus != s->committed_focus) {
+        TRACE_LOG("flush_dirty commit focus %u -> %u", s->committed_focus, desired_focus);
+
+        if (desired_focus == s->root) {
+            if (s->default_colormap != XCB_NONE) {
+                xcb_install_colormap(s->conn, s->default_colormap);
+            }
+            xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, s->root, XCB_CURRENT_TIME);
+        } else if (focus_hot) {
+            wm_install_client_colormap(s, focus_hot);
+
+            if (focus_cold && focus_cold->can_focus) {
+                xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, focus_hot->xid, XCB_CURRENT_TIME);
+            }
+
+            if (focus_cold && (focus_cold->protocols & PROTOCOL_TAKE_FOCUS)) {
+                xcb_client_message_event_t ev;
+                memset(&ev, 0, sizeof(ev));
+                ev.response_type = XCB_CLIENT_MESSAGE;
+                ev.format = 32;
+                ev.window = focus_hot->xid;
+                ev.type = atoms.WM_PROTOCOLS;
+                ev.data.data32[0] = atoms.WM_TAKE_FOCUS;
+                ev.data.data32[1] = focus_hot->user_time ? focus_hot->user_time : XCB_CURRENT_TIME;
+                xcb_send_event(s->conn, 0, focus_hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
+            }
+        }
+
+        s->committed_focus = desired_focus;
+    }
+
     // Root properties
 
     if (s->root_dirty & ROOT_DIRTY_ACTIVE_WINDOW) {
@@ -420,6 +520,19 @@ void wm_flush_dirty(server_t* s) {
         wm_publish_workarea(s, &wa);
 
         s->root_dirty &= ~ROOT_DIRTY_WORKAREA;
+    }
+
+    if (s->root_dirty & ROOT_DIRTY_CURRENT_DESKTOP) {
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32,
+                            1, &s->current_desktop);
+        s->root_dirty &= ~ROOT_DIRTY_CURRENT_DESKTOP;
+    }
+
+    if (s->root_dirty & ROOT_DIRTY_SHOWING_DESKTOP) {
+        uint32_t val = s->showing_desktop ? 1u : 0u;
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_SHOWING_DESKTOP, XCB_ATOM_CARDINAL, 32,
+                            1, &val);
+        s->root_dirty &= ~ROOT_DIRTY_SHOWING_DESKTOP;
     }
 
     xcb_flush(s->conn);

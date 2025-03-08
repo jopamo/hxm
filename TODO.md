@@ -128,6 +128,54 @@ Focus: determinism, correctness under load, and compositor-friendly behavior (pi
 
 ---
 
+## 7. Refactor Client Management for Commit Correctness
+
+**Goal:** Ensure client management operations respect the commit phase boundary.
+
+### Tasks
+
+* [ ] Refactor `client_manage_start` to stage requests instead of sending immediately where possible.
+* [ ] Audit `client_finish_manage` for direct XCB calls and move to `wm_flush_dirty` logic.
+* [ ] Ensure `wm_adopt_children` uses the same staged path as new windows.
+
+---
+
+## 8. Performance and Scalability
+
+**Goal:** Remove remaining blocking calls and optimize hot paths.
+
+### Tasks
+
+* [ ] Cache RandR output state (geometry, crtcs) to eliminate synchronous `xcb_randr_get_screen_resources` in `wm_get_monitor_geometry`.
+* [ ] Optimize `wm_flush_dirty` to avoid iterating the entire client list when only root properties change.
+* [ ] Implement `txn_id` tracking for serializing state changes (prevent race conditions).
+
+---
+
+## 9. Unify Input Handling
+
+**Goal:** consolidate input logic into a single state machine.
+
+### Tasks
+
+* [ ] Integrate menu input handling (`src/menu.c`) into the main interaction state machine.
+* [ ] Remove ad-hoc `if (s->menu.visible)` checks in `wm.c`.
+* [ ] Define a clear `INPUT_MODE_MENU` state in `interaction_mode_t`.
+
+---
+
+## 10. Test Coverage
+
+**Goal:** Ensure stability under stress.
+
+### Tasks
+
+* [ ] Add stress tests for rapid window creation/destruction loops (`tests/stress_lifecycle.c`).
+* [ ] Add tests for multi-monitor geometry calculations (mocking RandR replies).
+* [ ] Add EWMH compliance tests using external tools if feasible.
+
+---
+
 ## Guiding principle
 
 > No blocking

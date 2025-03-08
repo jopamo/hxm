@@ -71,6 +71,7 @@ void stack_place_above(server_t* s, handle_t h, handle_t sibling_h);
 void stack_place_below(server_t* s, handle_t h, handle_t sibling_h);
 void stack_remove(server_t* s, handle_t h);
 void stack_move_to_layer(server_t* s, handle_t h);
+void stack_sync_to_xcb(server_t* s, handle_t h);
 
 void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev);
 void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_event_t* ev);
