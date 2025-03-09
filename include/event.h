@@ -91,6 +91,27 @@ extern volatile sig_atomic_t g_shutdown_pending;
 extern volatile sig_atomic_t g_restart_pending;
 extern volatile sig_atomic_t g_reload_pending;
 
+// Interaction state (Move/Resize/Menu)
+typedef enum interaction_mode {
+    INTERACTION_NONE = 0,
+    INTERACTION_MOVE,
+    INTERACTION_RESIZE,
+    INTERACTION_MENU
+} interaction_mode_t;
+
+typedef enum {
+    RESIZE_NONE = 0,
+    RESIZE_TOP = 1 << 0,
+    RESIZE_BOTTOM = 1 << 1,
+    RESIZE_LEFT = 1 << 2,
+    RESIZE_RIGHT = 1 << 3
+} resize_dir_t;
+
+typedef struct monitor {
+    rect_t geom;
+    rect_t workarea;
+} monitor_t;
+
 // Main server state
 typedef struct server {
     xcb_connection_t* conn;
@@ -114,6 +135,10 @@ typedef struct server {
     // Root dirty bits
     uint32_t root_dirty;
 
+    // Monitors
+    monitor_t* monitors;
+    uint32_t monitor_count;
+
     // Workarea
     rect_t workarea;
 
@@ -132,15 +157,9 @@ typedef struct server {
     xcb_cursor_t cursor_resize_bottom_left;
     xcb_cursor_t cursor_resize_bottom_right;
 
-    // Interaction state (Move/Resize)
-    enum { INTERACTION_NONE, INTERACTION_MOVE, INTERACTION_RESIZE } interaction_mode;
-    enum {
-        RESIZE_NONE = 0,
-        RESIZE_TOP = 1 << 0,
-        RESIZE_BOTTOM = 1 << 1,
-        RESIZE_LEFT = 1 << 2,
-        RESIZE_RIGHT = 1 << 3
-    } interaction_resize_dir;
+    // Interaction state
+    interaction_mode_t interaction_mode;
+    resize_dir_t interaction_resize_dir;
     xcb_window_t interaction_window;
     int16_t interaction_start_x, interaction_start_y;
     int16_t interaction_start_w, interaction_start_h;
@@ -188,6 +207,8 @@ typedef struct server {
     int exit_code;
     bool x_poll_immediate;
     uint8_t force_poll_ticks;
+    uint64_t txn_id;
+    bool in_commit_phase;
 
     // Config
     config_t config;

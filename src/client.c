@@ -199,142 +199,142 @@ void client_manage_start(server_t* s, xcb_window_t win) {
 
     // 1. GetWindowAttributes (override_redirect, visual)
     uint32_t c1 = xcb_get_window_attributes(s->conn, win).sequence;
-    cookie_jar_push(&s->cookie_jar, c1, COOKIE_GET_WINDOW_ATTRIBUTES, h, win, wm_handle_reply);
+    cookie_jar_push(&s->cookie_jar, c1, COOKIE_GET_WINDOW_ATTRIBUTES, h, win, s->txn_id, wm_handle_reply);
 
     // 2. GetGeometry
     uint32_t c2 = xcb_get_geometry(s->conn, win).sequence;
-    cookie_jar_push(&s->cookie_jar, c2, COOKIE_GET_GEOMETRY, h, win, wm_handle_reply);
+    cookie_jar_push(&s->cookie_jar, c2, COOKIE_GET_GEOMETRY, h, win, s->txn_id, wm_handle_reply);
 
     // 3. WM_CLASS
     uint32_t c3 = xcb_get_property(s->conn, 0, win, atoms.WM_CLASS, XCB_ATOM_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c3, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_CLASS,
+    cookie_jar_push(&s->cookie_jar, c3, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_CLASS, s->txn_id,
                     wm_handle_reply);
 
     // 4. WM_CLIENT_MACHINE
     uint32_t c4 = xcb_get_property(s->conn, 0, win, atoms.WM_CLIENT_MACHINE, XCB_ATOM_STRING, 0, 1024).sequence;
     cookie_jar_push(&s->cookie_jar, c4, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_CLIENT_MACHINE,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 5. WM_COMMAND
     uint32_t c5 = xcb_get_property(s->conn, 0, win, atoms.WM_COMMAND, XCB_ATOM_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c5, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_COMMAND,
+    cookie_jar_push(&s->cookie_jar, c5, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_COMMAND, s->txn_id,
                     wm_handle_reply);
 
     // 6. WM_HINTS
     uint32_t c6 = xcb_get_property(s->conn, 0, win, atoms.WM_HINTS, atoms.WM_HINTS, 0, 32).sequence;
-    cookie_jar_push(&s->cookie_jar, c6, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_HINTS,
+    cookie_jar_push(&s->cookie_jar, c6, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_HINTS, s->txn_id,
                     wm_handle_reply);
 
     // 7. WM_NORMAL_HINTS
     uint32_t c7 = xcb_get_property(s->conn, 0, win, atoms.WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 0, 32).sequence;
     cookie_jar_push(&s->cookie_jar, c7, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_NORMAL_HINTS,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 8. WM_TRANSIENT_FOR
     uint32_t c8 = xcb_get_property(s->conn, 0, win, atoms.WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 0, 1).sequence;
     cookie_jar_push(&s->cookie_jar, c8, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_TRANSIENT_FOR,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 9. WM_COLORMAP_WINDOWS
     uint32_t c9 = xcb_get_property(s->conn, 0, win, atoms.WM_COLORMAP_WINDOWS, XCB_ATOM_WINDOW, 0, 64).sequence;
     cookie_jar_push(&s->cookie_jar, c9, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_COLORMAP_WINDOWS,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 10. _NET_WM_WINDOW_TYPE
     uint32_t c10 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_WINDOW_TYPE, XCB_ATOM_ATOM, 0, 32).sequence;
     cookie_jar_push(&s->cookie_jar, c10, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_WINDOW_TYPE,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 11. WM_PROTOCOLS
     uint32_t c11 = xcb_get_property(s->conn, 0, win, atoms.WM_PROTOCOLS, XCB_ATOM_ATOM, 0, 32).sequence;
-    cookie_jar_push(&s->cookie_jar, c11, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_PROTOCOLS,
+    cookie_jar_push(&s->cookie_jar, c11, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_PROTOCOLS, s->txn_id,
                     wm_handle_reply);
 
     // 12. _NET_WM_NAME (UTF8)
     uint32_t c12 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_NAME, atoms.UTF8_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c12, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_NAME,
+    cookie_jar_push(&s->cookie_jar, c12, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_NAME, s->txn_id,
                     wm_handle_reply);
 
     // 13. WM_NAME
     uint32_t c13 = xcb_get_property(s->conn, 0, win, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c13, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_NAME,
+    cookie_jar_push(&s->cookie_jar, c13, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_NAME, s->txn_id,
                     wm_handle_reply);
 
     // 14. _NET_WM_ICON_NAME (UTF8)
     uint32_t c14 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON_NAME, atoms.UTF8_STRING, 0, 1024).sequence;
     cookie_jar_push(&s->cookie_jar, c14, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON_NAME,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 15. WM_ICON_NAME
     uint32_t c15 = xcb_get_property(s->conn, 0, win, atoms.WM_ICON_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c15, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_ICON_NAME,
+    cookie_jar_push(&s->cookie_jar, c15, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_ICON_NAME, s->txn_id,
                     wm_handle_reply);
 
     // 16. _NET_WM_STATE
     uint32_t c16 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STATE, XCB_ATOM_ATOM, 0, 32).sequence;
-    cookie_jar_push(&s->cookie_jar, c16, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STATE,
+    cookie_jar_push(&s->cookie_jar, c16, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STATE, s->txn_id,
                     wm_handle_reply);
 
     // 17. _NET_WM_DESKTOP
     uint32_t c17 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 0, 1).sequence;
     cookie_jar_push(&s->cookie_jar, c17, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_DESKTOP,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 18. _NET_WM_STRUT
     uint32_t c18 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
-    cookie_jar_push(&s->cookie_jar, c18, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT,
+    cookie_jar_push(&s->cookie_jar, c18, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT, s->txn_id,
                     wm_handle_reply);
 
     // 19. _NET_WM_STRUT_PARTIAL
     uint32_t c19 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
     cookie_jar_push(&s->cookie_jar, c19, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT_PARTIAL,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 20. _NET_WM_ICON
     uint32_t c20 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 16384).sequence;
-    cookie_jar_push(&s->cookie_jar, c20, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON,
+    cookie_jar_push(&s->cookie_jar, c20, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON, s->txn_id,
                     wm_handle_reply);
 
     // 21. _NET_WM_PID
     uint32_t c21 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_PID, XCB_ATOM_CARDINAL, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c21, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_PID,
+    cookie_jar_push(&s->cookie_jar, c21, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_PID, s->txn_id,
                     wm_handle_reply);
 
     // 22. _NET_WM_USER_TIME
     uint32_t c22 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_USER_TIME, XCB_ATOM_CARDINAL, 0, 1).sequence;
     cookie_jar_push(&s->cookie_jar, c22, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_USER_TIME,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 23. _NET_WM_USER_TIME_WINDOW
     uint32_t c23 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_USER_TIME_WINDOW, XCB_ATOM_WINDOW, 0, 1).sequence;
     cookie_jar_push(&s->cookie_jar, c23, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_USER_TIME_WINDOW,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 24. _NET_WM_SYNC_REQUEST_COUNTER
     uint32_t c24 =
         xcb_get_property(s->conn, 0, win, atoms._NET_WM_SYNC_REQUEST_COUNTER, XCB_ATOM_CARDINAL, 0, 1).sequence;
     cookie_jar_push(&s->cookie_jar, c24, COOKIE_GET_PROPERTY, h,
-                    ((uint64_t)win << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, wm_handle_reply);
+                    ((uint64_t)win << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, s->txn_id, wm_handle_reply);
 
     // 25. _NET_WM_ICON_GEOMETRY
     uint32_t c25 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON_GEOMETRY, XCB_ATOM_CARDINAL, 0, 4).sequence;
     cookie_jar_push(&s->cookie_jar, c25, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON_GEOMETRY,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 26. _MOTIF_WM_HINTS
     uint32_t c26 = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5).sequence;
     cookie_jar_push(&s->cookie_jar, c26, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._MOTIF_WM_HINTS,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 27. _GTK_FRAME_EXTENTS
     uint32_t c27 = xcb_get_property(s->conn, 0, win, atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 0, 4).sequence;
     cookie_jar_push(&s->cookie_jar, c27, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._GTK_FRAME_EXTENTS,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     // 28. _NET_WM_WINDOW_OPACITY
     uint32_t c28 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 0, 1).sequence;
     cookie_jar_push(&s->cookie_jar, c28, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_WINDOW_OPACITY,
-                    wm_handle_reply);
+                    s->txn_id, wm_handle_reply);
 
     LOG_DEBUG("Started management for window %u (handle %lx)", win, h);
     TRACE_ONLY(debug_dump_focus_history(s, "after manage_start"));

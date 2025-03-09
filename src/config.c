@@ -352,6 +352,8 @@ static void parse_rule(config_t* config, const char* val) {
                     r->layer = LAYER_NORMAL;
                 else if (strcasecmp(v, "above") == 0)
                     r->layer = LAYER_ABOVE;
+                else if (strcasecmp(v, "dock") == 0)
+                    r->layer = LAYER_DOCK;
                 else if (strcasecmp(v, "fullscreen") == 0)
                     r->layer = LAYER_FULLSCREEN;
                 else if (strcasecmp(v, "overlay") == 0)

@@ -168,6 +168,7 @@ void server_init(server_t* s) {
     }
 
     // Adopt existing windows (must happen after we are the WM)
+    wm_update_monitors(s);
     wm_adopt_children(s);
 
     // Create epoll instance and register X connection fd
@@ -930,6 +931,7 @@ void event_process(server_t* s) {
     // 11. RandR (coalesced)
     if (s->buckets.randr_dirty) {
         TRACE_LOG("process randr dirty width=%u height=%u", s->buckets.randr_width, s->buckets.randr_height);
+        wm_update_monitors(s);
         uint32_t geometry[] = {s->buckets.randr_width, s->buckets.randr_height};
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32,
                             2, geometry);
@@ -1000,15 +1002,15 @@ static void event_force_poll_sweep(server_t* s) {
         handle_t h = handle_make(i, s->clients.hdr[i].gen);
         uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_WINDOW_TYPE, XCB_ATOM_ATOM, 0, 16).sequence;
         cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE, wm_handle_reply);
+                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE, s->txn_id, wm_handle_reply);
 
         c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
         cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT_PARTIAL, wm_handle_reply);
+                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT_PARTIAL, s->txn_id, wm_handle_reply);
 
         c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
         cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT,
-                        wm_handle_reply);
+                        s->txn_id, wm_handle_reply);
         swept++;
     }
 
@@ -1233,6 +1235,7 @@ void server_run(server_t* s) {
         }
 
         uint64_t start = monotonic_time_ns();
+        s->txn_id++;
 
         event_ingest(s, x_ready);
         event_drain_cookies(s);

@@ -21,8 +21,9 @@ typedef enum layer {
     LAYER_BELOW,
     LAYER_NORMAL,
     LAYER_ABOVE,
-    LAYER_FULLSCREEN,
+    LAYER_DOCK,
     LAYER_OVERLAY,
+    LAYER_FULLSCREEN,
     LAYER_COUNT
 } layer_t;
 
@@ -36,12 +37,18 @@ typedef enum client_dirty {
     DIRTY_STATE = 1u << 5,
     DIRTY_FRAME_STYLE = 1u << 6,
     DIRTY_STRUT = 1u << 7,
-    DIRTY_OPACITY = 1u << 8
+    DIRTY_OPACITY = 1u << 8,
+    DIRTY_DESKTOP = 1u << 9,
+    DIRTY_FRAME_ALL = 1u << 10,
+    DIRTY_FRAME_TITLE = 1u << 11,
+    DIRTY_FRAME_BUTTONS = 1u << 12,
+    DIRTY_FRAME_BORDER = 1u << 13
 } client_dirty_t;
 
 typedef enum client_state {
     STATE_UNMANAGED = 0,
     STATE_NEW,        // Allocated, waiting for initial properties
+    STATE_READY,      // Initial properties received, ready to be framed
     STATE_MAPPED,     // Fully managed and mapped
     STATE_UNMAPPED,   // Managed but unmapped (iconified/withdrawn)
     STATE_DESTROYED,  // Window destroyed
@@ -111,6 +118,7 @@ typedef struct client_hot {
     uint32_t hints_flags;
     uint32_t pending_epoch;
     uint16_t original_border_width;
+    uint64_t last_applied_txn_id;
 
     rect_t saved_geom;
     rect_t saved_maximize_geom;
@@ -177,6 +185,7 @@ typedef struct client_hot {
 
     xcb_damage_damage_t damage;
     dirty_region_t damage_region;
+    dirty_region_t frame_damage;
 
     manage_phase_t manage_phase;
 

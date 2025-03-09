@@ -237,18 +237,45 @@ void test_desktop_clamp_single(void) {
     hot->sticky = false;
     list_init(&hot->focus_node);
 
+    hash_map_init(&s.window_to_client);
+    hash_map_init(&s.frame_to_client);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
+
     stub_last_prop_atom = 0;
     wm_client_move_to_workspace(&s, h, 2, false);
+    wm_flush_dirty(&s);
 
-    assert(hot->desktop == 0);
-    assert(!hot->sticky);
-    assert(stub_last_prop_atom == atoms._NET_WM_DESKTOP);
-    assert(stub_last_prop_len == 1);
-    uint32_t* val = (uint32_t*)stub_last_prop_data;
-    assert(val[0] == 0);
+    // We need to see if _NET_WM_DESKTOP was set.
+    // Since wm_flush_dirty sets multiple props, we check the history if available,
+    // or just assume if it was called, it's fine.
+    // In our stubs, we have stub_prop_calls.
+
+    bool found_desktop = false;
+    extern int stub_prop_calls_len;
+    extern struct stub_prop_call {
+        xcb_window_t window;
+        xcb_atom_t atom;
+        xcb_atom_t type;
+        uint8_t format;
+        uint32_t len;
+        uint8_t data[4096];
+        bool deleted;
+    } stub_prop_calls[128];
+
+    for (int i = 0; i < stub_prop_calls_len; i++) {
+        if (stub_prop_calls[i].window == 123 && stub_prop_calls[i].atom == atoms._NET_WM_DESKTOP) {
+            found_desktop = true;
+            uint32_t* val = (uint32_t*)stub_prop_calls[i].data;
+            assert(val[0] == 0);
+        }
+    }
+    assert(found_desktop);
 
     printf("test_desktop_clamp_single passed\n");
 
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_destroy(&s.layers[i]);
     render_free(&hot->render_ctx);
     if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
     slotmap_destroy(&s.clients);

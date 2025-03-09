@@ -5,6 +5,7 @@
 #include "frame.h"
 
 #include <X11/cursorfont.h>
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -73,16 +74,42 @@ static xcb_rectangle_t get_button_rect(server_t* s, client_hot_t* hot, frame_but
 }
 
 void frame_redraw(server_t* s, handle_t h, uint32_t what) {
-    (void)what;  // Currently we always redraw all with the new engine
-    frame_redraw_region(s, h, NULL);
+    client_hot_t* hot = server_chot(s, h);
+    if (!hot) return;
+
+    if (what & FRAME_REDRAW_ALL) {
+        hot->dirty |= DIRTY_FRAME_ALL;
+    } else {
+        if (what & FRAME_REDRAW_TITLE) hot->dirty |= DIRTY_FRAME_TITLE;
+        if (what & FRAME_REDRAW_BORDER) hot->dirty |= DIRTY_FRAME_BORDER;
+        if (what & FRAME_REDRAW_BUTTONS) hot->dirty |= DIRTY_FRAME_BUTTONS;
+    }
 }
 
 void frame_redraw_region(server_t* s, handle_t h, const dirty_region_t* dirty) {
     client_hot_t* hot = server_chot(s, h);
-    client_cold_t* cold = server_ccold(s, h);
     if (!hot) return;
 
+    if (dirty && dirty->valid) {
+        dirty_region_union(&hot->frame_damage, dirty);
+        hot->dirty |= DIRTY_FRAME_ALL;
+    } else {
+        hot->dirty |= DIRTY_FRAME_ALL;
+    }
+}
+
+void frame_flush(server_t* s, handle_t h) {
+    assert(s->in_commit_phase);
+    client_hot_t* hot = server_chot(s, h);
+    client_cold_t* cold = server_ccold(s, h);
+    if (!hot || !cold) return;
+
     if (hot->flags & CLIENT_FLAG_UNDECORATED) return;
+
+    uint32_t f_dirty =
+        hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_TITLE);
+
+    if (!f_dirty && !hot->frame_damage.valid) return;
 
     bool active = (hot->flags & CLIENT_FLAG_FOCUSED);
 
@@ -116,21 +143,29 @@ void frame_redraw_region(server_t* s, handle_t h, const dirty_region_t* dirty) {
         return;
     }
 
-    dirty_region_t clip = {0};
     const dirty_region_t* clip_ptr = NULL;
-    if (dirty && dirty->valid) {
-        clip = *dirty;
-        dirty_region_clamp(&clip, 0, 0, frame_w, frame_h);
-        if (!clip.valid) return;
-        if (clip.x == 0 && clip.y == 0 && clip.w == frame_w && clip.h == frame_h) {
-            clip_ptr = &clip;
-        } else {
-            clip_ptr = NULL;
+    dirty_region_t partial_clip = {0};
+
+    if (!(hot->dirty & DIRTY_FRAME_ALL)) {
+        if (hot->frame_damage.valid) {
+            clip_ptr = &hot->frame_damage;
+        } else if (hot->dirty & DIRTY_FRAME_TITLE) {
+            partial_clip = dirty_region_make(0, 0, frame_w, (uint16_t)s->config.theme.title_height);
+            clip_ptr = &partial_clip;
+        } else if (hot->dirty & DIRTY_FRAME_BUTTONS) {
+            // Button area is roughly right side of titlebar
+            uint16_t btn_area_w = (uint16_t)(3 * (BUTTON_WIDTH + BUTTON_PADDING) + BUTTON_PADDING);
+            partial_clip = dirty_region_make((int16_t)(frame_w - btn_area_w), 0, btn_area_w,
+                                             (uint16_t)s->config.theme.title_height);
+            clip_ptr = &partial_clip;
         }
     }
 
     render_frame(s->conn, hot->frame, visual, &hot->render_ctx, (int)hot->depth, s->is_test, cold ? cold->title : "",
                  active, frame_w, frame_h, &s->config.theme, hot->icon_surface, clip_ptr);
+
+    hot->dirty &= ~(DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER);
+    dirty_region_reset(&hot->frame_damage);
 }
 
 frame_button_t frame_get_button_at(server_t* s, handle_t h, int16_t x, int16_t y) {

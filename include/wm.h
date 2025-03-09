@@ -53,6 +53,8 @@ void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev);
 void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev);
 void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev);
 
+void wm_cancel_interaction(server_t* s);
+
 void wm_switch_workspace(server_t* s, uint32_t new_desktop);
 void wm_switch_workspace_relative(server_t* s, int delta);
 void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool follow);

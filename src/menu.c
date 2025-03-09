@@ -5,6 +5,7 @@
 #include "menu.h"
 
 #include <X11/keysym.h>
+#include <assert.h>
 #include <errno.h>
 #include <librsvg/rsvg.h>
 #include <stdio.h>
@@ -180,6 +181,7 @@ void menu_show(server_t* s, int16_t x, int16_t y) {
         return;
     }
 
+    assert(s->interaction_mode == INTERACTION_NONE);
     s->menu.is_client_list = false;
     menu_populate_root(s);
 
@@ -196,6 +198,7 @@ void menu_show(server_t* s, int16_t x, int16_t y) {
     s->menu.y = y;
     s->menu.visible = true;
     s->menu.selected_index = -1;
+    s->interaction_mode = INTERACTION_MENU;
 
     uint32_t values[] = {(uint32_t)x, (uint32_t)y};
     xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, values);
@@ -219,6 +222,7 @@ void menu_show_client_list(server_t* s, int16_t x, int16_t y) {
         return;
     }
 
+    assert(s->interaction_mode == INTERACTION_NONE);
     s->menu.is_client_list = true;
     menu_clear_items(s);
 
@@ -255,6 +259,7 @@ void menu_show_client_list(server_t* s, int16_t x, int16_t y) {
     s->menu.y = y;
     s->menu.visible = true;
     s->menu.selected_index = -1;
+    s->interaction_mode = INTERACTION_MENU;
 
     uint32_t values[] = {(uint32_t)x, (uint32_t)y};
     xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, values);
@@ -275,6 +280,9 @@ void menu_show_client_list(server_t* s, int16_t x, int16_t y) {
 void menu_hide(server_t* s) {
     if (!s->menu.visible) return;
     s->menu.visible = false;
+    if (s->interaction_mode == INTERACTION_MENU) {
+        s->interaction_mode = INTERACTION_NONE;
+    }
     xcb_unmap_window(s->conn, s->menu.window);
     xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
     xcb_ungrab_keyboard(s->conn, XCB_CURRENT_TIME);

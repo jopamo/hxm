@@ -30,6 +30,7 @@ typedef struct cookie_slot {
     handle_t client;
     uintptr_t data;  // Extra data (e.g. atom for property)
     uint64_t timestamp_ns;
+    uint64_t txn_id;
     cookie_handler_fn handler;
     bool live;
 } cookie_slot_t;
@@ -47,7 +48,7 @@ typedef struct cookie_jar {
 void cookie_jar_init(cookie_jar_t* cj);
 void cookie_jar_destroy(cookie_jar_t* cj);
 bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data,
-                     cookie_handler_fn handler);
+                     uint64_t txn_id, cookie_handler_fn handler);
 void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s, size_t max_replies);
 static inline bool cookie_jar_has_pending(const cookie_jar_t* cj) { return cj->live_count > 0; }
 

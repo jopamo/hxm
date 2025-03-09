@@ -416,6 +416,20 @@ test_race_conditions = executable('test_race_conditions',
 )
 test('race_conditions', test_race_conditions)
 
+test_txn_serialization = executable('test_txn_serialization',
+  ['tests/test_txn_serialization.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('txn_serialization', test_txn_serialization)
+
+test_stress_lifecycle = executable('test_stress_lifecycle',
+  ['tests/stress_lifecycle.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('stress_lifecycle', test_stress_lifecycle)
+
 bash = find_program('bash')
 source_root = meson.project_source_root()
 integration_script = join_paths(source_root, 'scripts', 'test-integration.sh')

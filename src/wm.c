@@ -6,6 +6,7 @@
 
 #include <X11/cursorfont.h>
 #include <X11/keysym.h>
+#include <assert.h>
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -94,49 +95,87 @@ void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecor
                         extents);
 }
 
-void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
-    // Default to full screen
-    xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
-    out_geom->x = 0;
-    out_geom->y = 0;
-    out_geom->w = (uint16_t)screen->width_in_pixels;
-    out_geom->h = (uint16_t)screen->height_in_pixels;
-
+void wm_update_monitors(server_t* s) {
     if (!s->conn) return;
 
-    // Sync boundary: RandR queries block; call sites are rare (fullscreen placement or RandR events).
-    xcb_randr_get_screen_resources_current_cookie_t r_c = xcb_randr_get_screen_resources_current(s->conn, s->root);
-    xcb_randr_get_screen_resources_current_reply_t* res =
-        xcb_randr_get_screen_resources_current_reply(s->conn, r_c, NULL);
+    uint32_t active_count = 0;
+    monitor_t* next_monitors = NULL;
 
-    if (!res) return;
+    if (!s->randr_supported) {
+        active_count = 1;
+        next_monitors = calloc(1, sizeof(monitor_t));
+        xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+        next_monitors[0].geom.x = 0;
+        next_monitors[0].geom.y = 0;
+        next_monitors[0].geom.w = (uint16_t)screen->width_in_pixels;
+        next_monitors[0].geom.h = (uint16_t)screen->height_in_pixels;
+        next_monitors[0].workarea = next_monitors[0].geom;
+    } else {
+        xcb_randr_get_screen_resources_current_cookie_t r_c = xcb_randr_get_screen_resources_current(s->conn, s->root);
+        xcb_randr_get_screen_resources_current_reply_t* res =
+            xcb_randr_get_screen_resources_current_reply(s->conn, r_c, NULL);
+
+        if (res) {
+            xcb_randr_crtc_t* crtcs = xcb_randr_get_screen_resources_current_crtcs(res);
+            int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res);
+
+            next_monitors = calloc((size_t)num_crtcs, sizeof(monitor_t));
+
+            for (int i = 0; i < num_crtcs; i++) {
+                xcb_randr_get_crtc_info_cookie_t c_c =
+                    xcb_randr_get_crtc_info(s->conn, crtcs[i], res->config_timestamp);
+                xcb_randr_get_crtc_info_reply_t* crtc = xcb_randr_get_crtc_info_reply(s->conn, c_c, NULL);
+
+                if (crtc) {
+                    if (crtc->mode != XCB_NONE) {
+                        next_monitors[active_count].geom.x = crtc->x;
+                        next_monitors[active_count].geom.y = crtc->y;
+                        next_monitors[active_count].geom.w = crtc->width;
+                        next_monitors[active_count].geom.h = crtc->height;
+                        next_monitors[active_count].workarea = next_monitors[active_count].geom;
+                        active_count++;
+                    }
+                    free(crtc);
+                }
+            }
+            free(res);
+        }
+    }
+
+    if (next_monitors) {
+        if (s->monitors) free(s->monitors);
+        s->monitors = next_monitors;
+        s->monitor_count = active_count;
+        LOG_INFO("Monitor update: %u monitors detected", s->monitor_count);
+    }
+}
+
+void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
+    // Default to first monitor or whole screen
+    if (s->monitor_count > 0) {
+        *out_geom = s->monitors[0].geom;
+    } else {
+        xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+        out_geom->x = 0;
+        out_geom->y = 0;
+        out_geom->w = (uint16_t)screen->width_in_pixels;
+        out_geom->h = (uint16_t)screen->height_in_pixels;
+    }
+
+    if (s->monitor_count <= 1) return;
 
     // Use center of the window to determine which monitor it is on
     int center_x = hot->server.x + hot->server.w / 2;
     int center_y = hot->server.y + hot->server.h / 2;
 
-    xcb_randr_crtc_t* crtcs = xcb_randr_get_screen_resources_current_crtcs(res);
-    int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res);
-
-    for (int i = 0; i < num_crtcs; i++) {
-        xcb_randr_get_crtc_info_cookie_t c_c = xcb_randr_get_crtc_info(s->conn, crtcs[i], res->config_timestamp);
-        xcb_randr_get_crtc_info_reply_t* crtc = xcb_randr_get_crtc_info_reply(s->conn, c_c, NULL);
-
-        if (crtc) {
-            if (crtc->mode != XCB_NONE && center_x >= crtc->x && center_x < crtc->x + (int)crtc->width &&
-                center_y >= crtc->y && center_y < crtc->y + (int)crtc->height) {
-                out_geom->x = crtc->x;
-                out_geom->y = crtc->y;
-                out_geom->w = crtc->width;
-                out_geom->h = crtc->height;
-                free(crtc);
-                break;
-            }
-            free(crtc);
+    for (uint32_t i = 0; i < s->monitor_count; i++) {
+        monitor_t* m = &s->monitors[i];
+        if (center_x >= m->geom.x && center_x < m->geom.x + (int)m->geom.w && center_y >= m->geom.y &&
+            center_y < m->geom.y + (int)m->geom.h) {
+            *out_geom = m->geom;
+            break;
         }
     }
-
-    free(res);
 }
 
 static void wm_client_apply_maximize(server_t* s, client_hot_t* hot) {
@@ -417,7 +456,7 @@ void wm_adopt_children(server_t* s) {
         // Defer decision: use async attributes check via cookie jar and adopt in reply handler
         xcb_get_window_attributes_cookie_t ck = xcb_get_window_attributes(s->conn, win);
         cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_WINDOW_ATTRIBUTES, HANDLE_INVALID, (uint64_t)win,
-                        wm_handle_reply);
+                        s->txn_id, wm_handle_reply);
     }
 
     free(reply);
@@ -446,6 +485,10 @@ void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
     // Applications withdrawing will trigger this.
     if (ev->event != hot->xid && ev->event != hot->frame && ev->event != s->root) return;
 
+    if (s->interaction_window == hot->frame) {
+        wm_cancel_interaction(s);
+    }
+
     TRACE_LOG("unmap_notify unmanage h=%lx xid=%u frame=%u", h, hot->xid, hot->frame);
     client_unmanage(s, h);
 }
@@ -456,7 +499,12 @@ void wm_handle_destroy_notify(server_t* s, xcb_destroy_notify_event_t* ev) {
     if (h == HANDLE_INVALID) return;
 
     client_hot_t* hot = server_chot(s, h);
-    if (hot) hot->state = STATE_DESTROYED;
+    if (hot) {
+        if (s->interaction_window == hot->frame) {
+            wm_cancel_interaction(s);
+        }
+        hot->state = STATE_DESTROYED;
+    }
     client_unmanage(s, h);
 }
 
@@ -525,7 +573,7 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
         uint32_t long_len = (ev->atom == atoms._NET_WM_STRUT_PARTIAL) ? 12 : 4;
         xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, ev->atom, XCB_ATOM_CARDINAL, 0, long_len);
         cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
-                        ((uint64_t)hot->xid << 32) | (uint32_t)ev->atom, wm_handle_reply);
+                        ((uint64_t)hot->xid << 32) | (uint32_t)ev->atom, s->txn_id, wm_handle_reply);
     } else if (ev->atom == atoms._NET_WM_WINDOW_OPACITY) {
         hot->dirty |= DIRTY_OPACITY;
     } else if (ev->atom == atoms._MOTIF_WM_HINTS) {
@@ -656,7 +704,7 @@ static void wm_update_cursor(server_t* s, xcb_window_t win, int dir) {
     xcb_change_window_attributes(s->conn, win, XCB_CW_CURSOR, &c);
 }
 
-static void wm_cancel_interaction(server_t* s) {
+void wm_cancel_interaction(server_t* s) {
     if (s->interaction_mode == INTERACTION_NONE) return;
     s->interaction_mode = INTERACTION_NONE;
     s->interaction_resize_dir = RESIZE_NONE;
@@ -666,6 +714,7 @@ static void wm_cancel_interaction(server_t* s) {
 
 void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir, int16_t root_x,
                           int16_t root_y) {
+    assert(s->interaction_mode == INTERACTION_NONE);
     s->interaction_mode = start_move ? INTERACTION_MOVE : INTERACTION_RESIZE;
     s->interaction_resize_dir = resize_dir;
     s->interaction_window = hot->frame;
@@ -708,7 +757,7 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
 // Mouse interaction
 
 void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
-    if (s->menu.visible) {
+    if (s->interaction_mode == INTERACTION_MENU) {
         menu_handle_button_press(s, ev);
         return;
     }
@@ -809,7 +858,7 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
 }
 
 void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
-    if (s->menu.visible) {
+    if (s->interaction_mode == INTERACTION_MENU) {
         menu_handle_button_release(s, ev);
         return;
     }
@@ -820,7 +869,7 @@ void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
 }
 
 void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
-    if (s->menu.visible) {
+    if (s->interaction_mode == INTERACTION_MENU) {
         menu_handle_pointer_motion(s, ev->root_x, ev->root_y);
         return;
     }
@@ -1265,7 +1314,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         // Async path for unmanaged windows: ask for _MOTIF_WM_HINTS and reply later.
         xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, target, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5);
         cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY_FRAME_EXTENTS, HANDLE_INVALID,
-                        (uintptr_t)target, wm_handle_reply);
+                        (uintptr_t)target, s->txn_id, wm_handle_reply);
         TRACE_LOG("_NET_REQUEST_FRAME_EXTENTS win=%u queued async motif hints", target);
         return;
     }
@@ -1486,7 +1535,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         if (use_pointer_query) {
             uintptr_t data = (start_move ? 0x100 : 0) | (uintptr_t)resize_dir;
             xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
-            cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, wm_handle_reply);
+            cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, s->txn_id, wm_handle_reply);
         } else {
             wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y);
         }

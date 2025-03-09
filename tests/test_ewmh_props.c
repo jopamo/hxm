@@ -299,7 +299,9 @@ static void test_strut_updates_workarea(void) {
     reply.r.format = 32;
     reply.r.value_len = 12;
     reply.r.type = XCB_ATOM_CARDINAL;
-    reply.data[0] = 100;  // left
+    reply.data[0] = 100;   // left
+    reply.data[4] = 0;     // left_start_y
+    reply.data[5] = 1080;  // left_end_y
 
     wm_handle_reply(&s, &slot, &reply.r, NULL);
     wm_flush_dirty(&s);
@@ -358,7 +360,7 @@ static void test_window_type_dock_layer(void) {
     wm_handle_reply(&s, &slot, &reply.r, NULL);
 
     assert(hot->type == WINDOW_TYPE_DOCK);
-    assert(hot->base_layer == LAYER_ABOVE);
+    assert(hot->base_layer == LAYER_DOCK);
     assert(hot->flags & CLIENT_FLAG_UNDECORATED);
 
     printf("test_window_type_dock_layer passed\n");
