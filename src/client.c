@@ -425,19 +425,11 @@ void client_finish_manage(server_t* s, handle_t h) {
     uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
     uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
 
-    // Use client visual/depth for the frame to avoid reparenting errors
-    if (hot->visual_id != s->root_visual) {
-        mask |= XCB_CW_COLORMAP;
-        xcb_colormap_t cmap = xcb_generate_id(s->conn);
-        xcb_create_colormap(s->conn, XCB_COLORMAP_ALLOC_NONE, cmap, s->root, hot->visual_id);
-        values[2] = cmap;
-        hot->frame_colormap = cmap;
-        hot->frame_colormap_owned = true;
-    }
+    // Use root visual/depth for frames to avoid visual-specific artifacts in clients (e.g., video players).
 
     hot->frame = xcb_generate_id(s->conn);
-    xcb_create_window(s->conn, hot->depth, hot->frame, s->root, geom.x, geom.y, geom.w + 2 * bw, geom.h + th + bw, 0,
-                      XCB_WINDOW_CLASS_INPUT_OUTPUT, hot->visual_id, mask, values);
+    xcb_create_window(s->conn, s->root_depth, hot->frame, s->root, geom.x, geom.y, geom.w + 2 * bw, geom.h + th + bw, 0,
+                      XCB_WINDOW_CLASS_INPUT_OUTPUT, s->root_visual, mask, values);
 
     // Register frame mapping
     hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));

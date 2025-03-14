@@ -116,30 +116,10 @@ void frame_flush(server_t* s, handle_t h) {
     uint16_t frame_w = hot->server.w + 2 * s->config.theme.border_width;
     uint16_t frame_h = hot->server.h + s->config.theme.title_height + s->config.theme.border_width;
 
-    // Call the Golden Path Engine
-    xcb_visualtype_t* visual = hot->visual_type;
+    // Frames are always created with the root visual/depth.
+    xcb_visualtype_t* visual = s->root_visual_type;
     if (!visual) {
-        if (hot->depth == s->root_depth) {
-            visual = s->root_visual_type;
-        } else {
-            // Try to find ANY visual for this depth
-            xcb_screen_iterator_t screen_iter = xcb_setup_roots_iterator(xcb_get_setup(s->conn));
-            for (; screen_iter.rem && !visual; xcb_screen_next(&screen_iter)) {
-                xcb_depth_iterator_t depth_iter = xcb_screen_allowed_depths_iterator(screen_iter.data);
-                for (; depth_iter.rem && !visual; xcb_depth_next(&depth_iter)) {
-                    if (depth_iter.data->depth == hot->depth) {
-                        xcb_visualtype_iterator_t visual_iter = xcb_depth_visuals_iterator(depth_iter.data);
-                        if (visual_iter.rem) {
-                            visual = visual_iter.data;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (!visual) {
-        LOG_WARN("No visual found for client %u (depth %u), skipping redraw", hot->xid, hot->depth);
+        LOG_WARN("No root visual found, skipping redraw for client %u", hot->xid);
         return;
     }
 
@@ -161,7 +141,7 @@ void frame_flush(server_t* s, handle_t h) {
         }
     }
 
-    render_frame(s->conn, hot->frame, visual, &hot->render_ctx, (int)hot->depth, s->is_test, cold ? cold->title : "",
+    render_frame(s->conn, hot->frame, visual, &hot->render_ctx, (int)s->root_depth, s->is_test, cold ? cold->title : "",
                  active, frame_w, frame_h, &s->config.theme, hot->icon_surface, clip_ptr);
 
     hot->dirty &= ~(DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER);
