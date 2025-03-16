@@ -161,6 +161,7 @@ typedef struct server {
     interaction_mode_t interaction_mode;
     resize_dir_t interaction_resize_dir;
     xcb_window_t interaction_window;
+    uint32_t interaction_time;
     int16_t interaction_start_x, interaction_start_y;
     int16_t interaction_start_w, interaction_start_h;
     int16_t interaction_pointer_x, interaction_pointer_y;

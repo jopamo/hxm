@@ -160,6 +160,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->user_time_window = XCB_NONE;
     hot->sync_enabled = false;
     hot->sync_counter = 0;
+    hot->sync_value = 0;
     hot->icon_geometry_valid = false;
 
     hot->gtk_frame_extents_set = false;

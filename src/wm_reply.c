@@ -433,12 +433,14 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
         return;
     }
 
-    if (slot->txn_id < hot->last_applied_txn_id) {
-        LOG_DEBUG("Discarding stale reply for client %u (txn_id %lu < last %lu)", hot->xid, slot->txn_id,
-                  hot->last_applied_txn_id);
-        goto done_one;
+    if (slot->type != COOKIE_SYNC_QUERY_COUNTER) {
+        if (slot->txn_id < hot->last_applied_txn_id) {
+            LOG_DEBUG("Discarding stale reply for client %u (txn_id %lu < last %lu)", hot->xid, slot->txn_id,
+                      hot->last_applied_txn_id);
+            goto done_one;
+        }
+        hot->last_applied_txn_id = slot->txn_id;
     }
-    hot->last_applied_txn_id = slot->txn_id;
 
     if (!reply) {
         LOG_WARN("NULL reply for cookie type %d client %u", slot->type, hot->xid);
@@ -1073,6 +1075,15 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
                     xcb_sync_counter_t counter = *(xcb_sync_counter_t*)xcb_get_property_value(r);
                     hot->sync_counter = counter;
+                    hot->sync_value = 0;
+                    if (counter != XCB_NONE) {
+                        xcb_sync_query_counter_cookie_t ck = xcb_sync_query_counter(s->conn, counter);
+                        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_SYNC_QUERY_COUNTER, slot->client,
+                                        (uintptr_t)counter, s->txn_id, wm_handle_reply);
+                    }
+                } else {
+                    hot->sync_counter = 0;
+                    hot->sync_value = 0;
                 }
 
             } else if (atom == atoms._NET_WM_WINDOW_OPACITY) {
@@ -1114,7 +1125,21 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             bool is_move = (slot->data & 0x100) != 0;
             int resize_dir = (int)(slot->data & 0xFF);
 
-            wm_start_interaction(s, slot->client, hot, is_move, resize_dir, root_x, root_y);
+            wm_start_interaction(s, slot->client, hot, is_move, resize_dir, root_x, root_y, 0);
+            break;
+        }
+
+        case COOKIE_SYNC_QUERY_COUNTER: {
+            xcb_sync_query_counter_reply_t* r = (xcb_sync_query_counter_reply_t*)reply;
+            xcb_sync_counter_t counter = (xcb_sync_counter_t)slot->data;
+            if (hot->sync_counter == counter) {
+                int64_t value = ((int64_t)r->counter_value.hi << 32) | r->counter_value.lo;
+                if (value < 0) value = 0;
+                uint64_t uvalue = (uint64_t)value;
+                if (uvalue > hot->sync_value) {
+                    hot->sync_value = uvalue;
+                }
+            }
             break;
         }
 
