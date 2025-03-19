@@ -115,6 +115,7 @@ static void test_damage_coalesces_regions(void) {
     event_ingest(&s, true);
 
     dirty_region_t* region = hash_map_get(&s.buckets.damage_regions, 99);
+    (void)region;
     assert(region != NULL);
     assert(region->valid);
     assert(region->x == 0);
@@ -149,6 +150,7 @@ static void test_motion_coalesces_last_event(void) {
     event_ingest(&s, true);
 
     xcb_motion_notify_event_t* last = hash_map_get(&s.buckets.motion_notifies, 42);
+    (void)last;
     assert(last != NULL);
     assert(last->root_x == 50);
     assert(last->root_y == 60);

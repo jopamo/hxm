@@ -536,6 +536,7 @@ static void menu_do_restore(server_t* s, handle_t client) {
     if (!hot) return;
 
     if (hot->state == STATE_UNMAPPED) {
+        LOG_DEBUG("menu_do_restore: Restoring client %lx", client);
         wm_client_restore(s, client);
     }
 

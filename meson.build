@@ -42,6 +42,10 @@ endif
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
 add_project_arguments('-Wpedantic', language: 'c')
 
+if get_option('debug')
+  add_project_arguments('-DHXM_ENABLE_DEBUG_LOGGING', language: 'c')
+endif
+
 deps = [
   math,
   rt,
@@ -94,6 +98,7 @@ hxm = executable('hxm', src,
   install: true,
 )
 
+if get_option('debug')
 # Tests
 test_src = [
   'src/core.c',
@@ -467,6 +472,7 @@ test('ewmh_xvfb', bash,
   timeout: 120,
   depends: [hxm],
 )
+endif
 
 # Install configuration files
 install_data('data/hxm.desktop', install_dir: get_option('datadir') / 'xsessions')

@@ -146,6 +146,7 @@ void atoms_init(xcb_connection_t* conn) {
 }
 
 void atoms_print(void) {
+#ifdef HXM_ENABLE_DEBUG_LOGGING
     LOG_INFO("Cached atoms:");
     const char* const* name = atom_names;
     xcb_atom_t* atom_ptr = (xcb_atom_t*)&atoms;
@@ -154,6 +155,7 @@ void atoms_print(void) {
         name++;
         atom_ptr++;
     }
+#endif
 }
 
 xcb_connection_t* xcb_connect_cached(void) {

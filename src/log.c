@@ -19,9 +19,11 @@
 
 #include "hxm.h"
 
-static enum log_level min_level = LOG_INFO;
 static bool use_utc = false;
 static bool use_monotonic = false;
+#ifdef HXM_ENABLE_DEBUG_LOGGING
+static FILE* log_file = NULL;
+#endif
 
 static const char* level_str[] = {
     [LOG_DEBUG] = "DEBUG",
@@ -36,35 +38,28 @@ static inline const char* safe_level_str(enum log_level level) {
     return "UNK";
 }
 
-static enum log_level parse_level(const char* env) {
-    if (!env || !env[0]) return LOG_INFO;
-
-    if (strcmp(env, "debug") == 0) return LOG_DEBUG;
-    if (strcmp(env, "info") == 0) return LOG_INFO;
-    if (strcmp(env, "warn") == 0) return LOG_WARN;
-    if (strcmp(env, "error") == 0) return LOG_ERROR;
-
-    /* Accept numeric too */
-    if (strcmp(env, "0") == 0) return LOG_DEBUG;
-    if (strcmp(env, "1") == 0) return LOG_INFO;
-    if (strcmp(env, "2") == 0) return LOG_WARN;
-    if (strcmp(env, "3") == 0) return LOG_ERROR;
-
-    return LOG_INFO;
-}
-
 static void log_init_once(void) {
     static bool initialized = false;
     if (initialized) return;
     initialized = true;
-
-    min_level = parse_level(getenv("HXM_LOG"));
 
     const char* utc = getenv("HXM_LOG_UTC");
     if (utc && (strcmp(utc, "1") == 0 || strcmp(utc, "true") == 0)) use_utc = true;
 
     const char* mono = getenv("HXM_LOG_MONO");
     if (mono && (strcmp(mono, "1") == 0 || strcmp(mono, "true") == 0)) use_monotonic = true;
+
+#ifdef HXM_ENABLE_DEBUG_LOGGING
+    const char* home = getenv("HOME");
+    if (home) {
+        char path[1024];
+        snprintf(path, sizeof(path), "%s/hxm.log", home);
+        log_file = fopen(path, "a");
+        if (!log_file) {
+            fprintf(stderr, "Failed to open log file %s: %s\n", path, strerror(errno));
+        }
+    }
+#endif
 }
 
 static void format_timestamp(char* out, size_t out_sz, long* ms_out) {
@@ -93,23 +88,40 @@ static void format_timestamp(char* out, size_t out_sz, long* ms_out) {
 void hxm_log(enum log_level level, const char* fmt, ...) {
     log_init_once();
 
-    if (level < min_level) return;
-
     if (!fmt) fmt = "(null fmt)";
 
     char tsbuf[32];
     long ms = 0;
     format_timestamp(tsbuf, sizeof(tsbuf), &ms);
 
-    /* One fprintf for prefix + one vfprintf for body
-     * stdout is not used; keep logs together and unbuffered-ish
-     */
-    fprintf(stderr, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
-
-    va_list ap;
-    va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
-    va_end(ap);
-
-    fputc('\n', stderr);
+#ifdef HXM_ENABLE_DEBUG_LOGGING
+    if (log_file) {
+        fprintf(log_file, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
+        va_list ap;
+        va_start(ap, fmt);
+        vfprintf(log_file, fmt, ap);
+        va_end(ap);
+        fputc('\n', log_file);
+        fflush(log_file);
+    }
+    // Also print ERROR to stderr for visibility
+    if (level == LOG_ERROR) {
+        fprintf(stderr, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
+        va_list ap;
+        va_start(ap, fmt);
+        vfprintf(stderr, fmt, ap);
+        va_end(ap);
+        fputc('\n', stderr);
+    }
+#else
+    // In production, only log ERRORs to stderr
+    if (level == LOG_ERROR) {
+        fprintf(stderr, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
+        va_list ap;
+        va_start(ap, fmt);
+        vfprintf(stderr, fmt, ap);
+        va_end(ap);
+        fputc('\n', stderr);
+    }
+#endif
 }

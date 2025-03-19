@@ -165,19 +165,32 @@ enum log_level {
 
 void hxm_log(enum log_level level, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
 
+#ifdef HXM_ENABLE_DEBUG_LOGGING
 #define LOG_DEBUG(...) hxm_log(LOG_DEBUG, __VA_ARGS__)
 #define LOG_INFO(...) hxm_log(LOG_INFO, __VA_ARGS__)
 #define LOG_WARN(...) hxm_log(LOG_WARN, __VA_ARGS__)
 #define LOG_ERROR(...) hxm_log(LOG_ERROR, __VA_ARGS__)
 
-#ifdef HXM_DEBUG_TRACE
 #define TRACE_LOG(...) LOG_DEBUG(__VA_ARGS__)
 #define TRACE_WARN(...) LOG_WARN(__VA_ARGS__)
 #define TRACE_ONLY(...) \
     do {                \
         __VA_ARGS__;    \
     } while (0)
+
 #else
+
+#define LOG_DEBUG(...) \
+    do {               \
+    } while (0)
+#define LOG_INFO(...) \
+    do {              \
+    } while (0)
+#define LOG_WARN(...) \
+    do {              \
+    } while (0)
+#define LOG_ERROR(...) hxm_log(LOG_ERROR, __VA_ARGS__)
+
 #define TRACE_LOG(...) \
     do {               \
     } while (0)
@@ -187,6 +200,7 @@ void hxm_log(enum log_level level, const char* fmt, ...) __attribute__((format(p
 #define TRACE_ONLY(...) \
     do {                \
     } while (0)
+
 #endif
 
 // Perf counters

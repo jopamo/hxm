@@ -48,7 +48,7 @@ void wm_set_showing_desktop(server_t* s, bool show) {
             if (!hot->show_desktop_hidden) continue;
             hot->show_desktop_hidden = false;
             if (hot->state == STATE_UNMAPPED) {
-                TRACE_LOG("showing_desktop restore h=%lx xid=%u", h, hot->xid);
+                LOG_DEBUG("wm_desktop: Restoring client %lx from unmapped state", h);
                 wm_client_restore(s, h);
             }
         }

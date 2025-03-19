@@ -733,9 +733,10 @@ static void test_configure_notify_after_request(void) {
     }
 
     if (last.width != geom->width || last.height != geom->height) {
+        uint16_t gw = geom->width;
+        uint16_t gh = geom->height;
         free(geom);
-        failf("ConfigureNotify size mismatch: event %ux%u, geom %ux%u", last.width, last.height, geom->width,
-              geom->height);
+        failf("ConfigureNotify size mismatch: event %ux%u, geom %ux%u", last.width, last.height, gw, gh);
     }
     if (last.x != root_x || last.y != root_y) {
         free(geom);

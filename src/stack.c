@@ -69,12 +69,15 @@ static bool stack_vec_remove(server_t* s, small_vec_t* v, size_t idx) {
     return true;
 }
 
-#ifdef HXM_DEBUG_TRACE
-static void debug_dump_layer(const server_t* s, int layer, const char* tag) {
-    if (!s || layer < 0 || layer >= LAYER_COUNT) return;
+#include "hxm.h"
+#include "wm.h"
+#include "wm_internal.h"
 
-    const small_vec_t* v = &s->layers[layer];
-    LOG_DEBUG("stack %s layer=%d count=%zu", tag, layer, v->length);
+#ifdef HXM_ENABLE_DEBUG_LOGGING
+static void debug_dump_layer(const server_t* s, layer_t l, const char* tag) {
+    if (!s) return;
+    const small_vec_t* v = &s->layers[l];
+    LOG_DEBUG("stack %s layer=%d count=%zu", tag, l, v->length);
 
     for (size_t i = 0; i < v->length && i < 64; i++) {
         handle_t h = ptr_to_handle(v->items[i]);
@@ -84,7 +87,7 @@ static void debug_dump_layer(const server_t* s, int layer, const char* tag) {
     }
 
     if (v->length > 64) {
-        LOG_WARN("stack %s layer=%d guard hit at %d, possible loop", tag, layer, 64);
+        LOG_WARN("stack %s layer=%d guard hit at %d, possible loop", tag, l, 64);
     }
 }
 #endif

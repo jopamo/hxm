@@ -15,7 +15,7 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-#ifdef HXM_DEBUG_TRACE
+#ifdef HXM_ENABLE_DEBUG_LOGGING
 static void debug_dump_focus_history(const server_t* s, const char* tag) {
     if (!s) return;
     const list_node_t* head = &s->focus_history;
@@ -55,7 +55,7 @@ static void debug_dump_transients(const client_hot_t* hot, const char* tag) {
     int guard = 0;
     while (node != head && guard < 64) {
         if (!node->next || !node->prev) {
-            LOG_WARN("transients %s h=%lx: null link at node=%p", tag, hot->self, (void*)node);
+            LOG_WARN("transients %s: null link at node=%p", tag, (void*)node);
             break;
         }
         const client_hot_t* c = (const client_hot_t*)((const char*)node - offsetof(client_hot_t, transient_sibling));

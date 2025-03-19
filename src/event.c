@@ -955,6 +955,19 @@ void event_process(server_t* s) {
     wm_flush_dirty(s);
 }
 
+void server_schedule_timer(server_t* s, int ms) {
+    if (s->timer_fd <= 0) return;
+    struct itimerspec its;
+    its.it_interval.tv_sec = 0;
+    its.it_interval.tv_nsec = 0;  // One-shot
+    its.it_value.tv_sec = ms / 1000;
+    its.it_value.tv_nsec = (ms % 1000) * 1000000;
+    if (ms > 0 && its.it_value.tv_sec == 0 && its.it_value.tv_nsec == 0) {
+        its.it_value.tv_nsec = 1;  // Minimal positive value
+    }
+    timerfd_settime(s->timer_fd, 0, &its, NULL);
+}
+
 void event_drain_cookies(server_t* s) {
     if (!s) return;
 

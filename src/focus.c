@@ -10,7 +10,7 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-#ifdef HXM_DEBUG_TRACE
+#ifdef HXM_ENABLE_DEBUG_LOGGING
 static void debug_dump_focus_history(const server_t* s, const char* tag) {
     if (!s) return;
     const list_node_t* head = &s->focus_history;
