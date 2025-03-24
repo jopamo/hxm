@@ -188,6 +188,7 @@ typedef struct client_hot {
     dirty_region_t frame_damage;
 
     manage_phase_t manage_phase;
+    bool geometry_from_configure;
 
     // EWMH/ICCCM extras that some clients use for focus/sync heuristics
     uint32_t user_time;

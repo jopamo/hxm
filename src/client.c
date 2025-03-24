@@ -115,6 +115,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->xid = win;
     hot->state = STATE_NEW;
     hot->manage_phase = MANAGE_PHASE1;
+    hot->geometry_from_configure = false;
 
     hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
 

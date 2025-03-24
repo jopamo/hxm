@@ -698,25 +698,42 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     }
 
                     if (hot->state == STATE_NEW && hot->manage_phase != MANAGE_DONE) {
-                        if (hints.flags & (XCB_ICCCM_SIZE_HINT_US_SIZE | XCB_ICCCM_SIZE_HINT_P_SIZE)) {
-                            if (hot->desired.w == 0 && hints.width > 0) hot->desired.w = (uint16_t)hints.width;
-                            if (hot->desired.h == 0 && hints.height > 0) hot->desired.h = (uint16_t)hints.height;
+                        if (hints.flags &
+
+                            (XCB_ICCCM_SIZE_HINT_US_SIZE | XCB_ICCCM_SIZE_HINT_P_SIZE)) {
+                            // If ConfigureRequest happened, it takes precedence.
+
+                            // Only use hints if no configure request, or if desired is still 0.
+
+                            if (!hot->geometry_from_configure) {
+                                if (hints.width > 0) hot->desired.w = (uint16_t)hints.width;
+
+                                if (hints.height > 0) hot->desired.h = (uint16_t)hints.height;
+
+                            } else {
+                                // Safety: if configure request happened but set 0 size (unlikely), fallback to hints?
+
+                                if (hot->desired.w == 0 && hints.width > 0) hot->desired.w = (uint16_t)hints.width;
+
+                                if (hot->desired.h == 0 && hints.height > 0) hot->desired.h = (uint16_t)hints.height;
+                            }
                         }
-                        if (hints.flags & (XCB_ICCCM_SIZE_HINT_US_POSITION | XCB_ICCCM_SIZE_HINT_P_POSITION)) {
-                            // Position hints are usually respected unless a rule overrides them
-                            // or we have a better idea. For now, let's respect them if we
-                            // haven't placed it yet? But usually desired.x/y are 0 initially.
-                            // If ConfigureRequest set x/y, we might want to keep that too.
-                            // But let's check w/h first as that's the main bug.
-                            // For position, let's blindly apply for now or do the same check?
-                            // If ConfigureRequest happened, desired.x/y are set.
-                            // Let's assume hints.x/y might be stale too.
-                            // But 0,0 is a valid position.
-                            // Let's leave position logic as is for now, focus on size.
-                            hot->desired.x = (int16_t)hints.x;
-                            hot->desired.y = (int16_t)hints.y;
+
+                        if (hints.flags & (XCB_ICCCM_SIZE_HINT_US_POSITION |
+
+                                           XCB_ICCCM_SIZE_HINT_P_POSITION)) {
+                            // Do not overwrite ConfigureRequest position with hints.
+
+                            if (!hot->geometry_from_configure) {
+                                hot->desired.x = (int16_t)hints.x;
+
+                                hot->desired.y = (int16_t)hints.y;
+                            }
                         }
-                        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+
+                        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w,
+
+                                              &hot->desired.h);
                     }
                 }
 
