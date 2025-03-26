@@ -10,6 +10,7 @@
 #include "hxm.h"
 
 struct atoms atoms;
+static xcb_connection_t* g_conn_ref = NULL;
 
 static const char* atom_names[] = {
     "WM_PROTOCOLS",
@@ -115,17 +116,57 @@ static const char* atom_names[] = {
 };
 
 const char* atom_name(xcb_atom_t atom) {
+    if (atom == XCB_ATOM_NONE) return "NONE";
+
     const xcb_atom_t* values = (const xcb_atom_t*)&atoms;
     size_t count = sizeof(atoms) / sizeof(xcb_atom_t);
     for (size_t i = 0; i < count; i++) {
         if (values[i] == atom) return atom_names[i];
     }
+
+    // Dynamic resolution cache (Thread Local for safety)
+    // We use a small MRU cache per thread to avoid locking.
+    static _Thread_local struct {
+        xcb_atom_t atom;
+        char name[64];
+    } cache[8];
+    static _Thread_local int next_slot = 0;
+
+    // Check cache
+    for (int i = 0; i < 8; i++) {
+        if (cache[i].atom == atom) return cache[i].name;
+    }
+
+    if (!g_conn_ref) return "unknown";
+
+    // Resolve
+    // Note: xcb_get_atom_name is thread-safe as it writes a request to the XCB connection buffer.
+    // However, we rely on g_conn_ref being valid and stable (set at startup).
+    xcb_get_atom_name_cookie_t cookie = xcb_get_atom_name(g_conn_ref, atom);
+    xcb_get_atom_name_reply_t* reply = xcb_get_atom_name_reply(g_conn_ref, cookie, NULL);
+
+    if (reply) {
+        int len = xcb_get_atom_name_name_length(reply);
+        if (len > 63) len = 63;
+
+        int slot = next_slot;
+        next_slot = (next_slot + 1) % 8;
+
+        cache[slot].atom = atom;
+        memcpy(cache[slot].name, xcb_get_atom_name_name(reply), len);
+        cache[slot].name[len] = '\0';
+
+        free(reply);
+        return cache[slot].name;
+    }
+
     return "unknown";
 }
 
 void atoms_init(xcb_connection_t* conn) {
     xcb_intern_atom_cookie_t cookies[sizeof(atom_names) / sizeof(atom_names[0])];
     const size_t count = sizeof(atom_names) / sizeof(atom_names[0]);
+    g_conn_ref = conn;
 
     for (size_t i = 0; i < count; i++) {
         cookies[i] = xcb_intern_atom(conn, 0, strlen(atom_names[i]), atom_names[i]);

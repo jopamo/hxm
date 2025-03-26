@@ -206,6 +206,7 @@ void hxm_log(enum log_level level, const char* fmt, ...) __attribute__((format(p
 // Perf counters
 struct counters {
     uint64_t events_seen[256];  // X event type index
+    uint64_t events_unhandled[256];
     uint64_t coalesced_drops[256];
     uint64_t config_requests_applied;
     uint64_t restacks_applied;
@@ -220,5 +221,20 @@ extern struct counters counters;
 
 void counters_init(void);
 void counters_dump(void);
+
+// Rate limiter
+typedef struct {
+    uint64_t last_ns;
+    uint32_t suppressed;
+} rl_t;
+
+static inline bool rl_allow(rl_t* rl, uint64_t now_ns, uint64_t interval_ns) {
+    if (now_ns - rl->last_ns >= interval_ns) {
+        rl->last_ns = now_ns;
+        return true;
+    }
+    rl->suppressed++;
+    return false;
+}
 
 #endif  // HXM_H

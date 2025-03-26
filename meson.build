@@ -275,6 +275,13 @@ test_resize = executable('test_resize',
 )
 test('resize', test_resize)
 
+test_frame_destroy = executable('test_frame_destroy',
+  ['tests/test_frame_destroy.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('frame_destroy', test_frame_destroy)
+
 test_wm_config_theme = executable('test_wm_config_theme',
   ['tests/test_wm_config_theme.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
@@ -350,6 +357,34 @@ test_dirty_region = executable('test_dirty_region',
   dependencies: deps,
 )
 test('dirty_region', test_dirty_region)
+
+test_core = executable('test_core',
+  ['tests/test_core.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('core', test_core)
+
+test_slotmap_fail = executable('test_slotmap_fail',
+  ['tests/test_slotmap_fail.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('slotmap_fail', test_slotmap_fail)
+
+test_log_mono = executable('test_log_mono',
+  ['tests/test_log_mono.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('log_mono', test_log_mono)
+
+test_log_utc = executable('test_log_utc',
+  ['tests/test_log_utc.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('log_utc', test_log_utc)
 
 test_cookie_jar = executable('test_cookie_jar',
   ['tests/test_cookie_jar.c', 'tests/xcb_stubs.c'] + test_src,

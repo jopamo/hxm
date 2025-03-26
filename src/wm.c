@@ -483,7 +483,10 @@ void wm_handle_map_request(server_t* s, xcb_map_request_event_t* ev) {
         return;
     }
 
-    client_manage_start(s, ev->window);
+    // Check attributes asynchronously before managing
+    xcb_get_window_attributes_cookie_t ck = xcb_get_window_attributes(s->conn, ev->window);
+    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_CHECK_MANAGE_MAP_REQUEST, HANDLE_INVALID, (uint64_t)ev->window,
+                    s->txn_id, wm_handle_reply);
 }
 
 void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
@@ -500,13 +503,12 @@ void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
         return;
     }
 
+    // Ignore unmaps of the frame itself (only care about client window unmaps)
+    if (ev->window != hot->xid) return;
+
     // Process if reported on the window itself, its frame parent, or the root.
     // Applications withdrawing will trigger this.
     if (ev->event != hot->xid && ev->event != hot->frame && ev->event != s->root) return;
-
-    if (s->interaction_window == hot->frame) {
-        wm_cancel_interaction(s);
-    }
 
     TRACE_LOG("unmap_notify unmanage h=%lx xid=%u frame=%u", h, hot->xid, hot->frame);
     client_unmanage(s, h);
@@ -514,13 +516,34 @@ void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
 
 void wm_handle_destroy_notify(server_t* s, xcb_destroy_notify_event_t* ev) {
     TRACE_LOG("destroy_notify win=%u event=%u", ev->window, ev->event);
+
+    // Clean up pending states for unmanaged windows
+    small_vec_t* v = (small_vec_t*)hash_map_get(&s->pending_unmanaged_states, ev->window);
+    if (v) {
+        for (size_t i = 0; i < v->length; i++) free(v->items[i]);
+        small_vec_destroy(v);
+        free(v);
+        hash_map_remove(&s->pending_unmanaged_states, ev->window);
+    }
+
     handle_t h = server_get_client_by_window(s, ev->window);
+    if (h == HANDLE_INVALID) {
+        h = server_get_client_by_frame(s, ev->window);
+    }
+
     if (h == HANDLE_INVALID) return;
 
     client_hot_t* hot = server_chot(s, h);
     if (hot) {
-        if (s->interaction_window == hot->frame) {
-            wm_cancel_interaction(s);
+        // If the destroyed window is the frame, don't unmanage the client if it's still managed.
+        if (ev->window == hot->frame) {
+            if (hot->state == STATE_MAPPED) {
+                LOG_WARN("Frame %u destroyed for managed client %lx. Marking frame dead.", ev->window, h);
+                if (s->interaction_handle == h) {
+                    wm_cancel_interaction(s);
+                }
+                return;
+            }
         }
         hot->state = STATE_DESTROYED;
     }
@@ -575,6 +598,11 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
 }
 
 void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_event_t* ev) {
+    if (ev->atom == atoms._NET_WM_ALLOWED_ACTIONS || ev->atom == atoms._NET_FRAME_EXTENTS ||
+        ev->atom == atoms.WM_STATE || ev->atom == atoms._NET_WM_VISIBLE_NAME ||
+        ev->atom == atoms._NET_WM_VISIBLE_ICON_NAME || ev->atom == atoms._NET_WM_DESKTOP) {
+        return;
+    }
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
 
@@ -599,11 +627,12 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
                         ((uint64_t)hot->xid << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, s->txn_id, wm_handle_reply);
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
-        s->root_dirty |= ROOT_DIRTY_WORKAREA;
-        uint32_t long_len = (ev->atom == atoms._NET_WM_STRUT_PARTIAL) ? 12 : 4;
-        xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, ev->atom, XCB_ATOM_CARDINAL, 0, long_len);
+        s->workarea_dirty = true;
+        // Waterfall: Always request PARTIAL first. If it fails/empty, we fallback to STRUT in reply handler.
+        xcb_get_property_cookie_t ck =
+            xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12);
         cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
-                        ((uint64_t)hot->xid << 32) | (uint32_t)ev->atom, s->txn_id, wm_handle_reply);
+                        ((uint64_t)hot->xid << 32) | (uint32_t)atoms._NET_WM_STRUT_PARTIAL, s->txn_id, wm_handle_reply);
     } else if (ev->atom == atoms._NET_WM_WINDOW_OPACITY) {
         hot->dirty |= DIRTY_OPACITY;
     } else if (ev->atom == atoms._MOTIF_WM_HINTS) {
@@ -736,11 +765,25 @@ static void wm_update_cursor(server_t* s, xcb_window_t win, int dir) {
 
 void wm_cancel_interaction(server_t* s) {
     if (s->interaction_mode == INTERACTION_NONE) return;
+    xcb_window_t frame = s->interaction_window;
+    handle_t h = s->interaction_handle;
     s->interaction_mode = INTERACTION_NONE;
-    s->interaction_resize_dir = RESIZE_NONE;
     s->interaction_window = XCB_NONE;
+    s->interaction_handle = HANDLE_INVALID;
+    s->interaction_resize_dir = RESIZE_NONE;
     s->interaction_time = 0;
     xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
+    if (frame != XCB_NONE) {
+        client_hot_t* hot = server_chot(s, h);
+        if (!hot) {
+            handle_t fh = server_get_client_by_frame(s, frame);
+            hot = server_chot(s, fh);
+        }
+        if (hot) {
+            wm_update_cursor(s, hot->frame, RESIZE_NONE);
+            hot->last_cursor_dir = RESIZE_NONE;
+        }
+    }
     LOG_INFO("Ended interaction");
 }
 
@@ -751,6 +794,7 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
     s->interaction_mode = start_move ? INTERACTION_MOVE : INTERACTION_RESIZE;
     s->interaction_resize_dir = resize_dir;
     s->interaction_window = hot->frame;
+    s->interaction_handle = h;
     s->interaction_time = time;
 
     s->interaction_start_x = hot->server.x;
@@ -785,14 +829,25 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
     xcb_grab_pointer_cookie_t cookie =
         xcb_grab_pointer(s->conn, 0, s->root,
                          XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_BUTTON_MOTION | XCB_EVENT_MASK_POINTER_MOTION,
-                         XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, cursor, XCB_CURRENT_TIME);
+                         XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, cursor, time ? time : XCB_CURRENT_TIME);
 
     xcb_grab_pointer_reply_t* reply = xcb_grab_pointer_reply(s->conn, cookie, NULL);
+    bool success = false;
     if (reply) {
-        LOG_INFO("grab_pointer status=%u on root=%u", reply->status, s->root);
+        if (reply->status == XCB_GRAB_STATUS_SUCCESS) {
+            success = true;
+            LOG_INFO("grab_pointer success status=%u on root=%u", reply->status, s->root);
+        } else {
+            LOG_ERROR("grab_pointer failed status=%u on root=%u", reply->status, s->root);
+        }
         free(reply);
     } else {
         LOG_ERROR("grab_pointer reply was NULL");
+    }
+
+    if (!success) {
+        wm_cancel_interaction(s);
+        return;
     }
 
     LOG_INFO("Started interactive %s for client %lx (dir=%d)", start_move ? "MOVE" : "RESIZE", h, resize_dir);
@@ -956,6 +1011,15 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
 
     LOG_DEBUG("MotionNotify interactive: root=%d,%d event=%u child=%u", ev->root_x, ev->root_y, ev->event, ev->child);
 
+    // Safety: if no buttons are down, force end interaction
+    // This prevents "stuck drag" if we missed a ButtonRelease or if interaction started late
+    if (!(ev->state & (XCB_KEY_BUT_MASK_BUTTON_1 | XCB_KEY_BUT_MASK_BUTTON_2 | XCB_KEY_BUT_MASK_BUTTON_3 |
+                       XCB_KEY_BUT_MASK_BUTTON_4 | XCB_KEY_BUT_MASK_BUTTON_5))) {
+        LOG_INFO("MotionNotify with no buttons down (state=0x%x): forcing interaction end", ev->state);
+        wm_cancel_interaction(s);
+        return;
+    }
+
     handle_t h = server_get_client_by_frame(s, s->interaction_window);
     client_hot_t* hot = server_chot(s, h);
     if (!hot) {
@@ -992,8 +1056,13 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
     }
 
     // Constrain size
-    uint16_t w = (uint16_t)(new_w > 50 ? new_w : 50);
-    uint16_t h_val = (uint16_t)(new_h > 50 ? new_h : 50);
+    if (new_w < MIN_FRAME_SIZE) new_w = MIN_FRAME_SIZE;
+    if (new_w > MAX_FRAME_SIZE) new_w = MAX_FRAME_SIZE;
+    if (new_h < MIN_FRAME_SIZE) new_h = MIN_FRAME_SIZE;
+    if (new_h > MAX_FRAME_SIZE) new_h = MAX_FRAME_SIZE;
+
+    uint16_t w = (uint16_t)new_w;
+    uint16_t h_val = (uint16_t)new_h;
 
     // Apply hints
     client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
@@ -1036,17 +1105,19 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
         }
 
         if (action == 2) {
-            if (hot->state == STATE_MAPPED)
+            if (hot->state == STATE_MAPPED) {
                 wm_client_iconify(s, h);
-            else {
+            } else if (hot->state == STATE_UNMAPPED) {
                 LOG_DEBUG("wm_client_update_state: Restoring client %lx (action=2, hidden)", h);
                 wm_client_restore(s, h);
             }
         } else if (action == 1) {
             wm_client_iconify(s, h);
         } else if (action == 0) {
-            LOG_DEBUG("wm_client_update_state: Restoring client %lx (action=0, hidden)", h);
-            wm_client_restore(s, h);
+            if (hot->state == STATE_UNMAPPED) {
+                LOG_DEBUG("wm_client_update_state: Restoring client %lx (action=0, hidden)", h);
+                wm_client_restore(s, h);
+            }
         }
         return;
     }
@@ -1288,7 +1359,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
             }
         }
         wm_publish_desktop_props(s);
-        s->root_dirty |= ROOT_DIRTY_WORKAREA;
+        s->workarea_dirty = true;
         return;
     }
 
@@ -1312,15 +1383,24 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
             client_hot_t* hot = server_chot(s, h);
             if (!hot) return;
             TRACE_LOG("_NET_ACTIVE_WINDOW h=%lx xid=%u state=%d desktop=%d", h, hot->xid, hot->state, hot->desktop);
+
+            if (hot->manage_phase != MANAGE_DONE || hot->frame == XCB_WINDOW_NONE) {
+                LOG_DEBUG("Ignoring _NET_ACTIVE_WINDOW for incomplete client %lx phase=%d", h, hot->manage_phase);
+                return;
+            }
+
             if (!hot->sticky && hot->desktop >= 0 && (uint32_t)hot->desktop != s->current_desktop) {
                 wm_switch_workspace(s, (uint32_t)hot->desktop);
             }
-            if (hot->state == STATE_UNMAPPED) {
+            bool was_unmapped = (hot->state == STATE_UNMAPPED);
+            if (was_unmapped) {
                 LOG_DEBUG("wm_handle_client_message: Restoring client %lx (NET_ACTIVE_WINDOW)", h);
                 wm_client_restore(s, h);
             }
             wm_set_focus(s, h);
-            stack_raise(s, h);
+            if (!s->config.focus_raise && !was_unmapped) {
+                stack_raise(s, h);
+            }
         }
         return;
     }
@@ -1328,13 +1408,45 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     if (ev->type == atoms._NET_WM_STATE) {
         if (ev->format != 32) return;
         handle_t h = server_get_client_by_window(s, ev->window);
+        uint32_t action = ev->data.data32[0];
+        xcb_atom_t p1 = ev->data.data32[1];
+        xcb_atom_t p2 = ev->data.data32[2];
+        TRACE_LOG("_NET_WM_STATE h=%lx win=%u action=%u p1=%s(%u) p2=%s(%u)", h, ev->window, action, atom_name(p1), p1,
+                  atom_name(p2), p2);
+
         if (h != HANDLE_INVALID) {
-            uint32_t action = ev->data.data32[0];
-            xcb_atom_t p1 = ev->data.data32[1];
-            xcb_atom_t p2 = ev->data.data32[2];
-            TRACE_LOG("_NET_WM_STATE h=%lx action=%u p1=%u p2=%u", h, action, p1, p2);
-            if (p1 != XCB_ATOM_NONE) wm_client_update_state(s, h, action, p1);
-            if (p2 != XCB_ATOM_NONE) wm_client_update_state(s, h, action, p2);
+            client_hot_t* hot = server_chot(s, h);
+            if (!hot) return;
+
+            if (hot->manage_phase != MANAGE_DONE || hot->frame == XCB_WINDOW_NONE) {
+                if (hot->pending_state_count < 4) {
+                    LOG_DEBUG("Queueing _NET_WM_STATE for incomplete client %lx", h);
+                    hot->pending_state_msgs[hot->pending_state_count].action = action;
+                    hot->pending_state_msgs[hot->pending_state_count].p1 = p1;
+                    hot->pending_state_msgs[hot->pending_state_count].p2 = p2;
+                    hot->pending_state_count++;
+                } else {
+                    LOG_WARN("Dropping _NET_WM_STATE for client %lx (queue full)", h);
+                }
+                return;
+            }
+
+            if (p1 != XCB_ATOM_NONE) {
+                if (p1 == atoms._NET_WM_STATE_HIDDEN) {
+                    LOG_DEBUG("Ignoring client request for _NET_WM_STATE_HIDDEN (WM owned)");
+                } else {
+                    wm_client_update_state(s, h, action, p1);
+                }
+            }
+            if (p2 != XCB_ATOM_NONE) {
+                if (p2 == atoms._NET_WM_STATE_HIDDEN) {
+                    LOG_DEBUG("Ignoring client request for _NET_WM_STATE_HIDDEN (WM owned)");
+                } else {
+                    wm_client_update_state(s, h, action, p2);
+                }
+            }
+        } else {
+            LOG_DEBUG("Ignoring _NET_WM_STATE for unmanaged window %u", ev->window);
         }
         return;
     }
@@ -1600,7 +1712,9 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         TRACE_LOG("_NET_WM_MOVERESIZE h=%lx root=%d,%d use_query=%d", h, root_x, root_y, use_pointer_query);
 
         if (use_pointer_query) {
-            uintptr_t data = (start_move ? 0x100 : 0) | (uintptr_t)resize_dir;
+            bool is_keyboard =
+                (direction == NET_WM_MOVERESIZE_SIZE_KEYBOARD || direction == NET_WM_MOVERESIZE_MOVE_KEYBOARD);
+            uintptr_t data = (start_move ? 0x100 : 0) | (is_keyboard ? 0x200 : 0) | (uintptr_t)resize_dir;
             xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
             cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, s->txn_id, wm_handle_reply);
         } else {

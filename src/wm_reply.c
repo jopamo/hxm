@@ -239,6 +239,9 @@ static void abort_manage(server_t* s, handle_t h) {
     if (!hot || !cold) return;
 
     if (hot->xid != XCB_NONE) {
+        // If we are aborting management (e.g. override_redirect or special type),
+        // make sure the window is mapped so it appears.
+        xcb_map_window(s->conn, hot->xid);
         hash_map_remove(&s->window_to_client, hot->xid);
     }
 
@@ -398,12 +401,49 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
     }
 
     if (slot->client == HANDLE_INVALID) {
-        if (slot->type == COOKIE_GET_WINDOW_ATTRIBUTES && reply) {
+        if ((slot->type == COOKIE_GET_WINDOW_ATTRIBUTES || slot->type == COOKIE_CHECK_MANAGE_MAP_REQUEST) && reply) {
             xcb_get_window_attributes_reply_t* r = (xcb_get_window_attributes_reply_t*)reply;
             xcb_window_t win = (xcb_window_t)slot->data;
-            if (!r->override_redirect && r->map_state != XCB_MAP_STATE_UNMAPPED) {
-                LOG_INFO("Adopting window %u (map_state %d)", win, r->map_state);
-                client_manage_start(s, win);
+
+            // Log window classification
+            const char* class_str = (r->_class == XCB_WINDOW_CLASS_INPUT_ONLY) ? "InputOnly" : "InputOutput";
+            LOG_DEBUG("Classify win=%u override=%d class=%s map_state=%d", win, r->override_redirect, class_str,
+                      r->map_state);
+
+            // Hard Rules:
+            // 1. Must not be InputOnly
+            // 2. Must not be override_redirect
+            // 3. For adoption (COOKIE_GET_WINDOW_ATTRIBUTES), must be mapped.
+            // 4. For MapRequest (COOKIE_CHECK_MANAGE_MAP_REQUEST), map_state is irrelevant (usually Unmapped).
+
+            bool is_input_only = (r->_class == XCB_WINDOW_CLASS_INPUT_ONLY);
+            bool is_override = (r->override_redirect != 0);
+            bool is_mapped = (r->map_state != XCB_MAP_STATE_UNMAPPED);
+            bool is_map_request = (slot->type == COOKIE_CHECK_MANAGE_MAP_REQUEST);
+
+            if (is_input_only) {
+                LOG_DEBUG("Ignoring InputOnly window %u", win);
+                if (is_map_request) {
+                    // If it requested mapping but we ignore it, we should map it so it works?
+                    // "InputOnly windows ... are not visible ... used for events".
+                    // Yes, we must map it if we don't manage it, otherwise it stays unmapped.
+                    xcb_map_window(s->conn, win);
+                }
+            } else if (is_override) {
+                LOG_DEBUG("Ignoring override_redirect window %u", win);
+                if (is_map_request) {
+                    // Should not happen for MapRequest, but if it does, map it.
+                    xcb_map_window(s->conn, win);
+                }
+            } else {
+                // Good candidate
+                if (is_map_request || is_mapped) {
+                    // Check if already managed (race condition)
+                    if (server_get_client_by_window(s, win) == HANDLE_INVALID) {
+                        LOG_INFO("Adopting window %u (map_state %d)", win, r->map_state);
+                        client_manage_start(s, win);
+                    }
+                }
             }
         } else if (slot->type == COOKIE_GET_PROPERTY_FRAME_EXTENTS) {
             xcb_get_property_reply_t* r = (xcb_get_property_reply_t*)reply;
@@ -834,30 +874,40 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             hot->type_from_net = true;
+                            if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+                                hot->manage_aborted = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_POPUP_MENU) {
                             hot->type = WINDOW_TYPE_POPUP_MENU;
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             hot->type_from_net = true;
+                            if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+                                hot->manage_aborted = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_TOOLTIP) {
                             hot->type = WINDOW_TYPE_TOOLTIP;
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             hot->type_from_net = true;
+                            if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+                                hot->manage_aborted = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_COMBO) {
                             hot->type = WINDOW_TYPE_COMBO;
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             hot->type_from_net = true;
+                            if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+                                hot->manage_aborted = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_DND) {
                             hot->type = WINDOW_TYPE_DND;
                             hot->base_layer = LAYER_OVERLAY;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             hot->type_from_net = true;
+                            if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+                                hot->manage_aborted = true;
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_NORMAL) {
                             hot->type = WINDOW_TYPE_NORMAL;
@@ -957,9 +1007,21 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     *active = false;
                 }
 
+                // Waterfall: If PARTIAL failed (or empty), try legacy STRUT
+                if (is_partial && !*active) {
+                    xcb_get_property_cookie_t ck =
+                        xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4);
+                    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, slot->client,
+                                    ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT, s->txn_id, wm_handle_reply);
+                }
+
                 client_update_effective_strut(cold);
-                TRACE_LOG("strut_reply xid=%u atom=%s len=%d active=%d top=%u", hot->xid,
-                          is_partial ? "_NET_WM_STRUT_PARTIAL" : "_NET_WM_STRUT", len, *active, cold->strut.top);
+                static rl_t rl_strut = {0};
+                if (rl_allow(&rl_strut, monotonic_time_ns(), 1000000000)) {
+                    TRACE_LOG("strut_reply xid=%u atom=%s len=%d active=%d top=%u", hot->xid,
+                              is_partial ? "_NET_WM_STRUT_PARTIAL" : "_NET_WM_STRUT", len, *active, cold->strut.top);
+                }
+                s->workarea_dirty = true;
                 s->root_dirty |= ROOT_DIRTY_WORKAREA;
 
             } else if (atom == atoms.WM_HINTS) {
@@ -1158,6 +1220,14 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             int16_t root_y = r->root_y;
             bool is_move = (slot->data & 0x100) != 0;
             int resize_dir = (int)(slot->data & 0xFF);
+
+            bool is_keyboard = (slot->data & 0x200) != 0;
+            if (!is_keyboard &&
+                !(r->mask & (XCB_KEY_BUT_MASK_BUTTON_1 | XCB_KEY_BUT_MASK_BUTTON_2 | XCB_KEY_BUT_MASK_BUTTON_3 |
+                             XCB_KEY_BUT_MASK_BUTTON_4 | XCB_KEY_BUT_MASK_BUTTON_5))) {
+                LOG_INFO("Ignoring start interaction (mouse) with no buttons down");
+                break;
+            }
 
             wm_start_interaction(s, slot->client, hot, is_move, resize_dir, root_x, root_y, 0);
             break;

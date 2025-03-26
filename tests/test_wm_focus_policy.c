@@ -336,6 +336,7 @@ void test_move_interaction(void) {
     mev.event = s.root;
     mev.root_x = 60;  // Moved by 10
     mev.root_y = 70;  // Moved by 20
+    mev.state = XCB_KEY_BUT_MASK_BUTTON_1;
 
     wm_handle_motion_notify(&s, &mev);
 

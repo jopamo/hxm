@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcb/xcb_icccm.h>
 
 #include "client.h"
 #include "ds.h"
@@ -36,8 +37,11 @@ void test_resize_logic(void) {
         exit(1);
     }
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    assert(h != HANDLE_INVALID);
+    assert(hot_ptr != NULL);
+    assert(cold_ptr != NULL);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
 
     // Setup client
@@ -55,6 +59,7 @@ void test_resize_logic(void) {
     hot->hints.base_h = 0;
     hot->hints.inc_w = 1;
     hot->hints.inc_h = 1;
+    hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE | XCB_ICCCM_SIZE_HINT_P_MAX_SIZE;
 
     // Init list nodes
     hot->stacking_index = -1;
@@ -134,6 +139,7 @@ void test_resize_logic(void) {
     memset(&ev, 0, sizeof(ev));
     ev.root_x = 510;
     ev.root_y = 510;
+    ev.state = XCB_KEY_BUT_MASK_BUTTON_1;
 
     wm_handle_motion_notify(&s, &ev);
 
@@ -148,6 +154,7 @@ void test_resize_logic(void) {
 
     ev.root_x = 490;
     ev.root_y = 500;
+    ev.state = XCB_KEY_BUT_MASK_BUTTON_1;
 
     wm_handle_motion_notify(&s, &ev);
 
@@ -162,6 +169,7 @@ void test_resize_logic(void) {
 
     ev.root_x = 500;
     ev.root_y = 490;
+    ev.state = XCB_KEY_BUT_MASK_BUTTON_1;
 
     wm_handle_motion_notify(&s, &ev);
 
@@ -175,6 +183,7 @@ void test_resize_logic(void) {
     s.interaction_resize_dir = RESIZE_TOP | RESIZE_LEFT;
     ev.root_x = 480;
     ev.root_y = 480;
+    ev.state = XCB_KEY_BUT_MASK_BUTTON_1;
 
     wm_handle_motion_notify(&s, &ev);
 
@@ -188,6 +197,7 @@ void test_resize_logic(void) {
     s.interaction_resize_dir = RESIZE_LEFT;
     ev.root_x = 700;  // 500 + 200
     ev.root_y = 500;
+    ev.state = XCB_KEY_BUT_MASK_BUTTON_1;
 
     wm_handle_motion_notify(&s, &ev);
 

@@ -76,7 +76,7 @@ static void test_wm_icon_name_fallback(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
@@ -132,7 +132,7 @@ static void test_wm_class_invalid_no_nul(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
@@ -176,7 +176,7 @@ static void test_wm_client_machine_large(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
@@ -220,7 +220,7 @@ static void test_wm_command_first_token(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
@@ -259,7 +259,7 @@ static void test_wm_hints_input_affects_focus(void) {
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
     list_init(&s.focus_history);
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
@@ -330,7 +330,7 @@ static void test_wm_hints_icon_safe(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;

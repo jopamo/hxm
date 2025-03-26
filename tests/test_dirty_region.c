@@ -55,8 +55,32 @@ void test_dirty_region_invalid_inputs(void) {
     printf("test_dirty_region_invalid_inputs passed\n");
 }
 
+void test_dirty_region_union_resets_on_invalid_geometry(void) {
+    dirty_region_t r = {0};
+    r.x = 10;
+    r.y = 10;
+    r.w = 0;
+    r.h = 0;
+    r.valid = true;
+
+    dirty_region_t src = {0};
+    src.x = 10;
+    src.y = 10;
+    src.w = 0;
+    src.h = 0;
+    src.valid = true;
+
+    dirty_region_union(&r, &src);
+    assert(!r.valid);
+    assert(r.w == 0);
+    assert(r.h == 0);
+
+    printf("test_dirty_region_union_resets_on_invalid_geometry passed\n");
+}
+
 int main(void) {
     test_dirty_region_union_and_clamp();
     test_dirty_region_invalid_inputs();
+    test_dirty_region_union_resets_on_invalid_geometry();
     return 0;
 }

@@ -58,6 +58,8 @@ void wm_install_client_colormap(server_t* s, client_hot_t* hot) {
 
 void wm_set_focus(server_t* s, handle_t h) {
     TRACE_LOG("set_focus from=%lx to=%lx", s->focused_client, h);
+    if (s->focused_client == h) return;
+
     bool same_focus = (s->focused_client == h);
     if (same_focus && h == HANDLE_INVALID) return;
 
@@ -98,7 +100,7 @@ void wm_set_focus(server_t* s, handle_t h) {
             TRACE_ONLY(debug_dump_focus_history(s, "after focus insert"));
         }
 
-        if (s->config.focus_raise) {
+        if (s->config.focus_raise && !same_focus) {
             TRACE_LOG("set_focus raise h=%lx", h);
             stack_raise(s, h);
         }

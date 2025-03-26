@@ -57,7 +57,7 @@ void test_icccm_protocols(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
@@ -116,7 +116,7 @@ void test_client_close(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
@@ -180,7 +180,7 @@ void test_wm_take_focus_on_focus(void) {
     list_init(&s.focus_history);
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
@@ -313,7 +313,7 @@ void test_name_fallback(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;

@@ -4,6 +4,9 @@
 #include "event.h"
 #include "hxm.h"
 
+#define MIN_FRAME_SIZE 32
+#define MAX_FRAME_SIZE 65535
+
 uint32_t wm_clean_mods(uint16_t state);
 
 // Exposed interaction logic

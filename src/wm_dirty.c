@@ -5,7 +5,6 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
-#include <xcb/sync.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_icccm.h>
 
@@ -38,19 +37,6 @@ static void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t 
     xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
 }
 
-static void wm_sync_await(server_t* s, const client_hot_t* hot, uint64_t value) {
-    xcb_sync_waitcondition_t wc;
-    memset(&wc, 0, sizeof(wc));
-    wc.trigger.counter = (xcb_sync_counter_t)hot->sync_counter;
-    wc.trigger.wait_type = XCB_SYNC_VALUETYPE_ABSOLUTE;
-    wc.trigger.wait_value.hi = (int32_t)(value >> 32);
-    wc.trigger.wait_value.lo = (uint32_t)(value & 0xFFFFFFFFu);
-    wc.trigger.test_type = XCB_SYNC_TESTTYPE_POSITIVE_COMPARISON;
-    wc.event_threshold.hi = 0;
-    wc.event_threshold.lo = 0;
-    xcb_sync_await(s->conn, 1, &wc);
-}
-
 void wm_send_synthetic_configure(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
@@ -80,6 +66,15 @@ void wm_send_synthetic_configure(server_t* s, handle_t h) {
     ev->border_width = 0;
     ev->override_redirect = hot->override_redirect;
 
+    if (hot->last_synthetic_geom.x == ev->x && hot->last_synthetic_geom.y == ev->y &&
+        hot->last_synthetic_geom.w == ev->width && hot->last_synthetic_geom.h == ev->height) {
+        return;
+    }
+    hot->last_synthetic_geom.x = ev->x;
+    hot->last_synthetic_geom.y = ev->y;
+    hot->last_synthetic_geom.w = ev->width;
+    hot->last_synthetic_geom.h = ev->height;
+
     TRACE_LOG("synthetic_configure xid=%u x=%d y=%d w=%u h=%u", hot->xid, ev->x, ev->y, ev->width, ev->height);
     xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_STRUCTURE_NOTIFY, buffer);
 }
@@ -90,18 +85,20 @@ void wm_publish_workarea(server_t* s, const rect_t* wa) {
     bool changed = (memcmp(&s->workarea, wa, sizeof(rect_t)) != 0);
     s->workarea = *wa;
 
-    uint32_t n = s->desktop_count ? s->desktop_count : 1;
-    uint32_t* wa_vals = malloc(n * 4 * sizeof(uint32_t));
-    if (wa_vals) {
-        for (uint32_t i = 0; i < n; i++) {
-            wa_vals[i * 4 + 0] = (uint32_t)s->workarea.x;
-            wa_vals[i * 4 + 1] = (uint32_t)s->workarea.y;
-            wa_vals[i * 4 + 2] = (uint32_t)s->workarea.w;
-            wa_vals[i * 4 + 3] = (uint32_t)s->workarea.h;
+    if (changed) {
+        uint32_t n = s->desktop_count ? s->desktop_count : 1;
+        uint32_t* wa_vals = malloc(n * 4 * sizeof(uint32_t));
+        if (wa_vals) {
+            for (uint32_t i = 0; i < n; i++) {
+                wa_vals[i * 4 + 0] = (uint32_t)s->workarea.x;
+                wa_vals[i * 4 + 1] = (uint32_t)s->workarea.y;
+                wa_vals[i * 4 + 2] = (uint32_t)s->workarea.w;
+                wa_vals[i * 4 + 3] = (uint32_t)s->workarea.h;
+            }
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_WORKAREA, XCB_ATOM_CARDINAL, 32,
+                                n * 4, wa_vals);
+            free(wa_vals);
         }
-        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_WORKAREA, XCB_ATOM_CARDINAL, 32, n * 4,
-                            wa_vals);
-        free(wa_vals);
     }
 
     if (!changed) return;
@@ -178,8 +175,6 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
  */
 void wm_flush_dirty(server_t* s) {
     s->in_commit_phase = true;
-    handle_t sync_wait_client = HANDLE_INVALID;
-    uint64_t sync_wait_value = 0;
 
     // 0. Handle new clients ready to be managed
     for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
@@ -216,6 +211,7 @@ void wm_flush_dirty(server_t* s) {
                 xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                     state_vals);
             } else {
+                if (c->ignore_unmap < UINT8_MAX) c->ignore_unmap++;
                 xcb_unmap_window(s->conn, c->frame);
                 uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
                 xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
@@ -232,7 +228,14 @@ void wm_flush_dirty(server_t* s) {
         client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
 
         if (hot->dirty == DIRTY_NONE) continue;
-        TRACE_LOG("flush_dirty h=%lx xid=%u dirty=0x%x state=%d", h, hot->xid, hot->dirty, hot->state);
+
+        bool dirty_changed = (hot->dirty != hot->last_log_dirty);
+        bool dirty_interesting = (hot->dirty & (DIRTY_GEOM | DIRTY_STACK | DIRTY_STATE));
+        if (dirty_changed || dirty_interesting) {
+            TRACE_LOG("flush_dirty h=%lx xid=%u dirty=0x%x state=%d", h, hot->xid, hot->dirty, hot->state);
+            hot->last_log_dirty = hot->dirty;
+        }
+
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED || hot->state == STATE_NEW) continue;
 
         if (hot->dirty & DIRTY_GEOM) {
@@ -254,15 +257,9 @@ void wm_flush_dirty(server_t* s) {
 
             bool interactive_resize =
                 (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame);
-            bool do_sync = interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE;
-            uint64_t sync_value = 0;
-            if (do_sync) {
-                sync_value = ++hot->sync_value;
+            if (interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE) {
+                uint64_t sync_value = ++hot->sync_value;
                 wm_send_sync_request(s, hot, sync_value, s->interaction_time);
-                if (sync_wait_client == HANDLE_INVALID) {
-                    sync_wait_client = h;
-                    sync_wait_value = sync_value;
-                }
             }
 
             uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
@@ -281,11 +278,8 @@ void wm_flush_dirty(server_t* s) {
 
             // Robust clamping: Ensure frame is at least large enough for
             // decorations/buttons and client is never <= 0.
-            uint32_t min_frame_w = 32;
-            uint32_t min_frame_h = 32;
-
-            if (hot->desired.w < min_frame_w) hot->desired.w = (uint16_t)min_frame_w;
-            if (hot->desired.h < min_frame_h) hot->desired.h = (uint16_t)min_frame_h;
+            if (hot->desired.w < MIN_FRAME_SIZE) hot->desired.w = (uint16_t)MIN_FRAME_SIZE;
+            if (hot->desired.h < MIN_FRAME_SIZE) hot->desired.h = (uint16_t)MIN_FRAME_SIZE;
 
             int32_t frame_x = hot->desired.x;
             int32_t frame_y = hot->desired.y;
@@ -322,56 +316,63 @@ void wm_flush_dirty(server_t* s) {
             TRACE_LOG("apply_geom: frame(%dx%d+%d+%d) extents_set=%d -> client(%dx%d)", frame_w, frame_h, frame_x,
                       frame_y, hot->gtk_frame_extents_set, client_w, client_h);
 
-            uint32_t frame_values[4];
-            frame_values[0] = (uint32_t)frame_x;
-            frame_values[1] = (uint32_t)frame_y;
-            frame_values[2] = frame_w;
-            frame_values[3] = frame_h;
+            bool geom_changed = (hot->server.x != (int16_t)frame_x || hot->server.y != (int16_t)frame_y ||
+                                 hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h);
 
-            xcb_configure_window(
-                s->conn, hot->frame,
-                XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
-                frame_values);
+            if (geom_changed) {
+                uint32_t frame_values[4];
+                frame_values[0] = (uint32_t)frame_x;
+                frame_values[1] = (uint32_t)frame_y;
+                frame_values[2] = frame_w;
+                frame_values[3] = frame_h;
 
-            uint32_t client_values[4];
-            client_values[0] = (uint32_t)client_x;
-            client_values[1] = (uint32_t)client_y;
-            client_values[2] = client_w;
-            client_values[3] = client_h;
+                xcb_configure_window(
+                    s->conn, hot->frame,
+                    XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+                    frame_values);
 
-            xcb_configure_window(
-                s->conn, hot->xid,
-                XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
-                client_values);
+                uint32_t client_values[4];
+                client_values[0] = (uint32_t)client_x;
+                client_values[1] = (uint32_t)client_y;
+                client_values[2] = client_w;
+                client_values[3] = client_h;
 
-            // Set _NET_FRAME_EXTENTS
-            uint32_t extents[4] = {bw, bw, th + bw, bw};
-            if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
-                extents[0] = 0;
-                extents[1] = 0;
-                extents[2] = 0;
-                extents[3] = 0;
+                xcb_configure_window(
+                    s->conn, hot->xid,
+                    XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+                    client_values);
+
+                // Set _NET_FRAME_EXTENTS
+                uint32_t extents[4] = {bw, bw, th + bw, bw};
+                if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
+                    extents[0] = 0;
+                    extents[1] = 0;
+                    extents[2] = 0;
+                    extents[3] = 0;
+                }
+                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS,
+                                    XCB_ATOM_CARDINAL, 32, 4, extents);
+
+                // Update server state immediately to ensure redraw uses correct geometry
+                hot->server.x = (int16_t)frame_x;
+                hot->server.y = (int16_t)frame_y;
+                hot->server.w = (uint16_t)client_w;
+                hot->server.h = (uint16_t)client_h;
+
+                frame_redraw(s, h, FRAME_REDRAW_ALL);
+
+                LOG_DEBUG("Flushed DIRTY_GEOM for %lx: %d,%d %dx%d", h, hot->pending.x, hot->pending.y, hot->pending.w,
+                          hot->pending.h);
+            } else {
+                TRACE_LOG("Skipping DIRTY_GEOM for %lx (unchanged)", h);
             }
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL,
-                                32, 4, extents);
-
-            // Update server state immediately to ensure redraw uses correct geometry
-            hot->server.x = (int16_t)frame_x;
-            hot->server.y = (int16_t)frame_y;
-            hot->server.w = (uint16_t)client_w;
-            hot->server.h = (uint16_t)client_h;
 
             wm_send_synthetic_configure(s, h);
-
-            frame_redraw(s, h, FRAME_REDRAW_ALL);
 
             hot->pending = hot->desired;
             hot->pending_epoch++;
 
             hot->dirty &= ~DIRTY_GEOM;
-
-            LOG_DEBUG("Flushed DIRTY_GEOM for %lx: %d,%d %dx%d", h, hot->pending.x, hot->pending.y, hot->pending.w,
-                      hot->pending.h);
         }
 
         if (hot->dirty & DIRTY_TITLE) {
@@ -629,7 +630,10 @@ void wm_flush_dirty(server_t* s) {
     if (s->root_dirty & ROOT_DIRTY_WORKAREA) {
         rect_t wa;
         wm_compute_workarea(s, &wa);
-        TRACE_LOG("publish_workarea x=%d y=%d w=%u h=%u", wa.x, wa.y, wa.w, wa.h);
+        static rl_t rl_wa = {0};
+        if (rl_allow(&rl_wa, monotonic_time_ns(), 1000000000)) {
+            TRACE_LOG("publish_workarea x=%d y=%d w=%u h=%u", wa.x, wa.y, wa.w, wa.h);
+        }
         wm_publish_workarea(s, &wa);
 
         s->root_dirty &= ~ROOT_DIRTY_WORKAREA;
@@ -646,13 +650,6 @@ void wm_flush_dirty(server_t* s) {
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_SHOWING_DESKTOP, XCB_ATOM_CARDINAL, 32,
                             1, &val);
         s->root_dirty &= ~ROOT_DIRTY_SHOWING_DESKTOP;
-    }
-
-    if (sync_wait_client != HANDLE_INVALID) {
-        client_hot_t* wait_hot = server_chot(s, sync_wait_client);
-        if (wait_hot && wait_hot->sync_enabled && wait_hot->sync_counter != XCB_NONE) {
-            wm_sync_await(s, wait_hot, sync_wait_value);
-        }
     }
 
     s->in_commit_phase = false;

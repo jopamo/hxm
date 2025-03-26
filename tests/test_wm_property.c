@@ -22,7 +22,7 @@ void test_property_dirty_bits(void) {
     }
     hash_map_init(&s.window_to_client);
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->xid = 123;

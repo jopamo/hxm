@@ -232,6 +232,7 @@ void server_init(server_t* s) {
     // Initialize global maps
     hash_map_init(&s->window_to_client);
     hash_map_init(&s->frame_to_client);
+    hash_map_init(&s->pending_unmanaged_states);
 
     // Layer stacks and focus ring
     for (int i = 0; i < LAYER_COUNT; i++) {
@@ -239,6 +240,9 @@ void server_init(server_t* s) {
     }
     list_init(&s->focus_history);
     s->focused_client = HANDLE_INVALID;
+
+    // Interaction state
+    s->interaction_handle = HANDLE_INVALID;
 
     // Client storage (handles + hot/cold split)
     if (!slotmap_init(&s->clients, 8192, sizeof(client_hot_t), sizeof(client_cold_t))) {
@@ -320,6 +324,19 @@ void server_cleanup(server_t* s) {
 
     hash_map_destroy(&s->window_to_client);
     hash_map_destroy(&s->frame_to_client);
+
+    // Clean up pending states
+    for (size_t i = 0; i < s->pending_unmanaged_states.capacity; i++) {
+        hash_map_entry_t* entry = &s->pending_unmanaged_states.entries[i];
+        if (entry->key != 0) {
+            small_vec_t* v = (small_vec_t*)entry->value;
+            if (v) {
+                small_vec_destroy(v);
+                free(v);
+            }
+        }
+    }
+    hash_map_destroy(&s->pending_unmanaged_states);
 
     slotmap_destroy(&s->clients);
 
@@ -479,7 +496,6 @@ void event_ingest(server_t* s, bool x_ready) {
     buckets_reset(&s->buckets);
     arena_reset(&s->tick_arena);
 
-    TRACE_LOG("event_ingest start x_ready=%d prefetched=%d", x_ready, s->prefetched_event != NULL);
     uint64_t count = 0;
     if (s->prefetched_event) {
         event_ingest_one(s, s->prefetched_event);
@@ -497,7 +513,6 @@ void event_ingest(server_t* s, bool x_ready) {
     if (!x_ready) {
         s->x_poll_immediate = (count >= MAX_EVENTS_PER_TICK);
         s->buckets.ingested = count;
-        TRACE_LOG("event_ingest done ingested=%lu coalesced=%lu (queued only)", count, s->buckets.coalesced);
         return;
     }
 
@@ -510,7 +525,6 @@ void event_ingest(server_t* s, bool x_ready) {
 
     s->x_poll_immediate = (count >= MAX_EVENTS_PER_TICK);
     s->buckets.ingested = count;
-    TRACE_LOG("event_ingest done ingested=%lu coalesced=%lu", count, s->buckets.coalesced);
 }
 
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
@@ -749,18 +763,58 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
             break;
         }
 
+        case XCB_NO_EXPOSURE:
+        case XCB_CREATE_NOTIFY:
+        case XCB_FOCUS_IN:
+        case XCB_FOCUS_OUT:
+        case XCB_MAPPING_NOTIFY:
+            // These are noisy and we don't use them for anything right now
+            break;
+
         default:
+            counters.events_unhandled[type]++;
             break;
     }
 
     free(ev);
 }
 
+static void log_unhandled_summary(void) {
+    static rl_t rl = {0};
+    uint64_t now = monotonic_time_ns();
+    if (!rl_allow(&rl, now, 1000000000)) return;  // 1s
+
+    bool any = false;
+    char buf[1024];
+    int pos = 0;
+    buf[0] = '\0';
+
+    for (int i = 0; i < 256; i++) {
+        if (counters.events_unhandled[i] > 0) {
+            if (!any) {
+                pos += snprintf(buf + pos, sizeof(buf) - pos, "EV unhandled:");
+                any = true;
+            }
+            pos += snprintf(buf + pos, sizeof(buf) - pos, " %d=%lu", i, counters.events_unhandled[i]);
+            counters.events_unhandled[i] = 0;
+            if (pos >= (int)sizeof(buf) - 32) break;
+        }
+    }
+
+    if (any) {
+        LOG_INFO("%s", buf);
+    }
+}
+
 void event_process(server_t* s) {
-    TRACE_LOG("event_process buckets map=%zu unmap=%zu destroy=%zu client=%zu configure=%zu property=%zu",
-              s->buckets.map_requests.length, s->buckets.unmap_notifies.length, s->buckets.destroy_notifies.length,
-              s->buckets.client_messages.length, hash_map_size(&s->buckets.configure_requests),
-              hash_map_size(&s->buckets.property_notifies));
+    static rl_t rl_process = {0};
+    uint64_t now = monotonic_time_ns();
+    if (rl_allow(&rl_process, now, 1000000000)) {  // 1s
+        TRACE_LOG("event_process buckets map=%zu unmap=%zu destroy=%zu client=%zu configure=%zu property=%zu",
+                  s->buckets.map_requests.length, s->buckets.unmap_notifies.length, s->buckets.destroy_notifies.length,
+                  s->buckets.client_messages.length, hash_map_size(&s->buckets.configure_requests),
+                  hash_map_size(&s->buckets.property_notifies));
+    }
     // 1. lifecycle
     for (size_t i = 0; i < s->buckets.map_requests.length; i++) {
         xcb_map_request_event_t* ev = s->buckets.map_requests.items[i];
@@ -897,6 +951,9 @@ void event_process(server_t* s) {
             if (entry->key == 0) continue;
 
             xcb_property_notify_event_t* ev = (xcb_property_notify_event_t*)entry->value;
+            // Fix 1: Ignore _NET_WORKAREA on root to prevent feedback loop
+            if (ev->window == s->root && ev->atom == atoms._NET_WORKAREA) continue;
+
             if (hash_map_get(&s->buckets.destroyed_windows, ev->window)) continue;
 
             handle_t h = server_get_client_by_window(s, ev->window);
@@ -1001,37 +1058,6 @@ void event_drain_cookies(server_t* s) {
     }
 }
 
-static void event_force_poll_sweep(server_t* s) {
-    if (!s || s->force_poll_ticks == 0) return;
-
-    uint32_t swept = 0;
-    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-        if (!slotmap_is_used_idx(&s->clients, i)) continue;
-
-        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-        if (!hot) continue;
-        if (hot->state == STATE_UNMANAGED || hot->state == STATE_DESTROYED || hot->state == STATE_UNMANAGING) continue;
-
-        handle_t h = handle_make(i, s->clients.hdr[i].gen);
-        uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_WINDOW_TYPE, XCB_ATOM_ATOM, 0, 16).sequence;
-        cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE, s->txn_id, wm_handle_reply);
-
-        c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
-        cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT_PARTIAL, s->txn_id, wm_handle_reply);
-
-        c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
-        cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT,
-                        s->txn_id, wm_handle_reply);
-        swept++;
-    }
-
-    if (swept > 0) {
-        TRACE_LOG("force_poll sweep clients=%u", swept);
-    }
-}
-
 static void apply_reload(server_t* s) {
     LOG_INFO("Reloading configuration");
 
@@ -1093,7 +1119,7 @@ static void apply_reload(server_t* s) {
     }
 
     wm_publish_desktop_props(s);
-    s->root_dirty |= ROOT_DIRTY_WORKAREA;
+    s->workarea_dirty = true;
 
     frame_cleanup_resources(s);
     frame_init_resources(s);
@@ -1165,7 +1191,6 @@ static bool server_wait_for_events(server_t* s) {
 
     struct epoll_event evs[8];
     int timeout_ms = -1;
-    if (s->force_poll_ticks > 0) timeout_ms = 1;
 
     for (;;) {
         int n = epoll_wait(s->epoll_fd, evs, 8, timeout_ms);
@@ -1253,10 +1278,23 @@ void server_run(server_t* s) {
         event_ingest(s, x_ready);
         event_drain_cookies(s);
         event_process(s);
-        event_force_poll_sweep(s);
+
+        // Fix 3: Debounced workarea calculation
+        if (s->workarea_dirty) {
+            rect_t wa;
+            wm_compute_workarea(s, &wa);
+            static rl_t rl_wa = {0};
+            if (rl_allow(&rl_wa, monotonic_time_ns(), 1000000000)) {
+                TRACE_LOG("publish_workarea debounced x=%d y=%d w=%u h=%u", wa.x, wa.y, wa.w, wa.h);
+            }
+            wm_publish_workarea(s, &wa);
+            s->workarea_dirty = false;
+        }
 
         xcb_flush(s->conn);
         counters.x_flush_count++;
+
+        log_unhandled_summary();
 
         uint64_t end = monotonic_time_ns();
         uint64_t duration = end - start;
@@ -1270,7 +1308,5 @@ void server_run(server_t* s) {
         }
         counters.tick_duration_sum += duration;
         counters.tick_count++;
-
-        if (s->force_poll_ticks > 0) s->force_poll_ticks--;
     }
 }

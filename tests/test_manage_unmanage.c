@@ -80,6 +80,7 @@ typedef struct adopt_attr {
 
 static adopt_attr_t g_adopt_attrs[8];
 static int g_adopt_attrs_len = 0;
+static xcb_window_t g_map_request_window = XCB_NONE;
 
 static int adopt_poll_for_reply(xcb_connection_t* c, unsigned int request, void** reply, xcb_generic_error_t** error) {
     (void)c;
@@ -99,6 +100,23 @@ static int adopt_poll_for_reply(xcb_connection_t* c, unsigned int request, void*
     }
 
     return 0;
+}
+
+static int map_request_poll_for_reply(xcb_connection_t* c, unsigned int request, void** reply,
+                                      xcb_generic_error_t** error) {
+    (void)c;
+    if (error) *error = NULL;
+
+    xcb_window_t win = XCB_NONE;
+    if (!xcb_stubs_attr_request_window(request, &win)) return 0;
+    if (win != g_map_request_window) return 0;
+
+    xcb_get_window_attributes_reply_t* r = calloc(1, sizeof(*r));
+    r->override_redirect = 0;
+    r->map_state = XCB_MAP_STATE_UNMAPPED;
+    r->_class = XCB_WINDOW_CLASS_INPUT_OUTPUT;
+    if (reply) *reply = r;
+    return 1;
 }
 
 static void test_adopt_children_skips_override_and_unmapped(void) {
@@ -150,6 +168,9 @@ static void test_map_request_starts_manage_once(void) {
     ev.parent = s.root;
 
     wm_handle_map_request(&s, &ev);
+    g_map_request_window = ev.window;
+    stub_poll_for_reply_hook = map_request_poll_for_reply;
+    cookie_jar_drain(&s.cookie_jar, s.conn, &s, 8);
     handle_t h = server_get_client_by_window(&s, ev.window);
     assert(h != HANDLE_INVALID);
 
@@ -160,6 +181,7 @@ static void test_map_request_starts_manage_once(void) {
     assert(count_live_clients(&s) == live_before);
 
     printf("test_map_request_starts_manage_once passed\n");
+    stub_poll_for_reply_hook = NULL;
     cleanup_server(&s);
 }
 

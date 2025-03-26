@@ -57,6 +57,12 @@ typedef enum client_state {
 
 typedef enum manage_phase { MANAGE_PHASE1 = 1, MANAGE_PHASE2 = 2, MANAGE_DONE = 3 } manage_phase_t;
 
+typedef struct pending_state_msg {
+    uint32_t action;
+    xcb_atom_t p1;
+    xcb_atom_t p2;
+} pending_state_msg_t;
+
 typedef struct size_hints {
     int32_t min_w, min_h;
     int32_t max_w, max_h;
@@ -111,9 +117,10 @@ typedef struct client_hot {
     xcb_window_t xid;
     xcb_window_t frame;
 
-    rect_t server;
-    rect_t desired;
-    rect_t pending;
+    rect_t server;               // Actual geometry on X server (xcb_configure_window sent)
+    rect_t last_synthetic_geom;  // Last synthetic configure sent (to avoid duplicates)
+    rect_t desired;              // Desired/requested geometry
+    rect_t pending;              // Pending geometry (being animated or waiting)
     size_hints_t hints;
     uint32_t hints_flags;
     uint32_t pending_epoch;
@@ -131,6 +138,7 @@ typedef struct client_hot {
     int8_t stacking_layer;
 
     uint32_t dirty;
+    uint32_t last_log_dirty;
     uint8_t state;            // client_state_t
     uint8_t initial_state;    // From WM_HINTS
     uint8_t pending_replies;  // Count of pending startup cookies
@@ -188,6 +196,8 @@ typedef struct client_hot {
     dirty_region_t frame_damage;
 
     manage_phase_t manage_phase;
+    uint8_t pending_state_count;
+    pending_state_msg_t pending_state_msgs[4];
     bool geometry_from_configure;
 
     // EWMH/ICCCM extras that some clients use for focus/sync heuristics

@@ -21,9 +21,6 @@
 
 static bool use_utc = false;
 static bool use_monotonic = false;
-#ifdef HXM_ENABLE_DEBUG_LOGGING
-static FILE* log_file = NULL;
-#endif
 
 static const char* level_str[] = {
     [LOG_DEBUG] = "DEBUG",
@@ -48,18 +45,6 @@ static void log_init_once(void) {
 
     const char* mono = getenv("HXM_LOG_MONO");
     if (mono && (strcmp(mono, "1") == 0 || strcmp(mono, "true") == 0)) use_monotonic = true;
-
-#ifdef HXM_ENABLE_DEBUG_LOGGING
-    const char* home = getenv("HOME");
-    if (home) {
-        char path[1024];
-        snprintf(path, sizeof(path), "%s/hxm.log", home);
-        log_file = fopen(path, "a");
-        if (!log_file) {
-            fprintf(stderr, "Failed to open log file %s: %s\n", path, strerror(errno));
-        }
-    }
-#endif
 }
 
 static void format_timestamp(char* out, size_t out_sz, long* ms_out) {
@@ -95,26 +80,16 @@ void hxm_log(enum log_level level, const char* fmt, ...) {
     format_timestamp(tsbuf, sizeof(tsbuf), &ms);
 
 #ifdef HXM_ENABLE_DEBUG_LOGGING
-    if (log_file) {
-        fprintf(log_file, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
-        va_list ap;
-        va_start(ap, fmt);
-        vfprintf(log_file, fmt, ap);
-        va_end(ap);
-        fputc('\n', log_file);
-        fflush(log_file);
-    }
-    // Also print ERROR to stderr for visibility
-    if (level == LOG_ERROR) {
-        fprintf(stderr, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
-        va_list ap;
-        va_start(ap, fmt);
-        vfprintf(stderr, fmt, ap);
-        va_end(ap);
-        fputc('\n', stderr);
-    }
+    FILE* out = (level == LOG_ERROR) ? stderr : stdout;
+    fprintf(out, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(out, fmt, ap);
+    va_end(ap);
+    fputc('\n', out);
+    fflush(out);
 #else
-    // In production, only log ERRORs to stderr
+    // In production, only log ERRORs to stderr.
     if (level == LOG_ERROR) {
         fprintf(stderr, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
         va_list ap;

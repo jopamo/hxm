@@ -20,6 +20,7 @@ extern int stub_grab_key_count;
 extern int stub_ungrab_key_count;
 extern uint16_t stub_last_grab_key_mods;
 extern xcb_keycode_t stub_last_grab_keycode;
+extern int stub_sync_await_count;
 
 static void setup_server(server_t* s) {
     memset(s, 0, sizeof(*s));
@@ -156,6 +157,7 @@ static void test_move_interaction(void) {
     motion.root_x = 70;
     motion.root_y = 90;
     motion.event = hot->frame;
+    motion.state = XCB_KEY_BUT_MASK_BUTTON_1;
 
     wm_handle_motion_notify(&s, &motion);
     assert(hot->desired.x == hot->server.x + 20);
@@ -194,6 +196,7 @@ static void test_resize_interaction(void) {
     motion.root_x = 140;
     motion.root_y = 120;
     motion.event = hot->frame;
+    motion.state = XCB_KEY_BUT_MASK_BUTTON_3;
 
     wm_handle_motion_notify(&s, &motion);
     assert(hot->desired.w == (uint16_t)(hot->server.w + 40));
@@ -224,6 +227,7 @@ static void test_resize_corner_top_left(void) {
     motion.root_x = 110;
     motion.root_y = 105;
     motion.event = hot->frame;
+    motion.state = XCB_KEY_BUT_MASK_BUTTON_1;
 
     wm_handle_motion_notify(&s, &motion);
 
@@ -233,6 +237,54 @@ static void test_resize_corner_top_left(void) {
     assert(hot->desired.y == hot->server.y + 5);
 
     printf("test_resize_corner_top_left passed\n");
+    cleanup_server(&s);
+}
+
+static void test_cancel_interaction_resets_cursor(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    handle_t h = add_mapped_client(&s, 5001, 5101);
+    client_hot_t* hot = server_chot(&s, h);
+
+    hot->last_cursor_dir = RESIZE_RIGHT;
+    s.interaction_mode = INTERACTION_RESIZE;
+    s.interaction_window = hot->frame;
+    s.interaction_handle = h;
+    s.interaction_resize_dir = RESIZE_RIGHT;
+
+    wm_cancel_interaction(&s);
+
+    assert(s.interaction_mode == INTERACTION_NONE);
+    assert(hot->last_cursor_dir == RESIZE_NONE);
+    assert(stub_ungrab_pointer_count == 1);
+
+    printf("test_cancel_interaction_resets_cursor passed\n");
+    cleanup_server(&s);
+}
+
+static void test_resize_no_sync_await(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    handle_t h = add_mapped_client(&s, 6001, 6101);
+    client_hot_t* hot = server_chot(&s, h);
+
+    hot->sync_enabled = true;
+    hot->sync_counter = 1;
+    hot->dirty |= DIRTY_GEOM;
+
+    s.interaction_mode = INTERACTION_RESIZE;
+    s.interaction_window = hot->frame;
+    s.interaction_handle = h;
+
+    wm_flush_dirty(&s);
+
+    assert(stub_sync_await_count == 0);
+
+    printf("test_resize_no_sync_await passed\n");
     cleanup_server(&s);
 }
 
@@ -333,6 +385,8 @@ int main(void) {
     test_move_interaction();
     test_resize_interaction();
     test_resize_corner_top_left();
+    test_cancel_interaction_resets_cursor();
+    test_resize_no_sync_await();
     test_keybinding_clean_mods();
     test_keybinding_conflict_deterministic();
     test_key_grabs_from_config();

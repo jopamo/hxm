@@ -141,6 +141,7 @@ typedef struct server {
 
     // Workarea
     rect_t workarea;
+    bool workarea_dirty;
 
     // Key symbols
     xcb_key_symbols_t* keysyms;
@@ -161,6 +162,7 @@ typedef struct server {
     interaction_mode_t interaction_mode;
     resize_dir_t interaction_resize_dir;
     xcb_window_t interaction_window;
+    handle_t interaction_handle;
     uint32_t interaction_time;
     uint64_t last_interaction_flush;
     int16_t interaction_start_x, interaction_start_y;
@@ -183,8 +185,9 @@ typedef struct server {
     slotmap_t clients;
 
     // Global maps: xid/frame -> handle
-    hash_map_t window_to_client;  // xcb_window_t -> handle_t (stored via uintptr_t)
-    hash_map_t frame_to_client;   // frame xid -> handle_t
+    hash_map_t window_to_client;          // xcb_window_t -> handle_t (stored via uintptr_t)
+    hash_map_t frame_to_client;           // frame xid -> handle_t
+    hash_map_t pending_unmanaged_states;  // xcb_window_t -> small_vec_t* (of pending_state_msg_t)
 
     // Stacking layers (bottom -> top)
     small_vec_t layers[LAYER_COUNT];

@@ -409,7 +409,9 @@ void menu_handle_expose_region(server_t* s, const dirty_region_t* dirty) {
     if (s->is_test) {
         cairo_surface_flush(target_surface);
         xcb_gcontext_t gc = xcb_generate_id(s->conn);
-        xcb_create_gc(s->conn, gc, s->menu.window, 0, NULL);
+        uint32_t mask = XCB_GC_GRAPHICS_EXPOSURES;
+        uint32_t values[] = {0};
+        xcb_create_gc(s->conn, gc, s->menu.window, mask, values);
         xcb_put_image(s->conn, XCB_IMAGE_FORMAT_Z_PIXMAP, s->menu.window, gc, (uint16_t)s->menu.w, (uint16_t)s->menu.h,
                       0, 0, 0, (uint8_t)s->root_depth,
                       (uint32_t)(cairo_image_surface_get_stride(target_surface) * s->menu.h),
@@ -419,7 +421,9 @@ void menu_handle_expose_region(server_t* s, const dirty_region_t* dirty) {
     } else {
         cairo_surface_destroy(target_surface);
         xcb_gcontext_t gc = xcb_generate_id(s->conn);
-        xcb_create_gc(s->conn, gc, s->menu.window, 0, NULL);
+        uint32_t mask = XCB_GC_GRAPHICS_EXPOSURES;
+        uint32_t values[] = {0};
+        xcb_create_gc(s->conn, gc, s->menu.window, mask, values);
         xcb_copy_area(s->conn, pixmap, s->menu.window, gc, 0, 0, 0, 0, s->menu.w, s->menu.h);
         xcb_free_gc(s->conn, gc);
         xcb_free_pixmap(s->conn, pixmap);

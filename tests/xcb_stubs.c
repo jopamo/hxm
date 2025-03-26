@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <xcb/randr.h>
+#include <xcb/sync.h>
 #include <xcb/xcb.h>
 #include <xcb/xproto.h>
 
@@ -147,6 +148,7 @@ xcb_colormap_t stub_last_installed_colormap = XCB_NONE;
 int stub_save_set_insert_count = 0;
 int stub_save_set_delete_count = 0;
 xcb_window_t stub_last_save_set_window = XCB_NONE;
+int stub_sync_await_count = 0;
 
 // Optional reply hook for cookie draining
 int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request, void** reply,
@@ -229,6 +231,7 @@ void xcb_stubs_reset(void) {
     stub_save_set_insert_count = 0;
     stub_save_set_delete_count = 0;
     stub_last_save_set_window = XCB_NONE;
+    stub_sync_await_count = 0;
 
     stub_poll_for_reply_hook = NULL;
 
@@ -717,6 +720,16 @@ xcb_grab_pointer_cookie_t xcb_grab_pointer(xcb_connection_t* c, uint8_t owner_ev
     return (xcb_grab_pointer_cookie_t){0};
 }
 
+xcb_grab_pointer_reply_t* xcb_grab_pointer_reply(xcb_connection_t* c, xcb_grab_pointer_cookie_t cookie,
+                                                 xcb_generic_error_t** e) {
+    (void)c;
+    (void)cookie;
+    (void)e;
+    xcb_grab_pointer_reply_t* r = calloc(1, sizeof(*r));
+    r->status = XCB_GRAB_STATUS_SUCCESS;
+    return r;
+}
+
 xcb_void_cookie_t xcb_ungrab_pointer(xcb_connection_t* c, xcb_timestamp_t time) {
     (void)c;
     (void)time;
@@ -799,6 +812,15 @@ xcb_void_cookie_t xcb_send_event(xcb_connection_t* c, uint8_t propagate, xcb_win
     stub_last_send_event_destination = destination;
 
     if (event) memcpy(stub_last_event, event, sizeof(stub_last_event));
+    return (xcb_void_cookie_t){0};
+}
+
+xcb_void_cookie_t xcb_sync_await(xcb_connection_t* c, uint32_t wait_list_len,
+                                 const xcb_sync_waitcondition_t* wait_list) {
+    (void)c;
+    (void)wait_list_len;
+    (void)wait_list;
+    stub_sync_await_count++;
     return (xcb_void_cookie_t){0};
 }
 

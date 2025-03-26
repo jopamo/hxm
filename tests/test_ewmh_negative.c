@@ -64,7 +64,7 @@ static void setup_server(server_t* s) {
     config_init_defaults(&s->config);
     s->desktop_count = 1;
     s->current_desktop = 0;
-    s->workarea = (rect_t){0, 0, 1920, 1080};
+    s->workarea = (rect_t){0, 0, 0, 0};
 
     arena_init(&s->tick_arena, 4096);
     cookie_jar_init(&s->cookie_jar);

@@ -397,11 +397,12 @@ void client_finish_manage(server_t* s, handle_t h) {
     TRACE_LOG("finish_manage h=%lx xid=%u desktop=%d sticky=%d initial_state=%u", h, hot->xid, hot->desktop,
               hot->sticky, hot->initial_state);
 
-    hot->late_probe_ticks = 0;
+    hot->late_probe_ticks = 200;
     hot->late_probe_attempts = 0;
     hot->late_probe_deadline_ns = 0;
-    if (s->force_poll_ticks < 200) s->force_poll_ticks = 200;
-    TRACE_LOG("force_poll schedule xid=%u ticks=%u", hot->xid, s->force_poll_ticks);
+    if (hot->late_probe_attempts < 5) {
+        server_schedule_timer(s, 20);
+    }
 
     client_apply_rules(s, h);
 
@@ -500,7 +501,7 @@ void client_finish_manage(server_t* s, handle_t h) {
     hot->server.y = (int16_t)frame_y;
     hot->server.w = (uint16_t)client_w;
     hot->server.h = (uint16_t)client_h;
-    wm_send_synthetic_configure(s, h);
+    hot->dirty |= DIRTY_GEOM;
 
     // Set _NET_FRAME_EXTENTS (before mapping)
     // if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
@@ -586,23 +587,10 @@ void client_finish_manage(server_t* s, handle_t h) {
     client_setup_grabs(s, h);
 
     if (!hidden_by_show_desktop) {
-        // Initial stacking
-        if (hot->transient_for != HANDLE_INVALID) {
-            TRACE_LOG("finish_manage stack above parent h=%lx parent=%lx", h, hot->transient_for);
-            stack_place_above(s, h, hot->transient_for);
-        } else {
-            TRACE_LOG("finish_manage stack raise h=%lx", h);
-            stack_raise(s, h);
-        }
-
-        // Focus new window if visible
+        bool focus_it = false;
         if (visible) {
-            bool focus_it = false;
-
             if (s->initial_focus != XCB_NONE && hot->xid == s->initial_focus) {
-                TRACE_LOG("finish_manage restore focus h=%lx", h);
                 focus_it = true;
-                s->initial_focus = XCB_NONE;  // Consumed
             } else if (should_focus_on_map(hot)) {
                 // Always focus dialogs/transients/user-interacted
                 focus_it = true;
@@ -610,11 +598,30 @@ void client_finish_manage(server_t* s, handle_t h) {
                 // Only default focus if we aren't waiting for a specific restore
                 focus_it = true;
             }
+        }
 
-            if (focus_it) {
-                TRACE_LOG("finish_manage focus h=%lx", h);
-                wm_set_focus(s, h);
+        // Initial stacking
+        if (hot->transient_for != HANDLE_INVALID) {
+            // Only stack above if we aren't going to raise it anyway via focus
+            if (!focus_it || !s->config.focus_raise) {
+                TRACE_LOG("finish_manage stack above parent h=%lx parent=%lx", h, hot->transient_for);
+                stack_place_above(s, h, hot->transient_for);
             }
+        } else {
+            // Avoid double raise if we are about to focus it and focus_raise is enabled
+            if (!focus_it || !s->config.focus_raise) {
+                TRACE_LOG("finish_manage stack raise h=%lx", h);
+                stack_raise(s, h);
+            }
+        }
+
+        if (focus_it) {
+            if (s->initial_focus != XCB_NONE && hot->xid == s->initial_focus) {
+                TRACE_LOG("finish_manage restore focus h=%lx", h);
+                s->initial_focus = XCB_NONE;  // Consumed
+            }
+            TRACE_LOG("finish_manage focus h=%lx", h);
+            wm_set_focus(s, h);
         }
 
         // Draw initial decorations
@@ -635,9 +642,40 @@ void client_finish_manage(server_t* s, handle_t h) {
                         &desk_prop);
 
     // Mark root properties dirty
-    s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_WORKAREA;
+    s->root_dirty |= ROOT_DIRTY_CLIENT_LIST;
+    s->workarea_dirty = true;
 
-    LOG_INFO("Managed window %u as client %lx (frame %u)", hot->xid, h, hot->frame);
+    // Transition to MANAGE_DONE and replay queued state messages
+    hot->manage_phase = MANAGE_DONE;
+
+    // Replay stashed states from before management
+    small_vec_t* stashed = (small_vec_t*)hash_map_get(&s->pending_unmanaged_states, hot->xid);
+    if (stashed) {
+        LOG_INFO("Replaying %zu stashed _NET_WM_STATE messages for client %lx", stashed->length, h);
+        for (size_t i = 0; i < stashed->length; i++) {
+            pending_state_msg_t* msg = (pending_state_msg_t*)stashed->items[i];
+            if (msg) {
+                TRACE_LOG("Replaying stashed _NET_WM_STATE action=%u p1=%u p2=%u", msg->action, msg->p1, msg->p2);
+                if (msg->p1 != XCB_ATOM_NONE) wm_client_update_state(s, h, msg->action, msg->p1);
+                if (msg->p2 != XCB_ATOM_NONE) wm_client_update_state(s, h, msg->action, msg->p2);
+                free(msg);
+            }
+        }
+        small_vec_destroy(stashed);
+        free(stashed);
+        hash_map_remove(&s->pending_unmanaged_states, hot->xid);
+    }
+
+    if (hot->pending_state_count > 0) {
+        LOG_INFO("Replaying %u queued _NET_WM_STATE messages for client %lx", hot->pending_state_count, h);
+        for (int i = 0; i < hot->pending_state_count; ++i) {
+            pending_state_msg_t* msg = &hot->pending_state_msgs[i];
+            TRACE_LOG("Replaying _NET_WM_STATE action=%u p1=%u p2=%u", msg->action, msg->p1, msg->p2);
+            if (msg->p1 != XCB_ATOM_NONE) wm_client_update_state(s, h, msg->action, msg->p1);
+            if (msg->p2 != XCB_ATOM_NONE) wm_client_update_state(s, h, msg->action, msg->p2);
+        }
+        hot->pending_state_count = 0;
+    }
 }
 
 void client_unmanage(server_t* s, handle_t h) {
@@ -653,10 +691,11 @@ void client_unmanage(server_t* s, handle_t h) {
     TRACE_ONLY(debug_dump_focus_history(s, "before unmanage"));
     TRACE_ONLY(debug_dump_transients(hot, "before unmanage"));
 
-    if (s->interaction_window != XCB_NONE && s->interaction_window == hot->frame) {
-        LOG_INFO("Interaction window %u destroyed during interaction, canceling", hot->frame);
+    if (s->interaction_mode != INTERACTION_NONE && s->interaction_handle == h) {
+        LOG_INFO("Interaction client %lx destroyed/unmanaged during interaction, canceling", h);
         s->interaction_mode = INTERACTION_NONE;
         s->interaction_window = XCB_NONE;
+        s->interaction_handle = HANDLE_INVALID;
         xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
     }
 
@@ -798,7 +837,8 @@ void client_unmanage(server_t* s, handle_t h) {
     // Free slot
     slotmap_free(&s->clients, h);
 
-    s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_WORKAREA;
+    s->root_dirty |= ROOT_DIRTY_CLIENT_LIST;
+    s->workarea_dirty = true;
     TRACE_ONLY(debug_dump_focus_history(s, "after unmanage"));
 }
 

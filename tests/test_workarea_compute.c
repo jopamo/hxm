@@ -16,8 +16,11 @@ void test_workarea_compute(void) {
         return;
     }
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h1 = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    assert(h1 != HANDLE_INVALID);
+    assert(hot_ptr != NULL);
+    assert(cold_ptr != NULL);
     (void)h1;
     client_hot_t* c1 = (client_hot_t*)hot_ptr;
     client_cold_t* cold1 = (client_cold_t*)cold_ptr;
@@ -25,6 +28,9 @@ void test_workarea_compute(void) {
     cold1->strut.top = 30;
 
     handle_t h2 = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    assert(h2 != HANDLE_INVALID);
+    assert(hot_ptr != NULL);
+    assert(cold_ptr != NULL);
     (void)h2;
     client_hot_t* c2 = (client_hot_t*)hot_ptr;
     client_cold_t* cold2 = (client_cold_t*)cold_ptr;

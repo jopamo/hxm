@@ -22,8 +22,11 @@ void test_idempotent_unmanage(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    assert(h != HANDLE_INVALID);
+    assert(hot_ptr != NULL);
+    assert(cold_ptr != NULL);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
     hot->xid = 123;
@@ -62,8 +65,11 @@ void test_destroy_unmanage_race(void) {
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
 
-    void *hot_ptr, *cold_ptr;
+    void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    assert(h != HANDLE_INVALID);
+    assert(hot_ptr != NULL);
+    assert(cold_ptr != NULL);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
     hot->xid = 123;

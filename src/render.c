@@ -334,7 +334,9 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
     if (is_test) {
         cairo_surface_flush(target_surface);
         xcb_gcontext_t gc = xcb_generate_id(conn);
-        xcb_create_gc(conn, gc, win, 0, NULL);
+        uint32_t mask = XCB_GC_GRAPHICS_EXPOSURES;
+        uint32_t values[] = {0};
+        xcb_create_gc(conn, gc, win, mask, values);
         xcb_put_image(conn, XCB_IMAGE_FORMAT_Z_PIXMAP, win, gc, (uint16_t)w, (uint16_t)h, 0, 0, 0, (uint8_t)depth,
                       (uint32_t)(cairo_image_surface_get_stride(target_surface) * h),
                       cairo_image_surface_get_data(target_surface));
@@ -342,7 +344,9 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
     } else {
         cairo_surface_destroy(target_surface);
         xcb_gcontext_t gc = xcb_generate_id(conn);
-        xcb_create_gc(conn, gc, win, 0, NULL);
+        uint32_t mask = XCB_GC_GRAPHICS_EXPOSURES;
+        uint32_t values[] = {0};
+        xcb_create_gc(conn, gc, win, mask, values);
         xcb_copy_area(conn, pixmap, win, gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
         xcb_free_gc(conn, gc);
         xcb_free_pixmap(conn, pixmap);
