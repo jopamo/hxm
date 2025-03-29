@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 #include "cookie_jar.h"
 #include "hxm.h"
@@ -13,6 +15,15 @@
 // Externs from xcb_stubs.c
 extern int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request, void** reply,
                                        xcb_generic_error_t** error);
+
+// Mock allocation failure
+static bool g_fail_alloc = false;
+
+// Override the weak symbol in src/cookie_jar.c
+void* cj_calloc(size_t n, size_t size) {
+    if (g_fail_alloc) return NULL;
+    return calloc(n, size);
+}
 
 // Mock data
 static bool g_handler_called = false;
@@ -529,6 +540,66 @@ static void test_performance_smoke(void) {
     printf("test_performance_smoke passed\n");
 }
 
+static void test_alloc_fail_init(void) {
+    printf("Running test_alloc_fail_init...\n");
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process
+        g_fail_alloc = true;
+        // Suppress expected error logs
+        freopen("/dev/null", "w", stderr);
+        
+        cookie_jar_t cj;
+        cookie_jar_init(&cj); // Should exit(1) due to alloc fail
+        
+        exit(0); // Should not be reached
+    }
+    
+    int status;
+    waitpid(pid, &status, 0);
+    
+    // Check if child exited with 1
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 1) {
+        printf("test_alloc_fail_init passed\n");
+    } else {
+        printf("FAIL: test_alloc_fail_init - status %d\n", status);
+        exit(1);
+    }
+}
+
+static void test_alloc_fail_grow(void) {
+    printf("Running test_alloc_fail_grow...\n");
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process
+        // Initialize normally first
+        cookie_jar_t cj;
+        cookie_jar_init(&cj);
+        g_fail_alloc = true;
+        // Suppress expected error logs
+        freopen("/dev/null", "w", stderr);
+        
+        // Push until growth is needed
+        // Default cap 1024. Push more.
+        for (int i=0; i<2000; i++) {
+             cookie_jar_push(&cj, i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+        }
+        
+        exit(0); // Should not be reached if grow fails and exits
+    }
+    
+    int status;
+    waitpid(pid, &status, 0);
+    
+    // Check if child exited with 1
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 1) {
+        printf("test_alloc_fail_grow passed\n");
+    } else {
+        printf("FAIL: test_alloc_fail_grow - status %d\n", status);
+        exit(1);
+    }
+}
+
 int main(void) {
     test_init_destroy();
     test_push_and_drain();
@@ -543,6 +614,8 @@ int main(void) {
     test_timeout_then_late_reply_ignored();
     test_cursor_fairness_progress();
     test_performance_smoke();
+    test_alloc_fail_init();
+    test_alloc_fail_grow();
 
     printf("All cookie_jar tests passed\n");
     return 0;

@@ -12,6 +12,8 @@
 
 #include "hxm.h"
 
+__attribute__((weak)) void* cj_calloc(size_t n, size_t size) { return calloc(n, size); }
+
 #define COOKIE_JAR_TIMEOUT_NS 5000000000ULL
 #define COOKIE_JAR_MAX_LOAD_NUM 7
 #define COOKIE_JAR_MAX_LOAD_DEN 10
@@ -38,7 +40,7 @@ static void cookie_jar_grow(cookie_jar_t* cj, size_t new_cap) {
     new_cap = cookie_jar_next_pow2(new_cap);
     if (new_cap < 2) new_cap = 2;
 
-    cookie_slot_t* new_slots = calloc(new_cap, sizeof(*new_slots));
+    cookie_slot_t* new_slots = cj_calloc(new_cap, sizeof(*new_slots));
     if (!new_slots) {
         LOG_ERROR("cookie_jar_grow failed");
         exit(1);
@@ -103,7 +105,7 @@ void cookie_jar_init(cookie_jar_t* cj) {
     if (cap < 16) cap = 16;
     cap = cookie_jar_next_pow2(cap);
 
-    cj->slots = calloc(cap, sizeof(*cj->slots));
+    cj->slots = cj_calloc(cap, sizeof(*cj->slots));
     if (!cj->slots) {
         LOG_ERROR("cookie_jar_init failed");
         exit(1);

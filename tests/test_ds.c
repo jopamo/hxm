@@ -5,8 +5,28 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 #include "ds.h"
+
+// Mock allocation failure
+static bool g_fail_alloc = false;
+
+void* ds_malloc(size_t size) {
+    if (g_fail_alloc) return NULL;
+    return malloc(size);
+}
+
+void* ds_realloc(void* ptr, size_t size) {
+    if (g_fail_alloc) return NULL;
+    return realloc(ptr, size);
+}
+
+void* ds_calloc(size_t nmemb, size_t size) {
+    if (g_fail_alloc) return NULL;
+    return calloc(nmemb, size);
+}
 
 #define TEST_ASSERT(cond)                                                             \
     do {                                                                              \
@@ -442,6 +462,80 @@ static void test_small_vec_growth(void) {
     printf("test_small_vec_growth passed\n");
 }
 
+static void test_alloc_fail_arena(void) {
+    printf("Running test_alloc_fail_arena...\n");
+    pid_t pid = fork();
+    if (pid == 0) {
+        g_fail_alloc = true;
+        freopen("/dev/null", "w", stderr);
+        
+        struct arena a;
+        arena_init(&a, 1024);
+        arena_alloc(&a, 128); // Should abort
+        exit(0);
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    // abort usually causes SIGABRT (signal 6)
+    if (WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT) {
+        printf("test_alloc_fail_arena passed (SIGABRT)\n");
+    } else {
+        printf("FAIL: test_alloc_fail_arena - status %d\n", status);
+        exit(1);
+    }
+}
+
+static void test_alloc_fail_small_vec(void) {
+    printf("Running test_alloc_fail_small_vec...\n");
+    pid_t pid = fork();
+    if (pid == 0) {
+        freopen("/dev/null", "w", stderr);
+        small_vec_t v;
+        small_vec_init(&v);
+        
+        // Push until growth triggers malloc
+        // Then fail realloc? 
+        // Let's test first malloc
+        g_fail_alloc = true;
+        
+        // Inline cap 8. Push 9.
+        for (int i=0; i<9; i++) small_vec_push(&v, (void*)1);
+        
+        exit(0);
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    if (WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT) {
+        printf("test_alloc_fail_small_vec passed (SIGABRT)\n");
+    } else {
+        printf("FAIL: test_alloc_fail_small_vec - status %d\n", status);
+        exit(1);
+    }
+}
+
+static void test_alloc_fail_hash_map(void) {
+    printf("Running test_alloc_fail_hash_map...\n");
+    pid_t pid = fork();
+    if (pid == 0) {
+        freopen("/dev/null", "w", stderr);
+        g_fail_alloc = true;
+        
+        hash_map_t map;
+        hash_map_init(&map);
+        hash_map_insert(&map, 1, (void*)1); // Should abort on resize
+        
+        exit(0);
+    }
+    int status;
+    waitpid(pid, &status, 0);
+    if (WIFSIGNALED(status) && WTERMSIG(status) == SIGABRT) {
+        printf("test_alloc_fail_hash_map passed (SIGABRT)\n");
+    } else {
+        printf("FAIL: test_alloc_fail_hash_map - status %d\n", status);
+        exit(1);
+    }
+}
+
 int main(void) {
     test_arena_basic();
     test_arena_reuse_blocks();
@@ -457,6 +551,10 @@ int main(void) {
     test_hash_map_update_and_reinsert();
     test_hash_map_stress_linear_probe_tombstones();
     test_hash_map_prng_sequence();
+    
+    test_alloc_fail_arena();
+    test_alloc_fail_small_vec();
+    test_alloc_fail_hash_map();
 
     return 0;
 }

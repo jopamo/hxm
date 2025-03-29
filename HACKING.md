@@ -70,7 +70,21 @@ meson test -C build
 ./scripts/test-headless.sh        # headless smoke + stress test
 ./scripts/test-integration.sh     # integration client checks
 ./tests/ewmh/run_in_xvfb.sh       # EWMH tests under Xvfb
+./scripts/install_git_hooks.sh    # Install pre-commit hook for LLM report
 ```
+
+---
+
+## LLM Report
+
+The project maintains an automated "LLM Context Report" in the root directory (`REPORT.md`).
+This report includes symbols, code coverage, and static analysis results.
+
+To keep it updated automatically, install the git hooks:
+```sh
+./scripts/install_git_hooks.sh
+```
+Once installed, every commit will automatically trigger a full test/analysis run and update `REPORT.md` and `TODO.md`.
 
 ---
 

@@ -12,6 +12,10 @@
 
 #include "hxm.h"
 
+__attribute__((weak)) void* ds_malloc(size_t size) { return malloc(size); }
+__attribute__((weak)) void* ds_realloc(void* ptr, size_t size) { return realloc(ptr, size); }
+__attribute__((weak)) void* ds_calloc(size_t nmemb, size_t size) { return calloc(nmemb, size); }
+
 /*
  * containers.c
  *
@@ -41,7 +45,7 @@ static arena_block_t* arena_add_block(struct arena* a, size_t min_size) {
     if (payload < min_size) payload = min_size;
 
     size_t size = sizeof(arena_block_t) + payload;
-    arena_block_t* block = (arena_block_t*)malloc(size);
+    arena_block_t* block = (arena_block_t*)ds_malloc(size);
     if (!block) {
         LOG_ERROR("arena allocation failed");
         abort();
@@ -152,10 +156,10 @@ static void small_vec_grow(small_vec_t* v, size_t min_cap) {
 
     void** new_items;
     if (v->items == v->inline_storage) {
-        new_items = (void**)malloc(new_cap * sizeof(void*));
+        new_items = (void**)ds_malloc(new_cap * sizeof(void*));
         if (new_items) memcpy(new_items, v->inline_storage, v->length * sizeof(void*));
     } else {
-        new_items = (void**)realloc(v->items, new_cap * sizeof(void*));
+        new_items = (void**)ds_realloc(v->items, new_cap * sizeof(void*));
     }
 
     if (!new_items) {
@@ -227,7 +231,7 @@ static size_t round_up_pow2(size_t n) {
 static void hash_map_resize(hash_map_t* map, size_t new_capacity) {
     new_capacity = round_up_pow2(new_capacity);
 
-    hash_map_entry_t* new_entries = (hash_map_entry_t*)calloc(new_capacity, sizeof(hash_map_entry_t));
+    hash_map_entry_t* new_entries = (hash_map_entry_t*)ds_calloc(new_capacity, sizeof(hash_map_entry_t));
     if (!new_entries) {
         LOG_ERROR("hash_map allocation failed");
         abort();
