@@ -1,11 +1,11 @@
 # LLM Context Report
 
-Generated at: 2025-12-24T06:39:41.472131Z
+Generated at: 2025-12-24T06:52:50.594259Z
 
 ## 1. Project Overview
 
 - **Root**: `/home/me/projects/bbox`
-- **Total Symbols**: 1991
+- **Total Symbols**: 2008
 - **Total Coverage**: 85%
 - **Clang-Tidy Issues**: 60
 
@@ -104,10 +104,10 @@ Generated at: 2025-12-24T06:39:41.472131Z
 - **../src/config.c**:4749: Potential out of bound access to the region with tainted index
 - **../src/config.c**:14082: Although the value stored to 'read' is used in the enclosing expression, the value is never actually read from 'read'
 - **../src/config.c**:18731: Although the value stored to 'read' is used in the enclosing expression, the value is never actually read from 'read'
-- **../src/cookie_jar.c**:2985: Call to function 'memset' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memset_s' in case of C11
+- **../src/cookie_jar.c**:3081: Call to function 'memset' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memset_s' in case of C11
 - **../src/core.c**:594: Call to function 'memset' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memset_s' in case of C11
-- **../src/ds.c**:2245: Call to function 'memcpy' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memcpy_s' in case of C11
-- **../src/ds.c**:3466: Call to function 'memcpy' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memcpy_s' in case of C11
+- **../src/ds.c**:2516: Call to function 'memcpy' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memcpy_s' in case of C11
+- **../src/ds.c**:3740: Call to function 'memcpy' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memcpy_s' in case of C11
 - **../src/event.c**:1784: Call to function 'memset' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memset_s' in case of C11
 - **../src/event.c**:11623: Call to function 'memset' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memset_s' in case of C11
 - **../src/event.c**:12128: Call to function 'snprintf' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'snprintf_s' in case of C11
@@ -126,8 +126,8 @@ Generated at: 2025-12-24T06:39:41.472131Z
 - **macro**: 81
 - **member**: 657
 - **heredoc**: 1
-- **variable**: 109
+- **variable**: 111
 - **struct**: 83
 - **enum**: 20
-- **function**: 827
+- **function**: 842
 - **typedef**: 70
