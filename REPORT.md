@@ -1,11 +1,11 @@
 # LLM Context Report
 
-Generated at: 2025-12-24T06:54:51.504413Z
+Generated at: 2025-12-24T07:00:12.533010Z
 
 ## 1. Project Overview
 
 - **Root**: `/home/me/projects/bbox`
-- **Total Symbols**: 2011
+- **Total Symbols**: 2014
 - **Total Coverage**: 85%
 - **Clang-Tidy Issues**: 60
 
@@ -129,5 +129,5 @@ Generated at: 2025-12-24T06:54:51.504413Z
 - **variable**: 111
 - **struct**: 83
 - **enum**: 20
-- **function**: 845
+- **function**: 848
 - **typedef**: 70
