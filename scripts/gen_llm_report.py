@@ -119,26 +119,6 @@ def process_compile_commands(src_path: Path, dst_path: Path):
     return unique
 
 
-def generate_todo_md(files, out_path: Path):
-    if not files:
-        return
-
-    lines = [
-        "# TODO",
-        "",
-        "Items with uncovered lines from `build-coverage/meson-logs/coverage.txt`:",
-        "",
-    ]
-
-    for f in files:
-        if f["cover_percent"] < 100:
-            lines.append(
-                f"- [ ] {f['path']} ({f['cover_percent']}%): missing lines {f['missing']}"
-            )
-
-    out_path.write_text("\n".join(lines) + "\n")
-
-
 def generate_markdown_report(report, out_path: Path):
     lines = [
         "# LLM Context Report",
@@ -159,13 +139,21 @@ def generate_markdown_report(report, out_path: Path):
     ]
 
     sorted_files = sorted(report["coverage"]["files"], key=lambda x: x["cover_percent"])
+    fully_covered_count = 0
     for f in sorted_files:
+        if f["cover_percent"] == 100:
+            fully_covered_count += 1
+            continue
+            
         path = f["path"]
         cover = f["cover_percent"]
         missing = f["missing"] if f["missing"] else "-"
         if len(missing) > 50:
             missing = missing[:47] + "..."
         lines.append(f"| `{path}` | {cover}% | {missing} |")
+
+    if fully_covered_count > 0:
+        lines.append(f"\n*{fully_covered_count} files with 100% coverage are hidden.*")
 
     lines.extend(
         [
@@ -221,8 +209,6 @@ def main():
     tidy_total, tidy_by_name, tidy_items = parse_clang_tidy_yaml(clang_tidy_path)
     unique_cmds = process_compile_commands(compile_db_src, compile_db_dst)
 
-    generate_todo_md(files, repo_root / "TODO.md")
-
     report = {
         "metadata": {
             "generated_at": datetime.now(timezone.utc)
@@ -262,7 +248,6 @@ def main():
     out_path.write_text(json.dumps(report, indent=2))
     print(f"Report generated: {out_path}")
 
-    generate_markdown_report(report, report_dir / "REPORT.md")
     generate_markdown_report(report, repo_root / "REPORT.md")
     print(f"Root report generated: {repo_root / 'REPORT.md'}")
 

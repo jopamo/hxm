@@ -1,6 +1,6 @@
 # LLM Context Report
 
-Generated at: 2025-12-24T07:00:12.533010Z
+Generated at: 2025-12-24T07:17:27.022242Z
 
 ## 1. Project Overview
 
@@ -53,38 +53,8 @@ Generated at: 2025-12-24T07:00:12.533010Z
 | `tests/test_ds.c` | 99% | 31-32 |
 | `tests/test_ewmh_ext.c` | 99% | 111-112 |
 | `tests/test_wm_focus_policy.c` | 99% | 705-709 |
-| `include/client.h` | 100% | - |
-| `include/cookie_jar.h` | 100% | - |
-| `include/event.h` | 100% | - |
-| `include/handle.h` | 100% | - |
-| `include/handle_conv.h` | 100% | - |
-| `tests/stress_lifecycle.c` | 100% | - |
-| `tests/test_colormap.c` | 100% | - |
-| `tests/test_configure_geometry.c` | 100% | - |
-| `tests/test_dirty_region.c` | 100% | - |
-| `tests/test_event_ingest.c` | 100% | - |
-| `tests/test_ewmh_negative.c` | 100% | - |
-| `tests/test_ewmh_props.c` | 100% | - |
-| `tests/test_expose_damage.c` | 100% | - |
-| `tests/test_fullscreen.c` | 100% | - |
-| `tests/test_gtk_extents.c` | 100% | - |
-| `tests/test_icccm.c` | 100% | - |
-| `tests/test_icccm_fuzz.c` | 100% | - |
-| `tests/test_icccm_props_extra.c` | 100% | - |
-| `tests/test_input_interaction.c` | 100% | - |
-| `tests/test_manage_unmanage.c` | 100% | - |
-| `tests/test_net_close.c` | 100% | - |
-| `tests/test_position_hints.c` | 100% | - |
-| `tests/test_race_conditions.c` | 100% | - |
-| `tests/test_rules.c` | 100% | - |
-| `tests/test_size_hints.c` | 100% | - |
-| `tests/test_transients.c` | 100% | - |
-| `tests/test_unmanage_race.c` | 100% | - |
-| `tests/test_wm_class.c` | 100% | - |
-| `tests/test_wm_config_theme.c` | 100% | - |
-| `tests/test_wm_icon.c` | 100% | - |
-| `tests/test_wm_icon_invalid.c` | 100% | - |
-| `tests/test_wm_name_fallback.c` | 100% | - |
+
+*32 files with 100% coverage are hidden.*
 
 ## 3. Clang-Tidy Diagnostics
 
