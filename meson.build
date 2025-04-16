@@ -289,6 +289,13 @@ test_wm_config_theme = executable('test_wm_config_theme',
 )
 test('wm_config_theme', test_wm_config_theme)
 
+test_config_parsing = executable('test_config_parsing',
+  ['tests/test_config_parsing.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('config_parsing', test_config_parsing)
+
 test_wm_icon = executable('test_wm_icon',
   ['tests/test_wm_icon.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
