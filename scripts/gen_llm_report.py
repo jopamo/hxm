@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import re
 from collections import Counter
@@ -87,7 +88,7 @@ def parse_clang_tidy_yaml(path: Path):
             elif line.startswith("FilePath:") and "file" not in current_diag:
                 m = re.search(r"FilePath:\s*(.*)", line)
                 if m:
-                    current_diag["file"] = m.group(1).strip().strip("'").strip('"')
+                    current_diag["file"] = m.group(1).strip().strip("'" ).strip('"')
             elif line.startswith("FileOffset:") and "offset" not in current_diag:
                 m = re.search(r"FileOffset:\s*(\d+)", line)
                 if m:
@@ -144,7 +145,7 @@ def generate_markdown_report(report, out_path: Path):
         if f["cover_percent"] == 100:
             fully_covered_count += 1
             continue
-            
+
         path = f["path"]
         cover = f["cover_percent"]
         missing = f["missing"] if f["missing"] else "-"
@@ -153,17 +154,15 @@ def generate_markdown_report(report, out_path: Path):
         lines.append(f"| `{path}` | {cover}% | {missing} |")
 
     if fully_covered_count > 0:
-        lines.append(f"\n*{fully_covered_count} files with 100% coverage are hidden.*")
+        lines.append(f"\n*{fully_covered_count} files with 100% coverage are hidden*")
 
-    lines.extend(
-        [
-            "",
-            "## 3. Clang-Tidy Diagnostics",
-            "",
-            "### Summary by Type",
-            "",
-        ]
-    )
+    lines.extend([
+        "",
+        "## 3. Clang-Tidy Diagnostics",
+        "",
+        "### Summary by Type",
+        "",
+    ])
 
     for name, count in report["clang_tidy"]["diagnostics_by_name"].items():
         lines.append(f"- **{name}**: {count}")
@@ -179,23 +178,15 @@ def generate_markdown_report(report, out_path: Path):
         if len(report["clang_tidy"]["items"]) > 20:
             lines.append(f"\n*(...and {len(report['clang_tidy']['items']) - 20} more)*")
 
-    lines.extend(
-        [
-            "",
-            "## 4. Symbol Statistics",
-            "",
-        ]
-    )
+    lines.extend(["", "## 4. Symbol Statistics", ""])
 
     for kind, count in report["symbols"]["by_kind"].items():
         lines.append(f"- **{kind}**: {count}")
 
     out_path.write_text("\n".join(lines) + "\n")
-    print(f"Markdown report generated: {out_path}")
 
 
-def main():
-    repo_root = Path(__file__).resolve().parents[1]
+def build_report(repo_root: Path):
     report_dir = repo_root / "llm-report"
     coverage_path = repo_root / "build-coverage" / "meson-logs" / "coverage.txt"
     ctags_path = report_dir / "ctags.txt"
@@ -211,45 +202,45 @@ def main():
 
     report = {
         "metadata": {
-            "generated_at": datetime.now(timezone.utc)
-            .isoformat()
-            .replace("+00:00", "Z") ,
+            "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             "repo_root": str(repo_root),
             "coverage_path": str(coverage_path) if coverage_path.exists() else None,
             "ctags_path": str(ctags_path) if ctags_path.exists() else None,
-            "clang_tidy_path": str(clang_tidy_path)
-            if clang_tidy_path.exists()
-            else None,
-            "compile_commands_path": str(compile_db_dst)
-            if compile_db_dst.exists()
-            else None,
+            "clang_tidy_path": str(clang_tidy_path) if clang_tidy_path.exists() else None,
+            "compile_commands_path": str(compile_db_dst) if compile_db_dst.exists() else None,
         },
-        "coverage": {
-            "total_percent": total_cover,
-            "files": files,
-        },
-        "symbols": {
-            "total": len(symbols),
-            "by_kind": dict(kind_counts),
-            "items": symbols,
-        },
-        "clang_tidy": {
-            "diagnostic_count": tidy_total,
-            "diagnostics_by_name": tidy_by_name,
-            "items": tidy_items,
-        },
-        "compilation": {
-            "unique_files_count": len(unique_cmds),
-            "commands": unique_cmds,
-        },
+        "coverage": {"total_percent": total_cover, "files": files},
+        "symbols": {"total": len(symbols), "by_kind": dict(kind_counts), "items": symbols},
+        "clang_tidy": {"diagnostic_count": tidy_total, "diagnostics_by_name": tidy_by_name, "items": tidy_items},
+        "compilation": {"unique_files_count": len(unique_cmds), "commands": unique_cmds},
     }
 
-    out_path = report_dir / "report.json"
-    out_path.write_text(json.dumps(report, indent=2))
-    print(f"Report generated: {out_path}")
-
+    out_json = report_dir / "report.json"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    out_json.write_text(json.dumps(report, indent=2))
     generate_markdown_report(report, repo_root / "REPORT.md")
-    print(f"Root report generated: {repo_root / 'REPORT.md'}")
+    return report
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument(
+        "--prepare-compile-db",
+        action="store_true",
+        help="Only dedupe and copy compile_commands.json into llm-report/clang-tidy-db",
+    )
+    args = ap.parse_args()
+
+    repo_root = Path(__file__).resolve().parents[1]
+    report_dir = repo_root / "llm-report"
+
+    if args.prepare_compile_db:
+        compile_db_src = repo_root / "build-coverage" / "compile_commands.json"
+        compile_db_dst = report_dir / "clang-tidy-db" / "compile_commands.json"
+        process_compile_commands(compile_db_src, compile_db_dst)
+        return
+
+    build_report(repo_root)
 
 
 if __name__ == "__main__":

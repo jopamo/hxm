@@ -774,6 +774,13 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w,
 
                                               &hot->desired.h);
+                    } else if (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame) {
+                        // Fix for resize ping-pong:
+                        // If we are currently resizing this window, re-apply the new constraints immediately.
+                        // This ensures we don't wait for the next MotionNotify to respect the new hints,
+                        // preventing the WM from forcing the old size back on the client.
+                        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+                        hot->dirty |= DIRTY_GEOM;
                     }
                 }
 

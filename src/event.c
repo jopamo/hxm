@@ -498,16 +498,18 @@ void event_ingest(server_t* s, bool x_ready) {
 
     uint64_t count = 0;
     if (s->prefetched_event) {
+        uint64_t before = s->buckets.coalesced;
         event_ingest_one(s, s->prefetched_event);
         s->prefetched_event = NULL;
-        count++;
+        if (s->buckets.coalesced == before) count++;
     }
 
     while (count < MAX_EVENTS_PER_TICK) {
         xcb_generic_event_t* ev = xcb_poll_for_queued_event(s->conn);
         if (!ev) break;
-        count++;
+        uint64_t before = s->buckets.coalesced;
         event_ingest_one(s, ev);
+        if (s->buckets.coalesced == before) count++;
     }
 
     if (!x_ready) {
@@ -519,8 +521,9 @@ void event_ingest(server_t* s, bool x_ready) {
     while (count < MAX_EVENTS_PER_TICK) {
         xcb_generic_event_t* ev = xcb_poll_for_event(s->conn);
         if (!ev) break;
-        count++;
+        uint64_t before = s->buckets.coalesced;
         event_ingest_one(s, ev);
+        if (s->buckets.coalesced == before) count++;
     }
 
     s->x_poll_immediate = (count >= MAX_EVENTS_PER_TICK);

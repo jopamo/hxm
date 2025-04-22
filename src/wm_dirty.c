@@ -286,9 +286,6 @@ void wm_flush_dirty(server_t* s) {
             uint32_t frame_w = hot->desired.w;
             uint32_t frame_h = hot->desired.h;
 
-            int32_t client_x = bw;
-            int32_t client_y = th;
-            // Use signed calculation for safety before casting
             int32_t client_w_calc = (int32_t)hot->desired.w;
             int32_t client_h_calc = (int32_t)hot->desired.h;
 
@@ -296,8 +293,6 @@ void wm_flush_dirty(server_t* s) {
                 frame_x -= (int32_t)hot->gtk_extents.left;
                 frame_y -= (int32_t)hot->gtk_extents.top;
 
-                client_x = 0;
-                client_y = 0;
                 client_w_calc = frame_w;
                 client_h_calc = frame_h;
             } else {
@@ -331,16 +326,12 @@ void wm_flush_dirty(server_t* s) {
                     XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
                     frame_values);
 
-                uint32_t client_values[4];
-                client_values[0] = (uint32_t)client_x;
-                client_values[1] = (uint32_t)client_y;
-                client_values[2] = client_w;
-                client_values[3] = client_h;
+                uint32_t client_values[2];
+                client_values[0] = client_w;
+                client_values[1] = client_h;
 
-                xcb_configure_window(
-                    s->conn, hot->xid,
-                    XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
-                    client_values);
+                xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+                                     client_values);
 
                 // Set _NET_FRAME_EXTENTS
                 uint32_t extents[4] = {bw, bw, th + bw, bw};
