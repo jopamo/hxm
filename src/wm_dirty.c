@@ -326,12 +326,24 @@ void wm_flush_dirty(server_t* s) {
                     XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
                     frame_values);
 
-                uint32_t client_values[2];
-                client_values[0] = client_w;
-                client_values[1] = client_h;
+                uint32_t client_values[4];
+                int32_t local_x = bw;
+                int32_t local_y = th;
 
-                xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
-                                     client_values);
+                if (hot->gtk_frame_extents_set) {
+                    local_x = 0;
+                    local_y = 0;
+                }
+
+                client_values[0] = (uint32_t)local_x;
+                client_values[1] = (uint32_t)local_y;
+                client_values[2] = client_w;
+                client_values[3] = client_h;
+
+                xcb_configure_window(
+                    s->conn, hot->xid,
+                    XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT,
+                    client_values);
 
                 // Set _NET_FRAME_EXTENTS
                 uint32_t extents[4] = {bw, bw, th + bw, bw};
@@ -352,8 +364,8 @@ void wm_flush_dirty(server_t* s) {
 
                 frame_redraw(s, h, FRAME_REDRAW_ALL);
 
-                LOG_DEBUG("Flushed DIRTY_GEOM for %lx: %d,%d %dx%d", h, hot->pending.x, hot->pending.y, hot->pending.w,
-                          hot->pending.h);
+                LOG_DEBUG("Flushed DIRTY_GEOM for %lx: Frame Global(%d,%d) Client Local(%d,%d) %dx%d", h, frame_x,
+                          frame_y, local_x, local_y, client_w, client_h);
             } else {
                 TRACE_LOG("Skipping DIRTY_GEOM for %lx (unchanged)", h);
             }
