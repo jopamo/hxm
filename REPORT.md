@@ -1,6 +1,6 @@
 # LLM Context Report
 
-Generated at: 2025-12-24T09:01:20.475489Z
+Generated at: 2025-12-24T09:55:25.328456Z
 
 ## 1. Project Overview
 
@@ -19,10 +19,10 @@ Generated at: 2025-12-24T09:01:20.475489Z
 | `src/wm_input_keys.c` | 45% | 40-41,44-49,51-52,54,57-58,151-156,185-186,189-... |
 | `src/xcb_utils.c` | 51% | 136-137,140,145-146,148-150,152-153,155-157,159... |
 | `src/menu.c` | 55% | 70-71,180-181,219-222,225-227,229-234,236-238,2... |
-| `src/wm.c` | 59% | 74-76,78-85,90-94,96,105-112,168-169,171-176,18... |
 | `src/render.c` | 64% | 16-18,20-21,23,25-29,32-36,38-43,45-49,53-57,60... |
-| `src/wm_reply.c` | 70% | 47,52-54,90-101,106-110,113,116-117,119,127,135... |
-| `src/wm_desktop.c` | 71% | 18-20,23-27,29,31-40,42,44-52,203-208,211-212,2... |
+| `src/wm.c` | 64% | 74-76,78-85,90-94,96,105-112,168-169,171-176,18... |
+| `src/wm_reply.c` | 71% | 47,52-54,90-101,106-110,113,116-117,119,127,135... |
+| `src/wm_desktop.c` | 72% | 18-20,23-27,29,31-40,42,44-52,203-208,211-212,2... |
 | `src/event.c` | 74% | 65-66,79-81,88-89,104-105,119-120,154-155,189-1... |
 | `tests/test_txn_serialization.c` | 75% | 17-23 |
 | `tests/xcb_stubs.c` | 79% | 244-246,269-270,301-302,304-305,307,362,402,417... |
@@ -31,8 +31,8 @@ Generated at: 2025-12-24T09:01:20.475489Z
 | `tests/test_menu.c` | 86% | 72-76,113-117 |
 | `src/client.c` | 87% | 31-32,49-50,58-59,68,360-361,369-370,448-449,47... |
 | `src/frame.c` | 87% | 97,130-135,137-138,140,159 |
-| `src/wm_dirty.c` | 88% | 70,113-114,116,250-253,392-395,397-398,401-403,... |
 | `tests/integration_client.c` | 88% | 18-20,23-30,96-97,163-164,185-186,246-250,259,2... |
+| `src/wm_dirty.c` | 91% | 113-114,116,250-253,395-398,400-401,404-406,408... |
 | `tests/test_ewmh_check.c` | 91% | 28-31,33-34,42-43,61-62,66-67,71-73 |
 | `tests/test_save_set.c` | 91% | 36-42 |
 | `tests/test_ds.c` | 92% | 51-52,469-470,472-475,483-484,492-494,499,502,5... |
@@ -81,7 +81,7 @@ Generated at: 2025-12-24T09:01:20.475489Z
 - **../src/event.c**:13589: Call to function 'snprintf' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'snprintf_s' in case of C11
 - **../src/event.c**:13900: Call to function 'snprintf' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'snprintf_s' in case of C11
 - **../src/event.c**:14072: Call to function 'snprintf' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'snprintf_s' in case of C11
-- **../src/event.c**:18982: Call to function 'memcpy' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memcpy_s' in case of C11
+- **../src/event.c**:19234: Call to function 'memcpy' is insecure as it does not provide security checks introduced in the C11 standard. Replace with analogous functions that support length arguments or provides boundary checks such as 'memcpy_s' in case of C11
 
 *(...and 40 more)*
 

@@ -6,8 +6,7 @@ tests/ewmh/x_test_client
 tests/ewmh/panel_simulator
 
 # LLM Report artifacts
-llm-report/ctags.txt
-llm-report/clang-tidy.yaml
-llm-report/clang_tidy_files.txt
-llm-report/report.json
-llm-report/clang-tidy-db/
+llm-report/
+report.json
+
+coverage/

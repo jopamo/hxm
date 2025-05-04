@@ -215,7 +215,7 @@ def build_report(repo_root: Path):
         "compilation": {"unique_files_count": len(unique_cmds), "commands": unique_cmds},
     }
 
-    out_json = report_dir / "report.json"
+    out_json = repo_root / "report.json"
     report_dir.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(report, indent=2))
     generate_markdown_report(report, repo_root / "REPORT.md")
