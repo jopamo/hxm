@@ -231,7 +231,7 @@ You want this unit-tested because it’s fork/exec logic with multiple search pa
 
 ### 5.3 configure_request coalesces existing entry
 
-**Covers**: `if (existing)` block ~667–679 (currently ✗)
+**Covers**: `if (existing)` block ~667–679 (✓)
 
 * Feed first configure_request with mask X|Y|WIDTH
 * Feed second configure_request for same window with mask HEIGHT only

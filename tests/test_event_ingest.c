@@ -101,8 +101,53 @@ static void test_event_ingest_drains_all_when_ready(void) {
     cleanup_server(&s);
 }
 
+static void test_event_ingest_coalesces_configure_request(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    xcb_window_t win = 0x12345;
+
+    // Event 1: X, Y, WIDTH
+    xcb_configure_request_event_t* ev1 = calloc(1, sizeof(*ev1));
+    ev1->response_type = XCB_CONFIGURE_REQUEST;
+    ev1->window = win;
+    ev1->value_mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH;
+    ev1->x = 100;
+    ev1->y = 200;
+    ev1->width = 300;
+
+    // Event 2: HEIGHT (same window)
+    xcb_configure_request_event_t* ev2 = calloc(1, sizeof(*ev2));
+    ev2->response_type = XCB_CONFIGURE_REQUEST;
+    ev2->window = win;
+    ev2->value_mask = XCB_CONFIG_WINDOW_HEIGHT;
+    ev2->height = 400;
+
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)ev1));
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)ev2));
+
+    event_ingest(&s, false);
+
+    assert(hash_map_size(&s.buckets.configure_requests) == 1);
+
+    pending_config_t* pc = hash_map_get(&s.buckets.configure_requests, win);
+    assert(pc != NULL);
+    assert(pc->mask == (XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT));
+    assert(pc->x == 100);
+    assert(pc->y == 200);
+    assert(pc->width == 300);
+    assert(pc->height == 400);
+    assert(s.buckets.coalesced == 1);
+
+    printf("test_event_ingest_coalesces_configure_request passed\n");
+    xcb_stubs_reset();
+    cleanup_server(&s);
+}
+
 int main(void) {
     test_event_ingest_bounded();
     test_event_ingest_drains_all_when_ready();
+    test_event_ingest_coalesces_configure_request();
     return 0;
 }
