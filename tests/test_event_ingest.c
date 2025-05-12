@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "event.h"
-#include "xcb_utils.h"
+#include <xcb/damage.h>
 
 extern void xcb_stubs_reset(void);
 extern bool xcb_stubs_enqueue_queued_event(xcb_generic_event_t* ev);
@@ -145,9 +145,162 @@ static void test_event_ingest_coalesces_configure_request(void) {
     cleanup_server(&s);
 }
 
+static void test_event_ingest_coalesces_randr(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    s.randr_supported = true;
+    s.randr_event_base = 100;
+
+    // Event 1: Width=800, Height=600
+    xcb_randr_screen_change_notify_event_t* ev1 = calloc(1, sizeof(*ev1));
+    ev1->response_type = s.randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY;
+    ev1->width = 800;
+    ev1->height = 600;
+
+    // Event 2: Width=1024, Height=768
+    xcb_randr_screen_change_notify_event_t* ev2 = calloc(1, sizeof(*ev2));
+    ev2->response_type = s.randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY;
+    ev2->width = 1024;
+    ev2->height = 768;
+
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)ev1));
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)ev2));
+
+    event_ingest(&s, false);
+
+    assert(s.buckets.randr_dirty == true);
+    assert(s.buckets.randr_width == 1024);
+    assert(s.buckets.randr_height == 768);
+    assert(s.buckets.coalesced == 1);
+
+    printf("test_event_ingest_coalesces_randr passed\n");
+    xcb_stubs_reset();
+    cleanup_server(&s);
+}
+
+static void test_event_ingest_coalesces_pointer_notify(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    // Two EnterNotify
+    xcb_enter_notify_event_t* e1 = calloc(1, sizeof(*e1));
+    e1->response_type = XCB_ENTER_NOTIFY;
+    e1->event = 0x111;
+
+    xcb_enter_notify_event_t* e2 = calloc(1, sizeof(*e2));
+    e2->response_type = XCB_ENTER_NOTIFY;
+    e2->event = 0x222;
+
+    // Two LeaveNotify
+    xcb_leave_notify_event_t* l1 = calloc(1, sizeof(*l1));
+    l1->response_type = XCB_LEAVE_NOTIFY;
+    l1->event = 0x333;
+
+    xcb_leave_notify_event_t* l2 = calloc(1, sizeof(*l2));
+    l2->response_type = XCB_LEAVE_NOTIFY;
+    l2->event = 0x444;
+
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)e1));
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)e2));
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)l1));
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)l2));
+
+    event_ingest(&s, false);
+
+    assert(s.buckets.pointer_notify.enter_valid == true);
+    assert(s.buckets.pointer_notify.enter.event == 0x222);
+    assert(s.buckets.pointer_notify.leave_valid == true);
+    assert(s.buckets.pointer_notify.leave.event == 0x444);
+    assert(s.buckets.coalesced == 2);
+
+    printf("test_event_ingest_coalesces_pointer_notify passed\n");
+    xcb_stubs_reset();
+    cleanup_server(&s);
+}
+
+static void test_event_ingest_dispatches_colormap_notify(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    // We need a focused client for wm_handle_colormap_notify to do anything,
+    // but here we just want to see it doesn't crash and maybe hits the branch.
+    // Since we don't have a mock for wm_handle_colormap_notify, we just call it.
+    xcb_colormap_notify_event_t* ev = calloc(1, sizeof(*ev));
+    ev->response_type = XCB_COLORMAP_NOTIFY;
+    ev->window = 0x123;
+    ev->colormap = 0x456;
+    ev->new = 1;
+
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)ev));
+
+    event_ingest(&s, false);
+
+    // XCB_COLORMAP_NOTIFY is dispatched immediately in event_ingest_one, 
+    // it doesn't go to a bucket.
+    assert(s.buckets.ingested == 1);
+
+    printf("test_event_ingest_dispatches_colormap_notify passed\n");
+    xcb_stubs_reset();
+    cleanup_server(&s);
+}
+
+static void test_event_ingest_coalesces_damage(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    s.damage_supported = true;
+    s.damage_event_base = 110;
+    xcb_window_t win = 0x789;
+
+    // Event 1: (0,0, 10x10)
+    xcb_damage_notify_event_t* ev1 = calloc(1, sizeof(*ev1));
+    ev1->response_type = s.damage_event_base + XCB_DAMAGE_NOTIFY;
+    ev1->drawable = win;
+    ev1->area.x = 0;
+    ev1->area.y = 0;
+    ev1->area.width = 10;
+    ev1->area.height = 10;
+
+    // Event 2: (5,5, 10x10) -> Union should be (0,0, 15x15)
+    xcb_damage_notify_event_t* ev2 = calloc(1, sizeof(*ev2));
+    ev2->response_type = s.damage_event_base + XCB_DAMAGE_NOTIFY;
+    ev2->drawable = win;
+    ev2->area.x = 5;
+    ev2->area.y = 5;
+    ev2->area.width = 10;
+    ev2->area.height = 10;
+
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)ev1));
+    assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)ev2));
+
+    event_ingest(&s, false);
+
+    assert(hash_map_size(&s.buckets.damage_regions) == 1);
+    dirty_region_t* region = hash_map_get(&s.buckets.damage_regions, win);
+    assert(region != NULL);
+    assert(region->rect.x == 0);
+    assert(region->rect.y == 0);
+    assert(region->rect.w == 15);
+    assert(region->rect.h == 15);
+    assert(s.buckets.coalesced == 1);
+
+    printf("test_event_ingest_coalesces_damage passed\n");
+    xcb_stubs_reset();
+    cleanup_server(&s);
+}
+
 int main(void) {
     test_event_ingest_bounded();
     test_event_ingest_drains_all_when_ready();
     test_event_ingest_coalesces_configure_request();
+    test_event_ingest_coalesces_randr();
+    test_event_ingest_coalesces_pointer_notify();
+    test_event_ingest_dispatches_colormap_notify();
+    test_event_ingest_coalesces_damage();
     return 0;
 }
