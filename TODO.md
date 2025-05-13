@@ -63,6 +63,10 @@ In your test executable link args:
   * `s->damage_supported == false`
   * `s->damage_event_base` may remain but damage_supported is what matters
 
+### 1.4b XDamage coalesces notify events
+
+**Covers**: damage coalescing branch in event_ingest_one (✓)
+
 ### 1.5 RandR present but version query reply NULL disables randr
 
 **Covers**: branch at lines ~118–121 (✗)
@@ -210,7 +214,7 @@ You want this unit-tested because it’s fork/exec logic with multiple search pa
 
 ### 5.1 RandR screen change notify coalesces
 
-**Covers**: entire RandR branch around ~552–565 (currently ✗)
+**Covers**: entire RandR branch around ~552–565 (✓)
 
 * Arrange: `s->randr_supported=true`, `s->randr_event_base=BASE`
 * Build an event with response_type = `BASE + XCB_RANDR_SCREEN_CHANGE_NOTIFY`
@@ -223,7 +227,7 @@ You want this unit-tested because it’s fork/exec logic with multiple search pa
 
 ### 5.2 XCB_COLORMAP_NOTIFY dispatches handler
 
-**Covers**: case `XCB_COLORMAP_NOTIFY` (currently ✗)
+**Covers**: case `XCB_COLORMAP_NOTIFY` (✓)
 
 * Wrap `wm_handle_colormap_notify` to increment a counter
 * Feed a colormap notify event
@@ -243,7 +247,7 @@ You want this unit-tested because it’s fork/exec logic with multiple search pa
 
 ### 5.4 enter/leave notify coalesces when already valid
 
-**Covers**: enter_valid and leave_valid branches (currently ✗)
+**Covers**: enter_valid and leave_valid branches (✓)
 
 * Feed ENTER twice
 

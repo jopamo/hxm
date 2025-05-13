@@ -5,8 +5,10 @@
 
 #include "event.h"
 #include <xcb/damage.h>
+#include <xcb/randr.h>
 
 extern void xcb_stubs_reset(void);
+extern void atoms_init(xcb_connection_t* conn);
 extern bool xcb_stubs_enqueue_queued_event(xcb_generic_event_t* ev);
 extern bool xcb_stubs_enqueue_event(xcb_generic_event_t* ev);
 extern size_t xcb_stubs_queued_event_len(void);
@@ -155,13 +157,13 @@ static void test_event_ingest_coalesces_randr(void) {
 
     // Event 1: Width=800, Height=600
     xcb_randr_screen_change_notify_event_t* ev1 = calloc(1, sizeof(*ev1));
-    ev1->response_type = s.randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY;
+    ev1->response_type = (uint8_t)(s.randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY);
     ev1->width = 800;
     ev1->height = 600;
 
     // Event 2: Width=1024, Height=768
     xcb_randr_screen_change_notify_event_t* ev2 = calloc(1, sizeof(*ev2));
-    ev2->response_type = s.randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY;
+    ev2->response_type = (uint8_t)(s.randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY);
     ev2->width = 1024;
     ev2->height = 768;
 
@@ -233,7 +235,6 @@ static void test_event_ingest_dispatches_colormap_notify(void) {
     ev->response_type = XCB_COLORMAP_NOTIFY;
     ev->window = 0x123;
     ev->colormap = 0x456;
-    ev->new = 1;
 
     assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)ev));
 
@@ -259,7 +260,7 @@ static void test_event_ingest_coalesces_damage(void) {
 
     // Event 1: (0,0, 10x10)
     xcb_damage_notify_event_t* ev1 = calloc(1, sizeof(*ev1));
-    ev1->response_type = s.damage_event_base + XCB_DAMAGE_NOTIFY;
+    ev1->response_type = (uint8_t)(s.damage_event_base + XCB_DAMAGE_NOTIFY);
     ev1->drawable = win;
     ev1->area.x = 0;
     ev1->area.y = 0;
@@ -268,7 +269,7 @@ static void test_event_ingest_coalesces_damage(void) {
 
     // Event 2: (5,5, 10x10) -> Union should be (0,0, 15x15)
     xcb_damage_notify_event_t* ev2 = calloc(1, sizeof(*ev2));
-    ev2->response_type = s.damage_event_base + XCB_DAMAGE_NOTIFY;
+    ev2->response_type = (uint8_t)(s.damage_event_base + XCB_DAMAGE_NOTIFY);
     ev2->drawable = win;
     ev2->area.x = 5;
     ev2->area.y = 5;
@@ -283,10 +284,10 @@ static void test_event_ingest_coalesces_damage(void) {
     assert(hash_map_size(&s.buckets.damage_regions) == 1);
     dirty_region_t* region = hash_map_get(&s.buckets.damage_regions, win);
     assert(region != NULL);
-    assert(region->rect.x == 0);
-    assert(region->rect.y == 0);
-    assert(region->rect.w == 15);
-    assert(region->rect.h == 15);
+    assert(region->x == 0);
+    assert(region->y == 0);
+    assert(region->w == 15);
+    assert(region->h == 15);
     assert(s.buckets.coalesced == 1);
 
     printf("test_event_ingest_coalesces_damage passed\n");
