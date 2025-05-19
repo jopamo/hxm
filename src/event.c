@@ -287,6 +287,11 @@ void server_cleanup(server_t* s) {
     menu_destroy(s);
     config_destroy(&s->config);
 
+    if (s->monitors) {
+        free(s->monitors);
+        s->monitors = NULL;
+    }
+
     if (s->signal_fd > 0) {
         close(s->signal_fd);
         s->signal_fd = -1;
