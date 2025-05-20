@@ -4,9 +4,9 @@
 #include <string.h>
 #include <xcb/xcb.h>
 
+#include "../src/wm_internal.h"
 #include "event.h"
 #include "wm.h"
-#include "../src/wm_internal.h"
 #include "xcb_utils.h"
 
 // External stubs from xcb_stubs.c
@@ -34,32 +34,39 @@ static int call_wm_publish_workarea = 0;
 
 // Wrappers
 void __wrap_wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
-    (void)s; (void)ev;
+    (void)s;
+    (void)ev;
     call_wm_handle_key_press++;
 }
 
 void __wrap_wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
-    (void)s; (void)ev;
+    (void)s;
+    (void)ev;
     call_wm_handle_button_press++;
 }
 
 void __wrap_wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
-    (void)s; (void)ev;
+    (void)s;
+    (void)ev;
     call_wm_handle_button_release++;
 }
 
 void __wrap_menu_handle_expose_region(server_t* s, dirty_region_t* region) {
-    (void)s; (void)region;
+    (void)s;
+    (void)region;
     call_menu_handle_expose_region++;
 }
 
 void __wrap_frame_redraw_region(server_t* s, handle_t h, dirty_region_t* region) {
-    (void)s; (void)h; (void)region;
+    (void)s;
+    (void)h;
+    (void)region;
     call_frame_redraw_region++;
 }
 
 void __wrap_wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
-    (void)s; (void)ev;
+    (void)s;
+    (void)ev;
     call_wm_handle_motion_notify++;
 }
 
@@ -69,12 +76,14 @@ void __wrap_wm_update_monitors(server_t* s) {
 }
 
 void __wrap_wm_compute_workarea(server_t* s, rect_t* wa) {
-    (void)s; (void)wa;
+    (void)s;
+    (void)wa;
     call_wm_compute_workarea++;
 }
 
 void __wrap_wm_publish_workarea(server_t* s, const rect_t* wa) {
-    (void)s; (void)wa;
+    (void)s;
+    (void)wa;
     call_wm_publish_workarea++;
 }
 
@@ -110,7 +119,7 @@ static void setup_server(server_t* s) {
     hash_map_init(&s->buckets.property_notifies);
     hash_map_init(&s->buckets.motion_notifies);
     hash_map_init(&s->buckets.damage_regions);
-    
+
     hash_map_init(&s->window_to_client);
     hash_map_init(&s->frame_to_client);
 }
@@ -130,7 +139,7 @@ static void cleanup_server(server_t* s) {
     hash_map_destroy(&s->buckets.property_notifies);
     hash_map_destroy(&s->buckets.motion_notifies);
     hash_map_destroy(&s->buckets.damage_regions);
-    
+
     hash_map_destroy(&s->window_to_client);
     hash_map_destroy(&s->frame_to_client);
 
@@ -185,7 +194,7 @@ static void test_6_3_menu_expose_dispatch(void) {
     reset_counters();
 
     s.menu.window = 0xabc;
-    
+
     dirty_region_t* region = arena_alloc(&s.tick_arena, sizeof(*region));
     *region = dirty_region_make(0, 0, 100, 100);
     hash_map_insert(&s.buckets.expose_regions, s.menu.window, region);
@@ -231,7 +240,7 @@ static void test_6_5_configure_request_unknown_window(void) {
     pc->width = 200;
     pc->height = 150;
     pc->mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
-    
+
     hash_map_insert(&s.buckets.configure_requests, win, pc);
 
     // No client registered for 0x999, so it is unknown.
@@ -264,11 +273,11 @@ static void test_6_6_randr_dirty_processing(void) {
     assert(call_wm_update_monitors == 1);
     assert(call_wm_compute_workarea == 1);
     assert(call_wm_publish_workarea == 1);
-    
+
     // Check property change call (implied by wm_publish_workarea or explicit logic in event_process)
     // event_process explicitly calls xcb_change_property for _NET_DESKTOP_GEOMETRY
     // Let's check xcb stubs for that.
-    assert(stub_prop_calls_len > 0); 
+    assert(stub_prop_calls_len > 0);
     // We can iterate stub_prop_calls to find _NET_DESKTOP_GEOMETRY if we want, but method call counts are good proxies.
 
     printf("test_6_6_randr_dirty_processing passed\n");

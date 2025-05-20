@@ -4,9 +4,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
-#include <sys/wait.h>
 
 #include "cookie_jar.h"
 #include "hxm.h"
@@ -548,16 +548,16 @@ static void test_alloc_fail_init(void) {
         g_fail_alloc = true;
         // Suppress expected error logs
         freopen("/dev/null", "w", stderr);
-        
+
         cookie_jar_t cj;
-        cookie_jar_init(&cj); // Should exit(1) due to alloc fail
-        
-        exit(0); // Should not be reached
+        cookie_jar_init(&cj);  // Should exit(1) due to alloc fail
+
+        exit(0);  // Should not be reached
     }
-    
+
     int status;
     waitpid(pid, &status, 0);
-    
+
     // Check if child exited with 1
     if (WIFEXITED(status) && WEXITSTATUS(status) == 1) {
         printf("test_alloc_fail_init passed\n");
@@ -578,19 +578,19 @@ static void test_alloc_fail_grow(void) {
         g_fail_alloc = true;
         // Suppress expected error logs
         freopen("/dev/null", "w", stderr);
-        
+
         // Push until growth is needed
         // Default cap 1024. Push more.
-        for (int i=0; i<2000; i++) {
-             cookie_jar_push(&cj, i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+        for (int i = 0; i < 2000; i++) {
+            cookie_jar_push(&cj, i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
         }
-        
-        exit(0); // Should not be reached if grow fails and exits
+
+        exit(0);  // Should not be reached if grow fails and exits
     }
-    
+
     int status;
     waitpid(pid, &status, 0);
-    
+
     // Check if child exited with 1
     if (WIFEXITED(status) && WEXITSTATUS(status) == 1) {
         printf("test_alloc_fail_grow passed\n");

@@ -19,7 +19,7 @@ static void setup_server(server_t* s) {
 
     xcb_stubs_reset();
     s->conn = xcb_connect(NULL, NULL);
-    
+
     // Minimal init for focus tests
     slotmap_init(&s->clients, 128, sizeof(client_hot_t), sizeof(client_cold_t));
     list_init(&s->focus_history);

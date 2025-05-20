@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
+
 #include "event.h"
 
 // Flags to control failure injection
@@ -61,7 +62,9 @@ xcb_key_symbols_t* __wrap_xcb_key_symbols_alloc(xcb_connection_t* c) {
 
 // sigprocmask wrapper
 int __wrap_sigprocmask(int how, const sigset_t* set, sigset_t* oldset) {
-    (void)how; (void)set; (void)oldset;
+    (void)how;
+    (void)set;
+    (void)oldset;
     if (fail_sigprocmask) {
         errno = EINVAL;
         return -1;
@@ -71,22 +74,25 @@ int __wrap_sigprocmask(int how, const sigset_t* set, sigset_t* oldset) {
 
 // signalfd wrapper
 int __wrap_signalfd(int fd, const sigset_t* mask, int flags) {
-    (void)fd; (void)mask; (void)flags;
+    (void)fd;
+    (void)mask;
+    (void)flags;
     if (fail_signalfd) {
         errno = EMFILE;
         return -1;
     }
-    return 100; // Fake FD
+    return 100;  // Fake FD
 }
 
 // timerfd_create wrapper
 int __wrap_timerfd_create(int clockid, int flags) {
-    (void)clockid; (void)flags;
+    (void)clockid;
+    (void)flags;
     if (fail_timerfd) {
         errno = EMFILE;
         return -1;
     }
-    return 101; // Fake FD
+    return 101;  // Fake FD
 }
 
 // epoll_create1 wrapper
@@ -96,12 +102,15 @@ int __wrap_epoll_create1(int flags) {
         errno = EMFILE;
         return -1;
     }
-    return 102; // Fake FD
+    return 102;  // Fake FD
 }
 
 // epoll_ctl wrapper
 int __wrap_epoll_ctl(int epfd, int op, int fd, struct epoll_event* event) {
-    (void)epfd; (void)op; (void)fd; (void)event;
+    (void)epfd;
+    (void)op;
+    (void)fd;
+    (void)event;
     if (fail_epoll_ctl) {
         errno = EBADF;
         return -1;
@@ -140,25 +149,25 @@ void run_test(const char* name, setup_fn setup) {
     printf("Running %s... ", name);
     reset_flags();
     setup();
-    
+
     server_t s;
     // Zero out s to avoid garbage
     memset(&s, 0, sizeof(s));
-    
+
     exit_status_capture = -1;
-    
+
     if (setjmp(exit_buf) == 0) {
         server_init(&s);
         fprintf(stderr, "FAILED: server_init did not exit\n");
         server_cleanup(&s);
         exit(1);
     }
-    
+
     // Check exit status
     if (exit_status_capture != 1) {
-         fprintf(stderr, "FAILED: exit status %d, expected 1\n", exit_status_capture);
-         server_cleanup(&s);
-         exit(1);
+        fprintf(stderr, "FAILED: exit status %d, expected 1\n", exit_status_capture);
+        server_cleanup(&s);
+        exit(1);
     }
 
     server_cleanup(&s);

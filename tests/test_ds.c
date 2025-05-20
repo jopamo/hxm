@@ -5,8 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/wait.h>
+#include <unistd.h>
 
 #include "ds.h"
 
@@ -468,10 +468,10 @@ static void test_alloc_fail_arena(void) {
     if (pid == 0) {
         g_fail_alloc = true;
         freopen("/dev/null", "w", stderr);
-        
+
         struct arena a;
         arena_init(&a, 1024);
-        arena_alloc(&a, 128); // Should abort
+        arena_alloc(&a, 128);  // Should abort
         exit(0);
     }
     int status;
@@ -492,15 +492,15 @@ static void test_alloc_fail_small_vec(void) {
         freopen("/dev/null", "w", stderr);
         small_vec_t v;
         small_vec_init(&v);
-        
+
         // Push until growth triggers malloc
-        // Then fail realloc? 
+        // Then fail realloc?
         // Let's test first malloc
         g_fail_alloc = true;
-        
+
         // Inline cap 8. Push 9.
-        for (int i=0; i<9; i++) small_vec_push(&v, (void*)1);
-        
+        for (int i = 0; i < 9; i++) small_vec_push(&v, (void*)1);
+
         exit(0);
     }
     int status;
@@ -519,11 +519,11 @@ static void test_alloc_fail_hash_map(void) {
     if (pid == 0) {
         freopen("/dev/null", "w", stderr);
         g_fail_alloc = true;
-        
+
         hash_map_t map;
         hash_map_init(&map);
-        hash_map_insert(&map, 1, (void*)1); // Should abort on resize
-        
+        hash_map_insert(&map, 1, (void*)1);  // Should abort on resize
+
         exit(0);
     }
     int status;
@@ -551,7 +551,7 @@ int main(void) {
     test_hash_map_update_and_reinsert();
     test_hash_map_stress_linear_probe_tombstones();
     test_hash_map_prng_sequence();
-    
+
     test_alloc_fail_arena();
     test_alloc_fail_small_vec();
     test_alloc_fail_hash_map();

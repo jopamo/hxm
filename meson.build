@@ -128,6 +128,14 @@ test_workspaces = executable('test_workspaces',
 )
 test('workspaces', test_workspaces)
 
+test_wm_input_keys = executable(
+  'test_wm_input_keys',
+  'tests/test_wm_input_keys.c',
+  include_directories: include_directories('..'),
+)
+
+test('wm_input_keys', test_wm_input_keys)
+
 test_server_init_failures = executable('test_server_init_failures',
   ['tests/test_server_init_failures.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
@@ -145,6 +153,19 @@ test_server_init_failures = executable('test_server_init_failures',
   ]
 )
 test('server_init_failures', test_server_init_failures)
+
+test_server_init_extensions = executable('test_server_init_extensions',
+  ['tests/test_server_init_extensions.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+  link_args: [
+    '-Wl,--wrap=xcb_get_extension_data',
+    '-Wl,--wrap=xcb_damage_query_version_reply',
+    '-Wl,--wrap=xcb_randr_query_version_reply',
+    '-Wl,--wrap=xcb_get_property_reply',
+  ]
+)
+test('server_init_extensions', test_server_init_extensions)
 
 test_ds = executable('test_ds',
   ['tests/test_ds.c', 'tests/xcb_stubs.c'] + test_src,

@@ -2,10 +2,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#include "event.h"
 #include <xcb/damage.h>
 #include <xcb/randr.h>
+
+#include "event.h"
 
 extern void xcb_stubs_reset(void);
 extern void atoms_init(xcb_connection_t* conn);
@@ -135,7 +135,8 @@ static void test_event_ingest_coalesces_configure_request(void) {
 
     pending_config_t* pc = hash_map_get(&s.buckets.configure_requests, win);
     assert(pc != NULL);
-    assert(pc->mask == (XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT));
+    assert(pc->mask ==
+           (XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT));
     assert(pc->x == 100);
     assert(pc->y == 200);
     assert(pc->width == 300);
@@ -240,7 +241,7 @@ static void test_event_ingest_dispatches_colormap_notify(void) {
 
     event_ingest(&s, false);
 
-    // XCB_COLORMAP_NOTIFY is dispatched immediately in event_ingest_one, 
+    // XCB_COLORMAP_NOTIFY is dispatched immediately in event_ingest_one,
     // it doesn't go to a bucket.
     assert(s.buckets.ingested == 1);
 

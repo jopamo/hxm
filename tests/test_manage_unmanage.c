@@ -429,7 +429,7 @@ static void test_manage_start_already_managed(void) {
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->xid = win;
-    hot->state = STATE_MAPPED; // Assuming managed
+    hot->state = STATE_MAPPED;  // Assuming managed
     hash_map_insert(&s.window_to_client, win, handle_to_ptr(h));
 
     // Call manage_start again
@@ -438,7 +438,7 @@ static void test_manage_start_already_managed(void) {
     client_manage_start(&s, win);
 
     assert(count_live_clients(&s) == 1);
-    
+
     printf("test_manage_start_already_managed passed\n");
     cleanup_server(&s);
 }
@@ -450,29 +450,29 @@ static void test_manage_start_slot_full(void) {
     xcb_stubs_reset();
     s.conn = xcb_connect(NULL, NULL);
     atoms_init(s.conn);
-    
+
     // cap=2 => index 0 invalid, index 1 valid. capacity for 1 client.
     slotmap_init(&s.clients, 2, sizeof(client_hot_t), sizeof(client_cold_t));
     hash_map_init(&s.window_to_client);
     hash_map_init(&s.frame_to_client);
     list_init(&s.focus_history);
     cookie_jar_init(&s.cookie_jar);
-    
+
     // Fill the slot
     void *hot, *cold;
     handle_t h = slotmap_alloc(&s.clients, &hot, &cold);
     assert(h != HANDLE_INVALID);
-    
+
     // Now try to manage another window
     xcb_window_t win = 999;
     client_manage_start(&s, win);
-    
+
     // Should have failed to allocate and returned early
     // Verify window not in map
     assert(server_get_client_by_window(&s, win) == HANDLE_INVALID);
-    
+
     printf("test_manage_start_slot_full passed\n");
-    
+
     cookie_jar_destroy(&s.cookie_jar);
     slotmap_destroy(&s.clients);
     hash_map_destroy(&s.window_to_client);
@@ -482,21 +482,21 @@ static void test_manage_start_slot_full(void) {
 
 static void test_should_focus_on_map_override(void) {
     client_hot_t hot = {0};
-    
+
     hot.focus_override = -1;
     hot.type = WINDOW_TYPE_NORMAL;
-    
+
     // Default depends on type/transient, for NORMAL it's false
     assert(should_focus_on_map(&hot) == false);
-    
+
     hot.focus_override = 1;
     assert(should_focus_on_map(&hot) == true);
-    
+
     hot.focus_override = 0;
     // Even if it's a dialog (which normally returns true)
     hot.type = WINDOW_TYPE_DIALOG;
     assert(should_focus_on_map(&hot) == false);
-    
+
     printf("test_should_focus_on_map_override passed\n");
 }
 
@@ -508,10 +508,10 @@ int main(void) {
     test_destroy_notify_unmanages_and_destroys_frame();
     test_iconify_ignores_unmap_notify_send_event();
     test_reparent_notify_ignored();
-    
+
     test_manage_start_already_managed();
     test_manage_start_slot_full();
     test_should_focus_on_map_override();
-    
+
     return 0;
 }

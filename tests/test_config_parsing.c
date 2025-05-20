@@ -1,10 +1,10 @@
+#include <X11/keysym.h>
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <xkbcommon/xkbcommon.h>
-#include <X11/keysym.h>
 
 #include "client.h"
 #include "config.h"
@@ -32,7 +32,7 @@ static void test_defaults(void) {
     assert(c.focus_raise == true);
     assert(c.fullscreen_use_workarea == false);
     assert(c.key_bindings.length > 0);
-    
+
     // Verify specific default keybinds
     bool found_term = false;
     for (size_t i = 0; i < c.key_bindings.length; i++) {
@@ -48,7 +48,7 @@ static void test_defaults(void) {
 }
 
 static void test_load_simple(void) {
-    const char* content = 
+    const char* content =
         "desktop_count=6\n"
         "border_width=5\n"
         "font_name=Monospace 12\n"
@@ -57,7 +57,7 @@ static void test_load_simple(void) {
         "desktop_names=Web,Code,Music\n";
 
     char* path = write_temp_file(content);
-    
+
     config_t c;
     config_init_defaults(&c);
     bool res = config_load(&c, path);
@@ -68,7 +68,7 @@ static void test_load_simple(void) {
     assert(strcmp(c.font_name, "Monospace 12") == 0);
     assert(!c.focus_raise);
     assert(c.theme.window_active_title.color == 0xFF0000);
-    
+
     assert(c.desktop_names_count == 3);
     assert(strcmp(c.desktop_names[0], "Web") == 0);
     assert(strcmp(c.desktop_names[1], "Code") == 0);
@@ -81,14 +81,14 @@ static void test_load_simple(void) {
 }
 
 static void test_keybinds(void) {
-    const char* content = 
-        "clear_keybinds=\n" // Should clear defaults
+    const char* content =
+        "clear_keybinds=\n"  // Should clear defaults
         "keybind=Mod4+Shift+q : close\n"
         "keybind=Control+Alt+t : exec terminal\n"
-        "keybind=Mod1+Tab:focus_next\n"; // Minimal spaces
+        "keybind=Mod1+Tab:focus_next\n";  // Minimal spaces
 
     char* path = write_temp_file(content);
-    
+
     config_t c;
     config_init_defaults(&c);
     bool res = config_load(&c, path);
@@ -106,7 +106,7 @@ static void test_keybinds(void) {
     // Check 2: Control+Alt+t -> exec terminal
     key_binding_t* b2 = c.key_bindings.items[1];
     assert((b2->modifiers & XCB_MOD_MASK_CONTROL));
-    assert((b2->modifiers & XCB_MOD_MASK_1)); // Alt is usually Mod1
+    assert((b2->modifiers & XCB_MOD_MASK_1));  // Alt is usually Mod1
     assert(b2->keysym == XK_t);
     assert(b2->action == ACTION_EXEC);
     assert(strcmp(b2->exec_cmd, "terminal") == 0);
@@ -118,13 +118,13 @@ static void test_keybinds(void) {
 }
 
 static void test_rules(void) {
-    const char* content = 
+    const char* content =
         "rule=class:Firefox -> desktop:1\n"
         "rule=title:Error, type:dialog -> layer:above, focus:yes\n"
         "rule=instance:term -> placement:center\n";
 
     char* path = write_temp_file(content);
-    
+
     config_t c;
     config_init_defaults(&c);
     bool res = config_load(&c, path);
@@ -156,14 +156,14 @@ static void test_rules(void) {
 }
 
 static void test_theme(void) {
-    const char* content = 
+    const char* content =
         "window.active.title.bg: gradient vertical\n"
         "window.active.title.bg.color: #00FF00\n"
         "window.active.title.bg.colorTo: #0000FF\n"
         "border.width: 10\n";
 
     char* path = write_temp_file(content);
-    
+
     theme_t t;
     memset(&t, 0, sizeof(t));
     bool res = theme_load(&t, path);
@@ -181,20 +181,20 @@ static void test_theme(void) {
 }
 
 static void test_invalid(void) {
-    const char* content = 
+    const char* content =
         "invalid_key=123\n"
         "broken_line_no_eq\n"
-        "keybind=BadMod+z : close\n" // BadMod should be ignored? Or logged?
-        "keybind=Mod4+BadKey : close\n" // BadKey -> NoSymbol
-        "rule=class:Foo -> bad_action\n"; // Bad action part
+        "keybind=BadMod+z : close\n"       // BadMod should be ignored? Or logged?
+        "keybind=Mod4+BadKey : close\n"    // BadKey -> NoSymbol
+        "rule=class:Foo -> bad_action\n";  // Bad action part
 
     char* path = write_temp_file(content);
-    
+
     config_t c;
     config_init_defaults(&c);
     // Should not crash, just warn
     bool res = config_load(&c, path);
-    assert(res); // Still returns true if file exists
+    assert(res);  // Still returns true if file exists
 
     config_destroy(&c);
     unlink(path);
