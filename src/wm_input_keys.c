@@ -3,13 +3,15 @@
  * Improved for robustness, lock-state handling, and process safety.
  */
 
-#include <X11/keysym.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+#ifndef TEST_WM_INPUT_KEYS
+#include <X11/keysym.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
 
@@ -20,9 +22,11 @@
 #include "menu.h"
 #include "wm.h"
 #include "wm_internal.h"
+#endif
 
 // Common modifiers that should be ignored when matching bindings
 // (CapsLock, NumLock/Mod2, ScrollLock/Mod5)
+#ifndef TEST_WM_INPUT_KEYS
 static const uint16_t IGNORED_MODS[] = {0,
                                         XCB_MOD_MASK_LOCK,
                                         XCB_MOD_MASK_2,
@@ -31,12 +35,14 @@ static const uint16_t IGNORED_MODS[] = {0,
                                         XCB_MOD_MASK_LOCK | XCB_MOD_MASK_5,
                                         XCB_MOD_MASK_2 | XCB_MOD_MASK_5,
                                         XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2 | XCB_MOD_MASK_5};
+#endif
 
 uint32_t wm_clean_mods(uint16_t state) {
     // Mask out NumLock, ScrollLock, and CapsLock for comparison
     return state & ~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2 | XCB_MOD_MASK_5);
 }
 
+#ifndef TEST_WM_INPUT_KEYS
 static void spawn(const char* cmd) {
     if (!cmd) return;
 
@@ -58,6 +64,7 @@ static void spawn(const char* cmd) {
         waitpid(pid, NULL, 0);
     }
 }
+#endif
 
 // Helper predicate for focus cycling
 static bool is_focusable(client_hot_t* c, server_t* s) {
@@ -119,6 +126,7 @@ void wm_cycle_focus(server_t* s, bool forward) {
     }
 }
 
+#ifndef TEST_WM_INPUT_KEYS
 void wm_setup_keys(server_t* s) {
     if (s->keysyms) xcb_key_symbols_free(s->keysyms);
     s->keysyms = xcb_key_symbols_alloc(s->conn);
@@ -146,6 +154,7 @@ void wm_setup_keys(server_t* s) {
 
     xcb_flush(s->conn);
 }
+#endif
 
 // Safer string-to-integer helper
 static int safe_atoi(const char* str) {

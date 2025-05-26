@@ -1,8 +1,10 @@
 #include <X11/keysym.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <xcb/randr.h>
 #include <xcb/sync.h>
 #include <xcb/xcb.h>
@@ -29,6 +31,8 @@
 // XID generator
 static uint32_t stub_xid_counter = 100;
 static uint32_t stub_cookie_seq = 1;
+
+static int stub_xcb_fd = -1;
 
 // Extension data reply
 static xcb_query_extension_reply_t stub_ext_reply;
@@ -164,6 +168,11 @@ static size_t stub_event_len = 0;
 
 // Public reset helper for tests
 void xcb_stubs_reset(void) {
+    if (stub_xcb_fd != -1) {
+        close(stub_xcb_fd);
+        stub_xcb_fd = -1;
+    }
+
     stub_xid_counter = 100;
     stub_cookie_seq = 1;
 
@@ -267,7 +276,15 @@ int xcb_connection_has_error(xcb_connection_t* c) {
 
 int xcb_get_file_descriptor(xcb_connection_t* c) {
     (void)c;
-    return -1;
+    if (stub_xcb_fd == -1) {
+        int fds[2];
+        if (pipe(fds) == -1) {
+            return -1;
+        }
+        close(fds[1]);
+        stub_xcb_fd = fds[0];
+    }
+    return stub_xcb_fd;
 }
 
 int xcb_flush(xcb_connection_t* c) {

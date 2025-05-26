@@ -131,7 +131,7 @@ test('workspaces', test_workspaces)
 test_wm_input_keys = executable(
   'test_wm_input_keys',
   'tests/test_wm_input_keys.c',
-  include_directories: include_directories('..'),
+  c_args: ['-DTEST_WM_INPUT_KEYS'],
 )
 
 test('wm_input_keys', test_wm_input_keys)

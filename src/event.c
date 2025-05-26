@@ -74,6 +74,10 @@ void server_init(server_t* s) {
     s->default_colormap = screen->default_colormap;
 
     s->xcb_fd = xcb_get_file_descriptor(s->conn);
+    if (s->xcb_fd < 0) {
+        LOG_ERROR("xcb_get_file_descriptor failed");
+        exit(1);
+    }
     int flags = fcntl(s->xcb_fd, F_GETFL, 0);
     if (flags >= 0 && !(flags & O_NONBLOCK)) {
         if (fcntl(s->xcb_fd, F_SETFL, flags | O_NONBLOCK) < 0) {
@@ -103,8 +107,9 @@ void server_init(server_t* s) {
         if (!reply) {
             s->damage_supported = false;
             LOG_WARN("XDamage present but version query failed; disabling damage tracking");
+        } else {
+            free(reply);
         }
-        free(reply);
     }
 
     s->randr_supported = false;
@@ -118,8 +123,9 @@ void server_init(server_t* s) {
         if (!rr) {
             s->randr_supported = false;
             s->randr_event_base = 0;
+        } else {
+            free(rr);
         }
-        free(rr);
     }
 
     // Initialize configuration (defaults then optional load)

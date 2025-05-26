@@ -44,6 +44,7 @@ xcb_connection_t* __wrap_xcb_connect_cached(void) {
 
 // fcntl wrapper
 int __wrap_fcntl(int fd, int cmd, ...) {
+    (void)fd;
     if (cmd == F_GETFL) return 0;
     if (cmd == F_SETFL && fail_fcntl) {
         errno = EACCES;

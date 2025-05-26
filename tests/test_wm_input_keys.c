@@ -1,5 +1,6 @@
 // tests/test_wm_input_keys.c
 #include <assert.h>
+#include <setjmp.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -145,6 +146,8 @@ typedef struct client_hot {
 typedef struct {
     int dummy;
 } cookie_jar_t;
+
+#define COOKIE_QUERY_POINTER 0
 
 // server_t contains what this module touches
 typedef struct server {
@@ -391,6 +394,8 @@ xcb_keysym_t xcb_key_symbols_get_keysym(void* keysyms, xcb_keycode_t detail, int
 // Override spawn() + exit() inside included module
 // -----------------------------
 
+static jmp_buf exit_jmp_buf;
+
 static void test_spawn(const char* cmd) {
     spy_spawn_calls++;
     if (!cmd) {
@@ -403,6 +408,7 @@ static void test_spawn(const char* cmd) {
 static void test_exit(int code) {
     spy_exit_calls++;
     spy_exit_last_code = code;
+    longjmp(exit_jmp_buf, 1);
 }
 
 // Make "static" helpers visible for direct unit testing
@@ -758,7 +764,9 @@ static void test_key_press_action_exit_intercepted(void) {
     xcb_key_press_event_t ev = {.detail = 18, .state = 0};
     g_fake_keysym = 0x9999;
 
-    wm_handle_key_press(&s, &ev);
+    if (setjmp(exit_jmp_buf) == 0) {
+        wm_handle_key_press(&s, &ev);
+    }
 
     assert(spy_exit_calls == 1);
     assert(spy_exit_last_code == 0);
