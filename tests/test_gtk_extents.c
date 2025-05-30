@@ -55,6 +55,7 @@ static void test_server_init(test_server_t* ts) {
 
     config_init_defaults(&ts->s.config);
 
+    small_vec_init(&ts->s.active_clients);
     bool ok = slotmap_init(&ts->s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t));
     assert(ok);
 }
@@ -82,6 +83,8 @@ static client_hot_t* test_client_add(test_server_t* ts, xcb_window_t xid, xcb_wi
     hot->desired.w = 400;
     hot->desired.h = 300;
 
+    small_vec_push(&ts->s.active_clients, handle_to_ptr(h));
+
     assert(ts->created_len < (sizeof(ts->created) / sizeof(ts->created[0])));
     ts->created[ts->created_len++] = hot;
 
@@ -99,6 +102,7 @@ static void test_server_destroy(test_server_t* ts) {
         hot->icon_surface = NULL;
     }
 
+    small_vec_destroy(&ts->s.active_clients);
     slotmap_destroy(&ts->s.clients);
     config_destroy(&ts->s.config);
     free(ts->s.conn);

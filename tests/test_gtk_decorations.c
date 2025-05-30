@@ -22,6 +22,7 @@ static void cleanup_server(server_t* s) {
         render_free(&hot->render_ctx);
         if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
     }
+    small_vec_destroy(&s->active_clients);
     slotmap_destroy(&s->clients);
     config_destroy(&s->config);
     free(s->conn);
@@ -47,9 +48,11 @@ void test_gtk_extents_toggle_decorations(void) {
         free(s.conn);
         return;
     }
+    small_vec_init(&s.active_clients);
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    small_vec_push(&s.active_clients, handle_to_ptr(h));
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->self = h;
     hot->xid = 123;
@@ -133,9 +136,11 @@ void test_gtk_configure_request_extents(void) {
     memset(&s, 0, sizeof(s));
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+    small_vec_init(&s.active_clients);
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    small_vec_push(&s.active_clients, handle_to_ptr(h));
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->self = h;
     hot->gtk_frame_extents_set = true;
@@ -173,6 +178,7 @@ void test_gtk_configure_request_extents(void) {
 
     printf("test_gtk_configure_request_extents passed\n");
 
+    small_vec_destroy(&s.active_clients);
     slotmap_destroy(&s.clients);
 }
 

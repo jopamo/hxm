@@ -33,6 +33,7 @@ void test_frame_extents(void) {
     atoms._NET_FRAME_EXTENTS = 200;
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+    small_vec_init(&s.active_clients);
 
     // Manually setup a client to simulate what client_finish_manage does,
     // but calling wm_flush_dirty is hard because it relies on the loop and hash maps.
@@ -47,6 +48,7 @@ void test_frame_extents(void) {
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    small_vec_push(&s.active_clients, handle_to_ptr(h));
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->self = h;
     hot->xid = 123;
@@ -116,6 +118,7 @@ void test_frame_extents(void) {
     render_free(&hot->render_ctx);
     if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
     slotmap_destroy(&s.clients);
+    small_vec_destroy(&s.active_clients);
     hash_map_destroy(&s.window_to_client);
     hash_map_destroy(&s.frame_to_client);
     config_destroy(&s.config);
@@ -138,12 +141,14 @@ void test_allowed_actions(void) {
     atoms._NET_WM_STATE = 400;
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+    small_vec_init(&s.active_clients);
 
     hash_map_init(&s.window_to_client);
     hash_map_init(&s.frame_to_client);
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    small_vec_push(&s.active_clients, handle_to_ptr(h));
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->self = h;
     hot->xid = 123;
@@ -203,6 +208,7 @@ void test_allowed_actions(void) {
     render_free(&hot->render_ctx);
     if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
     slotmap_destroy(&s.clients);
+    small_vec_destroy(&s.active_clients);
     hash_map_destroy(&s.window_to_client);
     hash_map_destroy(&s.frame_to_client);
     arena_destroy(&s.tick_arena);
@@ -224,10 +230,12 @@ void test_desktop_clamp_single(void) {
     atoms.WM_STATE = 501;
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+    small_vec_init(&s.active_clients);
     list_init(&s.focus_history);
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    small_vec_push(&s.active_clients, handle_to_ptr(h));
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->self = h;
     hot->xid = 123;
@@ -279,6 +287,7 @@ void test_desktop_clamp_single(void) {
     render_free(&hot->render_ctx);
     if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
     slotmap_destroy(&s.clients);
+    small_vec_destroy(&s.active_clients);
     arena_destroy(&s.tick_arena);
     free(s.conn);
 }
@@ -296,9 +305,11 @@ void test_dirty_stack_relayer(void) {
     for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+    small_vec_init(&s.active_clients);
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    small_vec_push(&s.active_clients, handle_to_ptr(h));
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->self = h;
     hot->xid = 123;

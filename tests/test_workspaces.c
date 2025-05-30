@@ -28,6 +28,7 @@ void setup_server(server_t* s) {
     s->root_depth = 24;
     s->root_visual_type = xcb_get_visualtype(s->conn, 0);
     slotmap_init(&s->clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
+    small_vec_init(&s->active_clients);
 
     // Initialize workspace defaults
     s->desktop_count = 4;
@@ -47,24 +48,28 @@ void test_workspace_switch_basics(void) {
     // Client 4: Sticky (Desktop -1)
 
     handle_t h1 = slotmap_alloc(&s.clients, NULL, NULL);
+    small_vec_push(&s.active_clients, handle_to_ptr(h1));
     client_hot_t* c1 = server_chot(&s, h1);
     c1->state = STATE_MAPPED;
     c1->desktop = 0;
     c1->frame = 1001;
 
     handle_t h2 = slotmap_alloc(&s.clients, NULL, NULL);
+    small_vec_push(&s.active_clients, handle_to_ptr(h2));
     client_hot_t* c2 = server_chot(&s, h2);
     c2->state = STATE_MAPPED;
     c2->desktop = 1;
     c2->frame = 1002;
 
     handle_t h3 = slotmap_alloc(&s.clients, NULL, NULL);
+    small_vec_push(&s.active_clients, handle_to_ptr(h3));
     client_hot_t* c3 = server_chot(&s, h3);
     c3->state = STATE_UNMAPPED;  // Minimized
     c3->desktop = 0;
     c3->frame = 1003;
 
     handle_t h4 = slotmap_alloc(&s.clients, NULL, NULL);
+    small_vec_push(&s.active_clients, handle_to_ptr(h4));
     client_hot_t* c4 = server_chot(&s, h4);
     c4->state = STATE_MAPPED;
     c4->desktop = 0;  // Will be sticky
@@ -148,6 +153,7 @@ void test_workspace_switch_basics(void) {
         }
     }
     slotmap_destroy(&s.clients);
+    small_vec_destroy(&s.active_clients);
     xcb_disconnect(s.conn);
 }
 
@@ -156,6 +162,7 @@ void test_client_move_to_workspace(void) {
     setup_server(&s);
 
     handle_t h1 = slotmap_alloc(&s.clients, NULL, NULL);
+    small_vec_push(&s.active_clients, handle_to_ptr(h1));
     client_hot_t* c1 = server_chot(&s, h1);
     c1->state = STATE_MAPPED;
     c1->desktop = 0;
@@ -222,6 +229,7 @@ void test_client_move_to_workspace(void) {
     }
     arena_destroy(&s.tick_arena);
     slotmap_destroy(&s.clients);
+    small_vec_destroy(&s.active_clients);
     xcb_disconnect(s.conn);
 }
 
@@ -230,6 +238,7 @@ void test_client_toggle_sticky(void) {
     setup_server(&s);
 
     handle_t h1 = slotmap_alloc(&s.clients, NULL, NULL);
+    small_vec_push(&s.active_clients, handle_to_ptr(h1));
     client_hot_t* c1 = server_chot(&s, h1);
     c1->state = STATE_MAPPED;
     c1->desktop = 1;  // On hidden desktop
@@ -267,6 +276,7 @@ void test_client_toggle_sticky(void) {
         }
     }
     slotmap_destroy(&s.clients);
+    small_vec_destroy(&s.active_clients);
     xcb_disconnect(s.conn);
 }
 
@@ -305,6 +315,7 @@ void test_workspace_relative(void) {
         }
     }
     slotmap_destroy(&s.clients);
+    small_vec_destroy(&s.active_clients);
     xcb_disconnect(s.conn);
 }
 

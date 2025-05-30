@@ -29,11 +29,10 @@ void wm_set_showing_desktop(server_t* s, bool show) {
     s->root_dirty |= ROOT_DIRTY_SHOWING_DESKTOP;
 
     if (show) {
-        for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-            if (!slotmap_is_used_idx(&s->clients, i)) continue;
-            handle_t h = slotmap_handle_at(&s->clients, i);
-            client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-            if (hot->state != STATE_MAPPED) continue;
+        for (size_t i = 0; i < s->active_clients.length; i++) {
+            handle_t h = ptr_to_handle(s->active_clients.items[i]);
+            client_hot_t* hot = server_chot(s, h);
+            if (!hot || hot->state != STATE_MAPPED) continue;
             if (!wm_should_hide_for_show_desktop(hot)) continue;
             hot->show_desktop_hidden = true;
             TRACE_LOG("showing_desktop hide h=%lx xid=%u", h, hot->xid);
@@ -41,15 +40,15 @@ void wm_set_showing_desktop(server_t* s, bool show) {
         }
         wm_set_focus(s, HANDLE_INVALID);
     } else {
-        for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-            if (!slotmap_is_used_idx(&s->clients, i)) continue;
-            handle_t h = slotmap_handle_at(&s->clients, i);
-            client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-            if (!hot->show_desktop_hidden) continue;
-            hot->show_desktop_hidden = false;
-            if (hot->state == STATE_UNMAPPED) {
-                LOG_DEBUG("wm_desktop: Restoring client %lx from unmapped state", h);
-                wm_client_restore(s, h);
+        for (size_t i = 0; i < s->active_clients.length; i++) {
+            handle_t h = ptr_to_handle(s->active_clients.items[i]);
+            client_hot_t* hot = server_chot(s, h);
+            if (hot && hot->show_desktop_hidden) {
+                hot->show_desktop_hidden = false;
+                if (hot->state == STATE_UNMAPPED) {
+                    LOG_DEBUG("wm_desktop: Restoring client %lx from unmapped state", h);
+                    wm_client_restore(s, h);
+                }
             }
         }
     }
@@ -168,12 +167,11 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
     }
 
     // 2. Iterate clients and subtract struts
-    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-        if (!slotmap_is_used_idx(&s->clients, i)) continue;
-
-        client_hot_t* c = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-        client_cold_t* cold = (client_cold_t*)slotmap_cold_at(&s->clients, i);
-        if (!cold) continue;
+    for (size_t i = 0; i < s->active_clients.length; i++) {
+        handle_t h = ptr_to_handle(s->active_clients.items[i]);
+        client_hot_t* c = server_chot(s, h);
+        client_cold_t* cold = server_ccold(s, h);
+        if (!c || !cold) continue;
         bool has_strut = cold->strut_partial_active || cold->strut_full_active;
         if (c->state != STATE_MAPPED && !has_strut) continue;
 

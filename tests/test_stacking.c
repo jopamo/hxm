@@ -28,6 +28,7 @@ static bool init_server(server_t* s) {
     for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s->layers[i]);
     arena_init(&s->tick_arena, 4096);
     list_init(&s->focus_history);
+    small_vec_init(&s->active_clients);
     if (slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return true;
     free(s->conn);
     return false;
@@ -43,6 +44,7 @@ static void cleanup_server(server_t* s) {
         if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
     }
     slotmap_destroy(&s->clients);
+    small_vec_destroy(&s->active_clients);
     for (int i = 0; i < LAYER_COUNT; i++) {
         small_vec_destroy(&s->layers[i]);
     }
@@ -65,6 +67,7 @@ static handle_t add_client(server_t* s, xcb_window_t xid, xcb_window_t frame, in
     list_init(&hot->transients_head);
     list_init(&hot->transient_sibling);
     list_init(&hot->focus_node);
+    small_vec_push(&s->active_clients, handle_to_ptr(h));
     return h;
 }
 
@@ -228,6 +231,7 @@ void test_focus_raise_on_focus(void) {
     stack_raise(&s, h2);
 
     wm_set_focus(&s, h1);
+    wm_flush_dirty(&s);
 
     handle_t order[] = {h2, h1};
     assert_layer_order(&s, LAYER_NORMAL, order, 2);

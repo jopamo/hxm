@@ -31,6 +31,7 @@ void test_rapid_lifecycle(void) {
     hash_map_init(&s.frame_to_client);
     list_init(&s.focus_history);
     for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s.layers[i]);
+    small_vec_init(&s.active_clients);
     arena_init(&s.tick_arena, 64 * 1024);
     cookie_jar_init(&s.cookie_jar);
     config_init_defaults(&s.config);
@@ -74,6 +75,7 @@ void test_rapid_lifecycle(void) {
     hash_map_destroy(&s.window_to_client);
     hash_map_destroy(&s.frame_to_client);
     for (int i = 0; i < LAYER_COUNT; i++) small_vec_destroy(&s.layers[i]);
+    small_vec_destroy(&s.active_clients);
     arena_destroy(&s.tick_arena);
     cookie_jar_destroy(&s.cookie_jar);
     config_destroy(&s.config);

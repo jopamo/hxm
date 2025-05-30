@@ -15,6 +15,8 @@ void test_workarea_compute(void) {
         fprintf(stderr, "Failed to init slotmap\n");
         return;
     }
+    small_vec_init(&s.active_clients);
+    s.conn = xcb_connect(NULL, NULL);
 
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h1 = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
@@ -26,6 +28,7 @@ void test_workarea_compute(void) {
     client_cold_t* cold1 = (client_cold_t*)cold_ptr;
     c1->state = STATE_MAPPED;
     cold1->strut.top = 30;
+    small_vec_push(&s.active_clients, handle_to_ptr(h1));
 
     handle_t h2 = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     assert(h2 != HANDLE_INVALID);
@@ -36,6 +39,7 @@ void test_workarea_compute(void) {
     client_cold_t* cold2 = (client_cold_t*)cold_ptr;
     c2->state = STATE_MAPPED;
     cold2->strut.left = 50;
+    small_vec_push(&s.active_clients, handle_to_ptr(h2));
 
     rect_t wa;
     wm_compute_workarea(&s, &wa);
@@ -48,7 +52,9 @@ void test_workarea_compute(void) {
 
     printf("test_workarea_compute passed\n");
 
+    small_vec_destroy(&s.active_clients);
     slotmap_destroy(&s.clients);
+    xcb_disconnect(s.conn);
 }
 
 int main(void) {

@@ -104,9 +104,11 @@ void wm_publish_workarea(server_t* s, const rect_t* wa) {
     if (!changed) return;
 
     // Re-apply workarea-dependent geometry for maximized/fullscreen windows
-    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-        if (!slotmap_is_used_idx(&s->clients, i)) continue;
-        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+    for (size_t i = 0; i < s->active_clients.length; i++) {
+        handle_t h = ptr_to_handle(s->active_clients.items[i]);
+        client_hot_t* hot = server_chot(s, h);
+        if (!hot) continue;
+
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
 
         if (hot->layer == LAYER_FULLSCREEN && s->config.fullscreen_use_workarea) {
@@ -146,10 +148,10 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
     if (!s || !out || !cap) return 0;
 
     uint32_t idx = 0;
-    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-        if (!slotmap_is_used_idx(&s->clients, i)) continue;
-
-        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+    for (size_t i = 0; i < s->active_clients.length; i++) {
+        handle_t h = ptr_to_handle(s->active_clients.items[i]);
+        client_hot_t* hot = server_chot(s, h);
+        if (!hot) continue;
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
 
         if (idx >= cap) return idx;
@@ -177,20 +179,20 @@ void wm_flush_dirty(server_t* s) {
     s->in_commit_phase = true;
 
     // 0. Handle new clients ready to be managed
-    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-        if (!slotmap_is_used_idx(&s->clients, i)) continue;
-        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-        if (hot->state == STATE_READY) {
-            handle_t h = slotmap_handle_at(&s->clients, i);
+    for (size_t i = 0; i < s->active_clients.length; i++) {
+        handle_t h = ptr_to_handle(s->active_clients.items[i]);
+        client_hot_t* hot = server_chot(s, h);
+        if (hot && hot->state == STATE_READY) {
             client_finish_manage(s, h);
         }
     }
 
     // 1. Visibility (Map/Unmap) - Must happen before focus
     if (s->root_dirty & ROOT_DIRTY_VISIBILITY) {
-        for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-            if (!slotmap_is_used_idx(&s->clients, i)) continue;
-            client_hot_t* c = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+        for (size_t i = 0; i < s->active_clients.length; i++) {
+            handle_t h = ptr_to_handle(s->active_clients.items[i]);
+            client_hot_t* c = server_chot(s, h);
+            if (!c) continue;
 
             if (c->state != STATE_MAPPED) continue;
 
@@ -221,11 +223,10 @@ void wm_flush_dirty(server_t* s) {
         s->root_dirty &= ~ROOT_DIRTY_VISIBILITY;
     }
 
-    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-        if (!slotmap_is_used_idx(&s->clients, i)) continue;
-
-        handle_t h = slotmap_handle_at(&s->clients, i);
-        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+    for (size_t i = 0; i < s->active_clients.length; i++) {
+        handle_t h = ptr_to_handle(s->active_clients.items[i]);
+        client_hot_t* hot = server_chot(s, h);
+        if (!hot) continue;
 
         if (hot->dirty == DIRTY_NONE) continue;
 
@@ -608,7 +609,7 @@ void wm_flush_dirty(server_t* s) {
 
         // _NET_CLIENT_LIST: mapping order (slotmap order), minus docks and
         // skip-taskbar/pager clients.
-        uint32_t cap_list = slotmap_capacity(&s->clients);
+        uint32_t cap_list = (uint32_t)s->active_clients.length;
         xcb_window_t* wins_list =
             cap_list ? (xcb_window_t*)arena_alloc(&s->tick_arena, cap_list * sizeof(xcb_window_t)) : NULL;
 

@@ -41,6 +41,7 @@ static void setup_server(server_t* s) {
 
     cookie_jar_init(&s->cookie_jar);
     slotmap_init(&s->clients, 64, sizeof(client_hot_t), sizeof(client_cold_t));
+    small_vec_init(&s->active_clients);
     hash_map_init(&s->window_to_client);
     hash_map_init(&s->frame_to_client);
     list_init(&s->focus_history);
@@ -67,6 +68,7 @@ static void cleanup_server(server_t* s) {
     }
     cookie_jar_destroy(&s->cookie_jar);
     slotmap_destroy(&s->clients);
+    small_vec_destroy(&s->active_clients);
     hash_map_destroy(&s->window_to_client);
     hash_map_destroy(&s->frame_to_client);
     xcb_disconnect(s->conn);

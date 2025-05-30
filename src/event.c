@@ -255,6 +255,7 @@ void server_init(server_t* s) {
         LOG_ERROR("client slotmap init failed");
         abort();
     }
+    small_vec_init(&s->active_clients);
 
     // Setup decoration resources (colors/fonts/gcs/etc)
     frame_init_resources(s);
@@ -342,6 +343,9 @@ void server_cleanup(server_t* s) {
         if (entry->key != 0) {
             small_vec_t* v = (small_vec_t*)entry->value;
             if (v) {
+                for (size_t j = 0; j < v->length; j++) {
+                    free(v->items[j]);
+                }
                 small_vec_destroy(v);
                 free(v);
             }
@@ -350,6 +354,7 @@ void server_cleanup(server_t* s) {
     hash_map_destroy(&s->pending_unmanaged_states);
 
     slotmap_destroy(&s->clients);
+    small_vec_destroy(&s->active_clients);
 
     for (int i = 0; i < LAYER_COUNT; i++) {
         small_vec_destroy(&s->layers[i]);
@@ -1012,10 +1017,10 @@ void event_process(server_t* s) {
         wm_publish_workarea(s, &wa);
 
         if (!s->config.fullscreen_use_workarea) {
-            for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-                if (!slotmap_is_used_idx(&s->clients, i)) continue;
-                client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-                if (hot->layer != LAYER_FULLSCREEN) continue;
+            for (size_t i = 0; i < s->active_clients.length; i++) {
+                handle_t h = ptr_to_handle(s->active_clients.items[i]);
+                client_hot_t* hot = server_chot(s, h);
+                if (!hot || hot->layer != LAYER_FULLSCREEN) continue;
                 wm_get_monitor_geometry(s, hot, &hot->desired);
                 hot->dirty |= DIRTY_GEOM;
             }
@@ -1023,7 +1028,6 @@ void event_process(server_t* s) {
     }
 
     // 12. maintenance
-    wm_flush_dirty(s);
 }
 
 void server_schedule_timer(server_t* s, int ms) {
@@ -1051,10 +1055,10 @@ void event_drain_cookies(server_t* s) {
 
         bool need_flush = (s->root_dirty != 0);
         if (!need_flush) {
-            for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-                if (!slotmap_is_used_idx(&s->clients, i)) continue;
-                client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-                if (hot->dirty != DIRTY_NONE) {
+            for (size_t i = 0; i < s->active_clients.length; i++) {
+                handle_t h = ptr_to_handle(s->active_clients.items[i]);
+                client_hot_t* hot = server_chot(s, h);
+                if (hot && hot->dirty != DIRTY_NONE) {
                     need_flush = true;
                     break;
                 }
@@ -1063,7 +1067,6 @@ void event_drain_cookies(server_t* s) {
 
         bool flushed = false;
         if (need_flush) {
-            wm_flush_dirty(s);
             flushed = true;
         }
 
@@ -1119,10 +1122,10 @@ static void apply_reload(server_t* s) {
         s->desktop_count = desired;
         if (s->current_desktop >= s->desktop_count) s->current_desktop = 0;
 
-        for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-            if (!slotmap_is_used_idx(&s->clients, i)) continue;
-            client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-            if (hot->sticky) continue;
+        for (size_t i = 0; i < s->active_clients.length; i++) {
+            handle_t h = ptr_to_handle(s->active_clients.items[i]);
+            client_hot_t* hot = server_chot(s, h);
+            if (!hot || hot->sticky) continue;
             if (hot->desktop >= (int32_t)s->desktop_count) {
                 hot->desktop = (int32_t)s->current_desktop;
                 uint32_t prop_val = (uint32_t)hot->desktop;
@@ -1143,10 +1146,10 @@ static void apply_reload(server_t* s) {
 
     wm_setup_keys(s);
 
-    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-        if (!slotmap_is_used_idx(&s->clients, i)) continue;
-        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-        hot->dirty |= DIRTY_FRAME_STYLE | DIRTY_GEOM;
+    for (size_t i = 0; i < s->active_clients.length; i++) {
+        handle_t h = ptr_to_handle(s->active_clients.items[i]);
+        client_hot_t* hot = server_chot(s, h);
+        if (hot) hot->dirty |= DIRTY_FRAME_STYLE | DIRTY_GEOM;
     }
 
     wm_publish_desktop_props(s);
@@ -1292,6 +1295,7 @@ void server_run(server_t* s) {
         event_ingest(s, x_ready);
         event_drain_cookies(s);
         event_process(s);
+        wm_flush_dirty(s);
 
         // Fix 3: Debounced workarea calculation
         if (s->workarea_dirty) {
