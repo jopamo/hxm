@@ -179,22 +179,35 @@ void wm_flush_dirty(server_t* s) {
     s->in_commit_phase = true;
 
     // 0. Handle new clients ready to be managed
-    for (size_t i = 0; i < s->active_clients.length; i++) {
-        handle_t h = ptr_to_handle(s->active_clients.items[i]);
+    for (size_t i = 0; i < s->active_clients.length;) {
+        void* ptr = s->active_clients.items[i];
+        handle_t h = ptr_to_handle(ptr);
         client_hot_t* hot = server_chot(s, h);
         if (hot && hot->state == STATE_READY) {
             client_finish_manage(s, h);
+        }
+
+        // Safe advance: only increment if the element at 'i' hasn't changed (wasn't swapped out)
+        if (i < s->active_clients.length && s->active_clients.items[i] == ptr) {
+            i++;
         }
     }
 
     // 1. Visibility (Map/Unmap) - Must happen before focus
     if (s->root_dirty & ROOT_DIRTY_VISIBILITY) {
-        for (size_t i = 0; i < s->active_clients.length; i++) {
-            handle_t h = ptr_to_handle(s->active_clients.items[i]);
+        for (size_t i = 0; i < s->active_clients.length;) {
+            void* ptr = s->active_clients.items[i];
+            handle_t h = ptr_to_handle(ptr);
             client_hot_t* c = server_chot(s, h);
-            if (!c) continue;
+            if (!c) {
+                if (i < s->active_clients.length && s->active_clients.items[i] == ptr) i++;
+                continue;
+            }
 
-            if (c->state != STATE_MAPPED) continue;
+            if (c->state != STATE_MAPPED) {
+                if (i < s->active_clients.length && s->active_clients.items[i] == ptr) i++;
+                continue;
+            }
 
             bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
             if (visible) {
@@ -219,16 +232,27 @@ void wm_flush_dirty(server_t* s) {
                 xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
                                     state_vals);
             }
+
+            if (i < s->active_clients.length && s->active_clients.items[i] == ptr) {
+                i++;
+            }
         }
         s->root_dirty &= ~ROOT_DIRTY_VISIBILITY;
     }
 
-    for (size_t i = 0; i < s->active_clients.length; i++) {
-        handle_t h = ptr_to_handle(s->active_clients.items[i]);
+    for (size_t i = 0; i < s->active_clients.length;) {
+        void* ptr = s->active_clients.items[i];
+        handle_t h = ptr_to_handle(ptr);
         client_hot_t* hot = server_chot(s, h);
-        if (!hot) continue;
+        if (!hot) {
+            if (i < s->active_clients.length && s->active_clients.items[i] == ptr) i++;
+            continue;
+        }
 
-        if (hot->dirty == DIRTY_NONE) continue;
+        if (hot->dirty == DIRTY_NONE) {
+            if (i < s->active_clients.length && s->active_clients.items[i] == ptr) i++;
+            continue;
+        }
 
         bool dirty_changed = (hot->dirty != hot->last_log_dirty);
         bool dirty_interesting = (hot->dirty & (DIRTY_GEOM | DIRTY_STACK | DIRTY_STATE));
@@ -237,7 +261,10 @@ void wm_flush_dirty(server_t* s) {
             hot->last_log_dirty = hot->dirty;
         }
 
-        if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED || hot->state == STATE_NEW) continue;
+        if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED || hot->state == STATE_NEW) {
+            if (i < s->active_clients.length && s->active_clients.items[i] == ptr) i++;
+            continue;
+        }
 
         if (hot->dirty & DIRTY_GEOM) {
             bool interactive =
@@ -251,6 +278,7 @@ void wm_flush_dirty(server_t* s) {
                     uint64_t remaining = interval - (now - s->last_interaction_flush);
                     int ms = (int)(remaining / 1000000) + 1;
                     server_schedule_timer(s, ms);
+                    if (i < s->active_clients.length && s->active_clients.items[i] == ptr) i++;
                     continue;
                 }
                 s->last_interaction_flush = now;
@@ -521,6 +549,10 @@ void wm_flush_dirty(server_t* s) {
                                 32, num_actions, actions);
 
             hot->dirty &= ~DIRTY_STATE;
+        }
+
+        if (i < s->active_clients.length && s->active_clients.items[i] == ptr) {
+            i++;
         }
     }
 
