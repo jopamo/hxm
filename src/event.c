@@ -1208,7 +1208,7 @@ static bool server_wait_for_events(server_t* s) {
 
     // If we have pending cookies, make sure requests are flushed so replies can arrive
     if (cookie_jar_has_pending(&s->cookie_jar)) {
-        xcb_flush(s->conn);
+        // xcb_flush(s->conn);
     }
 
     struct epoll_event evs[8];

@@ -152,7 +152,7 @@ void wm_setup_keys(server_t* s) {
         free(keycodes);
     }
 
-    xcb_flush(s->conn);
+    // xcb_flush(s->conn);
 }
 #endif
 
