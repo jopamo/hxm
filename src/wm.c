@@ -611,9 +611,9 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     if (ev->atom == atoms.WM_NAME || ev->atom == atoms._NET_WM_NAME) {
         hot->dirty |= DIRTY_TITLE;
     } else if (ev->atom == atoms.WM_HINTS) {
-        hot->dirty |= DIRTY_HINTS | DIRTY_STATE;
+        hot->dirty |= DIRTY_HINTS;
     } else if (ev->atom == atoms.WM_NORMAL_HINTS) {
-        hot->dirty |= DIRTY_HINTS | DIRTY_STATE;
+        hot->dirty |= DIRTY_HINTS;
     } else if (ev->atom == atoms.WM_COLORMAP_WINDOWS) {
         hot->dirty |= DIRTY_HINTS;
     } else if (ev->atom == atoms.WM_PROTOCOLS) {
@@ -627,7 +627,6 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
                         ((uint64_t)hot->xid << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, s->txn_id, wm_handle_reply);
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
-        s->workarea_dirty = true;
         // Waterfall: Always request PARTIAL first. If it fails/empty, we fallback to STRUT in reply handler.
         xcb_get_property_cookie_t ck =
             xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12);
@@ -636,9 +635,9 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     } else if (ev->atom == atoms._NET_WM_WINDOW_OPACITY) {
         hot->dirty |= DIRTY_OPACITY;
     } else if (ev->atom == atoms._MOTIF_WM_HINTS) {
-        hot->dirty |= DIRTY_HINTS | DIRTY_FRAME_STYLE;
+        hot->dirty |= DIRTY_HINTS;
     } else if (ev->atom == atoms._GTK_FRAME_EXTENTS) {
-        hot->dirty |= DIRTY_HINTS | DIRTY_FRAME_STYLE;
+        hot->dirty |= DIRTY_HINTS;
     } else if (ev->atom == atoms._NET_WM_BYPASS_COMPOSITOR) {
         LOG_INFO("Client %lx changed _NET_WM_BYPASS_COMPOSITOR", h);
     }
