@@ -51,7 +51,7 @@ static void run_autostart(void);
 static void apply_reload(server_t* s);
 static void buckets_reset(event_buckets_t* b);
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
-static bool server_wait_for_events(server_t* s);
+static bool server_wait_for_events(server_t* s, int timeout_ms);
 
 volatile sig_atomic_t g_shutdown_pending = 0;
 volatile sig_atomic_t g_restart_pending = 0;
@@ -94,6 +94,7 @@ void server_init(server_t* s) {
     }
 
     s->damage_supported = false;
+    /*
     s->damage_event_base = 0;
     s->damage_error_base = 0;
     const xcb_query_extension_reply_t* damage_ext = xcb_get_extension_data(s->conn, &xcb_damage_id);
@@ -111,6 +112,7 @@ void server_init(server_t* s) {
             free(reply);
         }
     }
+    */
 
     s->randr_supported = false;
     s->randr_event_base = 0;
@@ -1190,7 +1192,7 @@ static void event_handle_signals(server_t* s) {
     }
 }
 
-static bool server_wait_for_events(server_t* s) {
+static bool server_wait_for_events(server_t* s, int timeout_ms) {
     if (s->epoll_fd <= 0) return true;
 
     if (s->prefetched_event) return true;
@@ -1212,7 +1214,6 @@ static bool server_wait_for_events(server_t* s) {
     }
 
     struct epoll_event evs[8];
-    int timeout_ms = -1;
 
     for (;;) {
         int n = epoll_wait(s->epoll_fd, evs, 8, timeout_ms);
@@ -1259,6 +1260,9 @@ static bool server_wait_for_events(server_t* s) {
 void server_run(server_t* s) {
     LOG_INFO("Starting event loop");
 
+    static uint64_t last_flush_time = 0;
+    int next_timeout = -1;
+
     for (;;) {
         if (g_shutdown_pending) break;
 
@@ -1290,7 +1294,7 @@ void server_run(server_t* s) {
             if (s->x_poll_immediate) {
                 x_ready = true;
             } else {
-                x_ready = server_wait_for_events(s);
+                x_ready = server_wait_for_events(s, next_timeout);
             }
         }
 
@@ -1314,8 +1318,16 @@ void server_run(server_t* s) {
             s->workarea_dirty = false;
         }
 
-        xcb_flush(s->conn);
-        counters.x_flush_count++;
+        uint64_t flush_now = monotonic_time_ns();
+        if (flush_now - last_flush_time >= 8000000) {  // 8ms ~ 125Hz
+            xcb_flush(s->conn);
+            last_flush_time = flush_now;
+            counters.x_flush_count++;
+            next_timeout = -1;
+        } else {
+            uint64_t diff = 8000000 - (flush_now - last_flush_time);
+            next_timeout = (int)(diff / 1000000) + 1;
+        }
 
         log_unhandled_summary();
 

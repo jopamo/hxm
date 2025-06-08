@@ -704,76 +704,115 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
             } else if (atom == atoms.WM_NORMAL_HINTS) {
                 xcb_size_hints_t hints;
+
                 size_hints_t next_hints = {0};
+
                 uint32_t next_flags = 0;
 
-                if (!prop_is_empty(r) && xcb_get_property_value_length(r) >= (int)sizeof(xcb_size_hints_t) &&
-                    xcb_icccm_get_wm_size_hints_from_reply(&hints, r)) {
+                bool valid = false;
+
+                if (prop_is_empty(r)) {
+                    valid = true;
+
+                } else if (xcb_get_property_value_length(r) >= (int)sizeof(xcb_size_hints_t) &&
+
+                           xcb_icccm_get_wm_size_hints_from_reply(&hints, r)) {
+                    valid = true;
+
                     next_flags = hints.flags;
 
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
                         next_hints.min_w = hints.min_width;
+
                         next_hints.min_h = hints.min_height;
                     }
+
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) {
                         next_hints.max_w = hints.max_width;
+
                         next_hints.max_h = hints.max_height;
                     }
+
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_RESIZE_INC) {
                         next_hints.inc_w = hints.width_inc;
+
                         next_hints.inc_h = hints.height_inc;
                     }
+
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE) {
                         next_hints.base_w = hints.base_width;
+
                         next_hints.base_h = hints.base_height;
                     }
+
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_ASPECT) {
                         next_hints.min_aspect_num = hints.min_aspect_num;
+
                         next_hints.min_aspect_den = hints.min_aspect_den;
+
                         next_hints.max_aspect_num = hints.max_aspect_num;
+
                         next_hints.max_aspect_den = hints.max_aspect_den;
                     }
                 }
 
-                bool hints_changed =
-                    (hot->hints_flags != next_flags || memcmp(&hot->hints, &next_hints, sizeof(size_hints_t)) != 0);
+                if (valid) {
+                    bool hints_changed =
+                        (hot->hints_flags != next_flags || memcmp(&hot->hints, &next_hints, sizeof(size_hints_t)) != 0);
 
-                if (hints_changed) {
-                    hot->hints = next_hints;
-                    hot->hints_flags = next_flags;
-                    hot->dirty |= DIRTY_STATE;  // Allowed actions might change
+                    if (hints_changed) {
+                        hot->hints = next_hints;
 
-                    if (hot->state == STATE_NEW && hot->manage_phase != MANAGE_DONE) {
-                        if (next_flags & (XCB_ICCCM_SIZE_HINT_US_SIZE | XCB_ICCCM_SIZE_HINT_P_SIZE)) {
-                            if (!hot->geometry_from_configure) {
-                                if (hints.width > 0) hot->desired.w = (uint16_t)hints.width;
-                                if (hints.height > 0) hot->desired.h = (uint16_t)hints.height;
-                            } else {
-                                if (hot->desired.w == 0 && hints.width > 0) hot->desired.w = (uint16_t)hints.width;
-                                if (hot->desired.h == 0 && hints.height > 0) hot->desired.h = (uint16_t)hints.height;
+                        hot->hints_flags = next_flags;
+
+                        hot->dirty |= DIRTY_STATE;  // Allowed actions might change
+
+                        if (hot->state == STATE_NEW && hot->manage_phase != MANAGE_DONE) {
+                            if (next_flags & (XCB_ICCCM_SIZE_HINT_US_SIZE | XCB_ICCCM_SIZE_HINT_P_SIZE)) {
+                                if (!hot->geometry_from_configure) {
+                                    if (hints.width > 0) hot->desired.w = (uint16_t)hints.width;
+
+                                    if (hints.height > 0) hot->desired.h = (uint16_t)hints.height;
+
+                                } else {
+                                    if (hot->desired.w == 0 && hints.width > 0) hot->desired.w = (uint16_t)hints.width;
+
+                                    if (hot->desired.h == 0 && hints.height > 0)
+                                        hot->desired.h = (uint16_t)hints.height;
+                                }
                             }
-                        }
 
-                        if (next_flags & (XCB_ICCCM_SIZE_HINT_US_POSITION | XCB_ICCCM_SIZE_HINT_P_POSITION)) {
-                            if (!hot->geometry_from_configure) {
-                                hot->desired.x = (int16_t)hints.x;
-                                hot->desired.y = (int16_t)hints.y;
+                            if (next_flags & (XCB_ICCCM_SIZE_HINT_US_POSITION | XCB_ICCCM_SIZE_HINT_P_POSITION)) {
+                                if (!hot->geometry_from_configure) {
+                                    hot->desired.x = (int16_t)hints.x;
+
+                                    hot->desired.y = (int16_t)hints.y;
+                                }
                             }
-                        }
 
-                        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
-                    } else if (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame) {
-                        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
-                        hot->dirty |= DIRTY_GEOM;
-                    } else {
-                        // Even if not resizing, if hints changed, we might need to re-constrain
-                        uint16_t w = hot->desired.w;
-                        uint16_t h_val = hot->desired.h;
-                        client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
-                        if (w != hot->desired.w || h_val != hot->desired.h) {
-                            hot->desired.w = w;
-                            hot->desired.h = h_val;
+                            client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+
+                        } else if (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame) {
+                            client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+
                             hot->dirty |= DIRTY_GEOM;
+
+                        } else {
+                            // Even if not resizing, if hints changed, we might need to re-constrain
+
+                            uint16_t w = hot->desired.w;
+
+                            uint16_t h_val = hot->desired.h;
+
+                            client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
+
+                            if (w != hot->desired.w || h_val != hot->desired.h) {
+                                hot->desired.w = w;
+
+                                hot->desired.h = h_val;
+
+                                hot->dirty |= DIRTY_GEOM;
+                            }
                         }
                     }
                 }
