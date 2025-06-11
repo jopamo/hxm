@@ -1045,15 +1045,17 @@ void server_schedule_timer(server_t* s, int ms) {
     timerfd_settime(s->timer_fd, 0, &its, NULL);
 }
 
-void event_drain_cookies(server_t* s) {
-    if (!s) return;
+bool event_drain_cookies(server_t* s) {
+    if (!s) return false;
 
+    bool any_progress = false;
     for (int pass = 0; pass < 3; pass++) {
         size_t before_live = s->cookie_jar.live_count;
 
         cookie_jar_drain(&s->cookie_jar, s->conn, s, COOKIE_JAR_MAX_REPLIES_PER_TICK);
 
         bool cookies_progress = (s->cookie_jar.live_count != before_live);
+        if (cookies_progress) any_progress = true;
 
         bool need_flush = (s->root_dirty != 0);
         if (!need_flush) {
@@ -1080,6 +1082,7 @@ void event_drain_cookies(server_t* s) {
         if (!cookies_progress && !flushed) break;
         if (s->cookie_jar.live_count == 0) break;
     }
+    return any_progress;
 }
 
 static void apply_reload(server_t* s) {
@@ -1262,6 +1265,7 @@ void server_run(server_t* s) {
 
     static uint64_t last_flush_time = 0;
     int next_timeout = -1;
+    s->pending_flush = false;
 
     for (;;) {
         if (g_shutdown_pending) break;
@@ -1302,9 +1306,10 @@ void server_run(server_t* s) {
         s->txn_id++;
 
         event_ingest(s, x_ready);
-        event_drain_cookies(s);
+        if (event_drain_cookies(s)) s->pending_flush = true;
         event_process(s);
-        wm_flush_dirty(s);
+        if (wm_flush_dirty(s)) s->pending_flush = true;
+        if (s->buckets.ingested > 0) s->pending_flush = true;
 
         // Fix 3: Debounced workarea calculation
         if (s->workarea_dirty) {
@@ -1316,11 +1321,14 @@ void server_run(server_t* s) {
             }
             wm_publish_workarea(s, &wa);
             s->workarea_dirty = false;
+            s->pending_flush = true;
         }
 
         uint64_t flush_now = monotonic_time_ns();
-        if (flush_now - last_flush_time >= 8000000) {  // 8ms ~ 125Hz
+        bool busy = s->x_poll_immediate;
+        if (s->pending_flush && (!busy || flush_now - last_flush_time >= 8000000)) {  // 8ms ~ 125Hz
             xcb_flush(s->conn);
+            s->pending_flush = false;
             last_flush_time = flush_now;
             counters.x_flush_count++;
             next_timeout = -1;

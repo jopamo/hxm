@@ -215,6 +215,7 @@ typedef struct server {
     uint8_t force_poll_ticks;
     uint64_t txn_id;
     bool in_commit_phase;
+    bool pending_flush;
 
     // Config
     config_t config;
@@ -249,6 +250,7 @@ void server_cleanup(server_t* s);
 
 // Event ingestion
 void event_ingest(server_t* s, bool x_ready);
+bool event_drain_cookies(server_t* s);
 void event_process(server_t* s);
 
 void server_schedule_timer(server_t* s, int ms);

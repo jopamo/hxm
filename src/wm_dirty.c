@@ -175,7 +175,8 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
  * _NET_CLIENT_LIST as-is (or omit it) instead of incorrectly reusing stacking
  * order.
  */
-void wm_flush_dirty(server_t* s) {
+bool wm_flush_dirty(server_t* s) {
+    bool flushed = false;
     s->in_commit_phase = true;
 
     // 0. Handle new clients ready to be managed
@@ -185,6 +186,7 @@ void wm_flush_dirty(server_t* s) {
         client_hot_t* hot = server_chot(s, h);
         if (hot && hot->state == STATE_READY) {
             client_finish_manage(s, h);
+            flushed = true;
         }
 
         // Safe advance: only increment if the element at 'i' hasn't changed (wasn't swapped out)
@@ -195,6 +197,7 @@ void wm_flush_dirty(server_t* s) {
 
     // 1. Visibility (Map/Unmap) - Must happen before focus
     if (s->root_dirty & ROOT_DIRTY_VISIBILITY) {
+        flushed = true;
         for (size_t i = 0; i < s->active_clients.length;) {
             void* ptr = s->active_clients.items[i];
             handle_t h = ptr_to_handle(ptr);
@@ -297,12 +300,12 @@ void wm_flush_dirty(server_t* s) {
             // Safety: Do not configure if we have no geometry yet.
             if (hot->desired.w == 0 || hot->desired.h == 0) {
                 hot->dirty &= ~DIRTY_GEOM;  // Clear dirty flag to prevent spin
-                return;
+                goto end_dirty_geom;
             }
 
             // Defer configuration until management is complete
             if (hot->state == STATE_NEW) {
-                return;
+                goto end_dirty_geom;
             }
 
             // Robust clamping: Ensure frame is at least large enough for
@@ -399,19 +402,23 @@ void wm_flush_dirty(server_t* s) {
 
                 LOG_DEBUG("Flushed DIRTY_GEOM for %lx: Frame Global(%d,%d) Client Local(%d,%d) %dx%d", h, frame_x,
                           frame_y, local_x, local_y, client_w, client_h);
+                flushed = true;
             } else {
                 TRACE_LOG("Skipping DIRTY_GEOM for %lx (unchanged)", h);
             }
 
             wm_send_synthetic_configure(s, h);
+            flushed = true;
 
             hot->pending = hot->desired;
             hot->pending_epoch++;
 
             hot->dirty &= ~DIRTY_GEOM;
         }
+    end_dirty_geom:
 
         if (hot->dirty & DIRTY_TITLE) {
+            flushed = true;
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_NAME, atoms.UTF8_STRING, 0, 1024).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_NAME,
@@ -425,6 +432,7 @@ void wm_flush_dirty(server_t* s) {
         }
 
         if (hot->dirty & DIRTY_HINTS) {
+            flushed = true;
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 0, 32).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
@@ -450,6 +458,7 @@ void wm_flush_dirty(server_t* s) {
         }
 
         if (hot->dirty & DIRTY_STRUT) {
+            flushed = true;
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
@@ -463,6 +472,7 @@ void wm_flush_dirty(server_t* s) {
         }
 
         if (hot->dirty & DIRTY_OPACITY) {
+            flushed = true;
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 0, 1).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
@@ -472,6 +482,7 @@ void wm_flush_dirty(server_t* s) {
         }
 
         if (hot->dirty & DIRTY_DESKTOP) {
+            flushed = true;
             uint32_t desktop = hot->sticky ? 0xFFFFFFFFu : (uint32_t)hot->desktop;
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32,
                                 1, &desktop);
@@ -481,6 +492,7 @@ void wm_flush_dirty(server_t* s) {
         frame_flush(s, h);
 
         if (hot->dirty & DIRTY_STACK) {
+            flushed = true;
             TRACE_LOG("flush_dirty stack h=%lx layer=%d stack_layer=%d", h, hot->layer, hot->stacking_layer);
 
             // If the client is not in the correct layer in the list, move it.
@@ -497,6 +509,7 @@ void wm_flush_dirty(server_t* s) {
         }
 
         if (hot->dirty & DIRTY_STATE) {
+            flushed = true;
             TRACE_LOG(
                 "flush_dirty state h=%lx layer=%d above=%d below=%d sticky=%d "
                 "max=%d/%d focused=%d",
@@ -586,6 +599,7 @@ void wm_flush_dirty(server_t* s) {
     }
 
     if (desired_focus != s->committed_focus) {
+        flushed = true;
         TRACE_LOG("flush_dirty commit focus %u -> %u", s->committed_focus, desired_focus);
 
         if (desired_focus == s->root) {
@@ -619,6 +633,7 @@ void wm_flush_dirty(server_t* s) {
     // Root properties
 
     if (s->root_dirty & ROOT_DIRTY_ACTIVE_WINDOW) {
+        flushed = true;
         if (s->focused_client != HANDLE_INVALID) {
             client_hot_t* c = server_chot(s, s->focused_client);
             if (c) {
@@ -632,6 +647,7 @@ void wm_flush_dirty(server_t* s) {
     }
 
     if (s->root_dirty & (ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING)) {
+        flushed = true;
         size_t cap = 0;
         for (int l = 0; l < LAYER_COUNT; l++) cap += s->layers[l].length;
 
@@ -668,6 +684,7 @@ void wm_flush_dirty(server_t* s) {
     }
 
     if (s->root_dirty & ROOT_DIRTY_WORKAREA) {
+        flushed = true;
         rect_t wa;
         wm_compute_workarea(s, &wa);
         static rl_t rl_wa = {0};
@@ -680,12 +697,14 @@ void wm_flush_dirty(server_t* s) {
     }
 
     if (s->root_dirty & ROOT_DIRTY_CURRENT_DESKTOP) {
+        flushed = true;
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32,
                             1, &s->current_desktop);
         s->root_dirty &= ~ROOT_DIRTY_CURRENT_DESKTOP;
     }
 
     if (s->root_dirty & ROOT_DIRTY_SHOWING_DESKTOP) {
+        flushed = true;
         uint32_t val = s->showing_desktop ? 1u : 0u;
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_SHOWING_DESKTOP, XCB_ATOM_CARDINAL, 32,
                             1, &val);
@@ -693,5 +712,5 @@ void wm_flush_dirty(server_t* s) {
     }
 
     s->in_commit_phase = false;
-    // xcb_flush(s->conn);
+    return flushed;
 }
