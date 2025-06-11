@@ -164,7 +164,9 @@ enum log_level {
     LOG_ERROR,
 };
 
+#ifdef HXM_ENABLE_DEBUG_LOGGING
 void hxm_log(enum log_level level, const char* fmt, ...) __attribute__((format(printf, 2, 3)));
+#endif
 
 #ifdef HXM_ENABLE_DEBUG_LOGGING
 #define LOG_DEBUG(...) hxm_log(LOG_DEBUG, __VA_ARGS__)
@@ -190,7 +192,9 @@ void hxm_log(enum log_level level, const char* fmt, ...) __attribute__((format(p
 #define LOG_WARN(...) \
     do {              \
     } while (0)
-#define LOG_ERROR(...) hxm_log(LOG_ERROR, __VA_ARGS__)
+#define LOG_ERROR(...) \
+    do {               \
+    } while (0)
 
 #define TRACE_LOG(...) \
     do {               \
@@ -221,7 +225,9 @@ struct counters {
 extern struct counters counters;
 
 void counters_init(void);
+#ifdef HXM_ENABLE_DEBUG_LOGGING
 void counters_dump(void);
+#endif
 
 // Rate limiter
 typedef struct {
