@@ -1310,7 +1310,7 @@ void server_run(server_t* s) {
         event_ingest(s, x_ready);
         if (event_drain_cookies(s)) s->pending_flush = true;
         event_process(s);
-        if (wm_flush_dirty(s)) s->pending_flush = true;
+        if (wm_flush_dirty(s, start)) s->pending_flush = true;
         if (s->buckets.ingested > 0) s->pending_flush = true;
 
         // Fix 3: Debounced workarea calculation

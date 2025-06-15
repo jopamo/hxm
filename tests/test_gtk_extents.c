@@ -139,7 +139,7 @@ static void test_gtk_extents_inflation_order_and_state(void) {
     hot->dirty = DIRTY_GEOM;
 
     reset_config_captures();
-    wm_flush_dirty(&ts.s);
+    wm_flush_dirty(&ts.s, monotonic_time_ns());
 
     // Expected: CSD Window (Extents Respected)
     // Frame: Positioned at desired (logical) pos MINUS extents, Sized to content (includes shadow)
@@ -194,7 +194,7 @@ static void test_no_gtk_extents_no_inflation(void) {
     hot->dirty = DIRTY_GEOM;
 
     reset_config_captures();
-    wm_flush_dirty(&ts.s);
+    wm_flush_dirty(&ts.s, monotonic_time_ns());
 
     const int32_t exp_frame_x = 50;
     const int32_t exp_frame_y = 50;
@@ -235,7 +235,7 @@ static void test_not_dirty_no_configure(void) {
     hot->dirty = 0;
 
     reset_config_captures();
-    wm_flush_dirty(&ts.s);
+    wm_flush_dirty(&ts.s, monotonic_time_ns());
 
     assert(stub_configure_window_count == 0);
     assert(stub_config_calls_len == 0);
@@ -260,13 +260,13 @@ static void test_idempotent_second_flush_does_nothing(void) {
     hot->dirty = DIRTY_GEOM;
 
     reset_config_captures();
-    wm_flush_dirty(&ts.s);
+    wm_flush_dirty(&ts.s, monotonic_time_ns());
 
     assert(stub_configure_window_count == 2);
     assert(stub_config_calls_len == 2);
 
     reset_config_captures();
-    wm_flush_dirty(&ts.s);
+    wm_flush_dirty(&ts.s, monotonic_time_ns());
 
     assert(stub_configure_window_count == 0);
     assert(stub_config_calls_len == 0);
@@ -306,7 +306,7 @@ static void test_two_clients_both_configured(void) {
     b->dirty = DIRTY_GEOM;
 
     reset_config_captures();
-    wm_flush_dirty(&ts.s);
+    wm_flush_dirty(&ts.s, monotonic_time_ns());
 
     assert(stub_configure_window_count == 4);
     assert(stub_config_calls_len == 4);

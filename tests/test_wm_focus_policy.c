@@ -688,13 +688,13 @@ void test_set_focus_revert_policy_and_root_fallback(void) {
 
     stub_set_input_focus_count = 0;
     wm_set_focus(&s, h1);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(stub_set_input_focus_count == 1);
     assert(stub_last_input_focus_window == 703);
     assert(stub_last_input_focus_revert == XCB_INPUT_FOCUS_POINTER_ROOT);
 
     client_unmanage(&s, h1);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(s.focused_client == HANDLE_INVALID);
     assert(stub_last_input_focus_window == s.root);
     assert(stub_last_input_focus_revert == XCB_INPUT_FOCUS_POINTER_ROOT);

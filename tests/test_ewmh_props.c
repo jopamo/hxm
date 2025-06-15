@@ -135,7 +135,7 @@ static void test_active_window_updates(void) {
     client_hot_t* hot = server_chot(&s, h);
 
     wm_set_focus(&s, h);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* call = find_prop_call(s.root, atoms._NET_ACTIVE_WINDOW, false);
     assert(call != NULL);
@@ -144,7 +144,7 @@ static void test_active_window_updates(void) {
     assert(val[0] == hot->xid);
 
     wm_set_focus(&s, HANDLE_INVALID);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* del = find_prop_call(s.root, atoms._NET_ACTIVE_WINDOW, true);
     assert(del != NULL);
@@ -167,7 +167,7 @@ static void test_client_list_add_remove(void) {
     stack_raise(&s, h2);
 
     s.root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* list = find_prop_call(s.root, atoms._NET_CLIENT_LIST, false);
     assert(list != NULL);
@@ -177,7 +177,7 @@ static void test_client_list_add_remove(void) {
     assert(list_vals[1] == 2002);
 
     client_unmanage(&s, h1);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* list2 = find_prop_call(s.root, atoms._NET_CLIENT_LIST, false);
     assert(list2 != NULL);
@@ -215,10 +215,10 @@ static void test_client_list_filters_skip_and_dock(void) {
 
     wm_client_update_state(&s, h2, 1, atoms._NET_WM_STATE_SKIP_TASKBAR);
     wm_client_update_state(&s, h3, 1, atoms._NET_WM_STATE_SKIP_PAGER);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     s.root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* list = find_prop_call(s.root, atoms._NET_CLIENT_LIST, false);
     assert(list != NULL);
@@ -266,7 +266,7 @@ static void test_desktop_props_publish_and_switch(void) {
     assert(cur_vals[0] == 1);
 
     wm_switch_workspace(&s, 2);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* cur2 = find_prop_call(s.root, atoms._NET_CURRENT_DESKTOP, false);
     assert(cur2 != NULL);
@@ -308,7 +308,7 @@ static void test_strut_updates_workarea(void) {
     reply.data[5] = 1080;  // left_end_y
 
     wm_handle_reply(&s, &slot, &reply.r, NULL);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* wa = find_prop_call(s.root, atoms._NET_WORKAREA, false);
     assert(wa != NULL);
@@ -321,7 +321,7 @@ static void test_strut_updates_workarea(void) {
     reply.r.format = 0;
     reply.r.value_len = 0;
     wm_handle_reply(&s, &slot, &reply.r, NULL);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* wa2 = find_prop_call(s.root, atoms._NET_WORKAREA, false);
     assert(wa2 != NULL);
@@ -435,7 +435,7 @@ static void test_urgency_hint_maps_to_ewmh_state(void) {
     reply.data[0] = XCB_ICCCM_WM_HINT_X_URGENCY;
 
     wm_handle_reply(&s, &slot, &reply.r, NULL);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* state = find_prop_call(hot->xid, atoms._NET_WM_STATE, false);
     assert(state != NULL);
@@ -444,7 +444,7 @@ static void test_urgency_hint_maps_to_ewmh_state(void) {
     // Clear urgency
     reply.data[0] = 0;
     wm_handle_reply(&s, &slot, &reply.r, NULL);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     state = find_prop_call(hot->xid, atoms._NET_WM_STATE, false);
     assert(state != NULL);

@@ -280,7 +280,7 @@ static void test_resize_no_sync_await(void) {
     s.interaction_window = hot->frame;
     s.interaction_handle = h;
 
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_sync_await_count == 0);
 

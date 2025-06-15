@@ -175,7 +175,7 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
  * _NET_CLIENT_LIST as-is (or omit it) instead of incorrectly reusing stacking
  * order.
  */
-bool wm_flush_dirty(server_t* s) {
+bool wm_flush_dirty(server_t* s, uint64_t now) {
     bool flushed = false;
     s->in_commit_phase = true;
 
@@ -275,7 +275,6 @@ bool wm_flush_dirty(server_t* s) {
                  s->interaction_window == hot->frame);
 
             if (interactive) {
-                uint64_t now = monotonic_time_ns();
                 uint64_t interval = 16666666;  // ~16ms for 60Hz
                 if (s->last_interaction_flush > 0 && (now - s->last_interaction_flush) < interval) {
                     uint64_t remaining = interval - (now - s->last_interaction_flush);
@@ -688,7 +687,7 @@ bool wm_flush_dirty(server_t* s) {
         rect_t wa;
         wm_compute_workarea(s, &wa);
         static rl_t rl_wa = {0};
-        if (rl_allow(&rl_wa, monotonic_time_ns(), 1000000000)) {
+        if (rl_allow(&rl_wa, now, 1000000000)) {
             TRACE_LOG("publish_workarea x=%d y=%d w=%u h=%u", wa.x, wa.y, wa.w, wa.h);
         }
         wm_publish_workarea(s, &wa);
