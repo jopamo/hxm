@@ -296,6 +296,43 @@ static void test_event_ingest_coalesces_damage(void) {
     cleanup_server(&s);
 }
 
+static void test_event_ingest_coalesces_motion_notify(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    xcb_window_t win = 0x999;
+
+    // Create 10 MotionNotify events
+    for (int i = 0; i < 10; i++) {
+        xcb_motion_notify_event_t* ev = calloc(1, sizeof(*ev));
+        ev->response_type = XCB_MOTION_NOTIFY;
+        ev->event = win;  // Same window
+        ev->event_x = i * 10;
+        ev->event_y = i * 10;
+        ev->time = 1000 + i;
+        assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)ev));
+    }
+
+    event_ingest(&s, false);
+
+    // Should have 1 entry in hash map
+    assert(hash_map_size(&s.buckets.motion_notifies) == 1);
+
+    // Should have 9 coalesced events
+    assert(s.buckets.coalesced == 9);
+
+    // The one kept should be the last one (x=90, y=90)
+    xcb_motion_notify_event_t* final_ev = hash_map_get(&s.buckets.motion_notifies, win);
+    assert(final_ev != NULL);
+    assert(final_ev->event_x == 90);
+    assert(final_ev->event_y == 90);
+
+    printf("test_event_ingest_coalesces_motion_notify passed\n");
+    xcb_stubs_reset();
+    cleanup_server(&s);
+}
+
 int main(void) {
     test_event_ingest_bounded();
     test_event_ingest_drains_all_when_ready();
@@ -304,5 +341,6 @@ int main(void) {
     test_event_ingest_coalesces_pointer_notify();
     test_event_ingest_dispatches_colormap_notify();
     test_event_ingest_coalesces_damage();
+    test_event_ingest_coalesces_motion_notify();
     return 0;
 }
