@@ -67,8 +67,8 @@ static void test_event_ingest_bounded(void) {
     setup_server(&s);
     xcb_stubs_reset();
 
-    const int extra = 4;
-    for (int i = 0; i < MAX_EVENTS_PER_TICK + extra; i++) {
+    const size_t extra = 4;
+    for (size_t i = 0; i < MAX_EVENTS_PER_TICK + extra; i++) {
         assert(xcb_stubs_enqueue_queued_event(make_event(XCB_KEY_PRESS)));
     }
 
@@ -76,7 +76,7 @@ static void test_event_ingest_bounded(void) {
 
     assert(s.buckets.ingested == MAX_EVENTS_PER_TICK);
     assert(s.x_poll_immediate == true);
-    assert(xcb_stubs_queued_event_len() == (size_t)extra);
+    assert(xcb_stubs_queued_event_len() == extra);
 
     printf("test_event_ingest_bounded passed\n");
     xcb_stubs_reset();

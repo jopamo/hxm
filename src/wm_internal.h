@@ -1,3 +1,11 @@
+/*
+ * wm_internal.h - Private shared definitions for the Window Manager module.
+ *
+ * This header exposes internal functions that are shared between `wm.c`
+ * and its helper modules (wm_dirty.c, wm_input.c, etc.) but should not
+ * be exposed to the rest of the application (main, event loop).
+ */
+
 #ifndef WM_INTERNAL_H
 #define WM_INTERNAL_H
 

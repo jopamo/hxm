@@ -1,5 +1,10 @@
 /* src/main.c
- * Main entry point and initialization
+ * Application entry point.
+ *
+ * Responsibilities:
+ * - Parsing command-line arguments.
+ * - Signal handling for IPC (restart/exit/reload commands to existing instance).
+ * - Initializing the server singleton and entering the run loop.
  */
 
 #include <signal.h>

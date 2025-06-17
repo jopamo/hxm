@@ -37,6 +37,17 @@
  *  - event_drain_cookies: drain async replies (never block in hot loop)
  *  - server_run: tick loop: wait -> drain -> ingest -> process -> flush
  *
+ * Pipeline:
+ *  1. Ingest: Read raw X11 events + signals + timers. Bucket them by type.
+ *             Aggressively coalesce high-frequency events (Motion, ConfigureNotify)
+ *             to avoid redundant processing.
+ *  2. Drain:  Check for async cookie replies (GetProperty, etc) and invoke callbacks.
+ *  3. Process: Iterate buckets in a stable, logical order:
+ *              - Lifecycle (Map/Unmap/Destroy) first to ensure valid handles.
+ *              - Input (Keys/Buttons) next to drive interactions.
+ *              - Configure/Property updates last to reflect external state changes.
+ *  4. Flush:  Push accumulated dirty state (layout, focus, stacking) to X11.
+ *
  * Invariants:
  *  - No blocking X round-trips in hot paths
  *  - Bounded work per tick (MAX_EVENTS_PER_TICK)

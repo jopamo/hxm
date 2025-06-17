@@ -14,7 +14,6 @@
 
 __attribute__((weak)) void* cj_calloc(size_t n, size_t size) { return calloc(n, size); }
 
-#define COOKIE_JAR_TIMEOUT_NS 5000000000ULL
 #define COOKIE_JAR_MAX_LOAD_NUM 7
 #define COOKIE_JAR_MAX_LOAD_DEN 10
 
@@ -68,6 +67,15 @@ static void cookie_jar_grow(cookie_jar_t* cj, size_t new_cap) {
     }
 }
 
+/*
+ * cookie_jar_remove:
+ * Remove a slot and maintain open-addressing invariants.
+ *
+ * Since we use linear probing, we cannot simply mark a slot as empty (unless we use tombstones).
+ * Instead, we use "backshift deletion" (Knuth Algorithm R):
+ * We scan forward to find elements that "belong" earlier in the table (due to collisions)
+ * and shift them back to fill the hole. This keeps probe chains contiguous.
+ */
 static void cookie_jar_remove(cookie_jar_t* cj, size_t idx) {
     size_t mask = cj->cap - 1;
 
@@ -146,6 +154,16 @@ bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, ha
     return true;
 }
 
+/*
+ * cookie_jar_drain:
+ * Check for available replies or timeouts.
+ *
+ * This function is non-blocking. It iterates through the ring buffer (starting from
+ * where it left off) and calls `xcb_poll_for_reply`.
+ * - If a reply is ready, it consumes it and fires the callback.
+ * - If a request is too old, it times out.
+ * - It bounds work using `max_replies` to ensure fairness.
+ */
 void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s, size_t max_replies) {
     if (!cj || cj->live_count == 0 || max_replies == 0) return;
 

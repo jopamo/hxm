@@ -1,5 +1,8 @@
 /* src/xcb_utils.c
  * XCB utility functions and atom management
+ *
+ * Implements the initialization of the `atoms` global structure
+ * and provides debug helpers for resolving atoms names.
  */
 
 #include "xcb_utils.h"
@@ -115,6 +118,15 @@ static const char* atom_names[] = {
     "_NET_WM_BYPASS_COMPOSITOR",
 };
 
+/*
+ * atom_name:
+ * Resolve an Atom ID to its string name (for debug logging).
+ *
+ * Optimization:
+ * XCB atom name lookup is a round-trip. To avoid stalling the log output,
+ * we use a small thread-local MRU cache (8 entries). This is sufficient for
+ * debugging where we typically see the same few atoms repeated.
+ */
 const char* atom_name(xcb_atom_t atom) {
     if (atom == XCB_ATOM_NONE) return "NONE";
 

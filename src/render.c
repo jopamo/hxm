@@ -1,5 +1,12 @@
 /* src/render.c
  * Rendering primitives and color management
+ *
+ * This module uses Cairo/Pango to draw window decorations.
+ * It implements a double-buffered pipeline:
+ * 1. Draw to an offscreen XCB Pixmap (via cairo_xcb_surface).
+ * 2. Copy the Pixmap to the Window (xcb_copy_area).
+ *
+ * This prevents flicker during redraws.
  */
 
 #include "render.h"
@@ -170,6 +177,20 @@ static void draw_button(cairo_t* cr, int x, int y, int w, int h, const char* typ
     }
 }
 
+/*
+ * render_frame:
+ * Paint the window frame.
+ *
+ * Pipeline:
+ * 1. Create XCB Pixmap (double buffer).
+ * 2. Wrap it in a Cairo surface.
+ * 3. Apply clip region (if partial redraw).
+ * 4. Draw background, title, buttons.
+ * 5. Blit Pixmap -> Window.
+ * 6. Destroy temporary resources.
+ *
+ * Note: PangoLayout is reused from `ctx` to save font lookup time.
+ */
 void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* visual, render_context_t* ctx, int depth,
                   bool is_test, const char* title, bool active, int w, int h, theme_t* theme, cairo_surface_t* icon,
                   const dirty_region_t* dirty) {

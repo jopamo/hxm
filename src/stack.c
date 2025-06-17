@@ -1,10 +1,12 @@
 /* src/stack.c
  * Window stacking order management
  *
- * Model
- *  - Each client lives in exactly one layer stack (s->layers[layer])
- *  - Within a layer: index 0 is bottom, last index is top
- *  - We keep the in-memory order authoritative and push minimal X restacks
+ * Model:
+ *  - Layered Stacking: Windows are grouped into semantic layers (Desktop, Below, Normal, Above, Fullscreen, etc).
+ *  - Internal Authority: The `s->layers` vectors are the single source of truth for stacking order.
+ *  - Deferred Synchronization: Changes to the internal list mark clients as `DIRTY_STACK`.
+ *    The actual X11 `ConfigureWindow` requests are issued in `stack_sync_to_xcb` during the flush phase,
+ *    preventing "fighting" with the X server and reducing round-trips.
  */
 #include <assert.h>
 #include <stddef.h>
@@ -354,6 +356,19 @@ static xcb_window_t find_window_above(server_t* s, client_hot_t* c) {
     return XCB_NONE;
 }
 
+/*
+ * stack_sync_to_xcb:
+ *
+ * Translates the internal stacking list position into a concrete XCB ConfigureWindow request.
+ *
+ * Strategy:
+ *  - We prefer to stack "Above" the window immediately below us.
+ *  - If we are at the bottom of a layer, we check lower layers for an anchor.
+ *  - Using "Above sibling" is generally more stable than "Below sibling" for
+ *    iterative insertions (building a stack from bottom up).
+ *  - This function is only called during the flush phase, ensuring we batch
+ *    restacks and avoid fighting the X server during complex operations.
+ */
 void stack_sync_to_xcb(server_t* s, handle_t h) {
     if (!s) return;
     assert(s->in_commit_phase);

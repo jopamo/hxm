@@ -1,5 +1,16 @@
 /* src/client.c
  * Client state management and handling
+ *
+ * Lifecycle:
+ *  1. manage_start: Allocate slot, send initial property queries (async).
+ *     State: STATE_NEW
+ *  2. wm_handle_reply (callbacks): Process replies, populate client struct.
+ *     State: STATE_NEW (gathering data)
+ *  3. client_finish_manage: All critical data ready. Create frame, reparent, map.
+ *     State: STATE_MAPPED (or STATE_UNMAPPED if iconic)
+ *  4. Running: Handle configure/property/focus events.
+ *  5. client_unmanage: Window destroyed or withdrawn. Cleanup resources.
+ *     State: STATE_UNMANAGING -> Free
  */
 
 #include "client.h"
@@ -91,6 +102,20 @@ static bool should_hide_for_show_desktop(const client_hot_t* hot) {
     return hot && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
 }
 
+/*
+ * client_manage_start:
+ * Begin the management process for a new window.
+ *
+ * Strategy: Zero-Blocking Initialization
+ * 1. Allocate internal structures (hot/cold).
+ * 2. Issue a batch of X11 requests (GetGeometry, GetProperty for all EWMH/ICCCM atoms).
+ *    We do NOT wait for replies here.
+ * 3. Store the sequence numbers in the cookie jar.
+ * 4. Set state to STATE_NEW.
+ *
+ * The main loop will wake up as replies arrive, populating the client struct
+ * piece-by-piece. When all critical data is present, `client_finish_manage` is called.
+ */
 void client_manage_start(server_t* s, xcb_window_t win) {
     TRACE_LOG("manage_start win=%u", win);
     if (server_get_client_by_window(s, win) != HANDLE_INVALID) {
@@ -392,6 +417,18 @@ static void client_apply_rules(server_t* s, handle_t h) {
     }
 }
 
+/*
+ * client_finish_manage:
+ * Called when all critical initial properties have been received (or timed out).
+ *
+ * The "Reparenting Dance":
+ * 1. Create a Frame window (parent of the client).
+ * 2. Add client to SaveSet (so it survives if we crash).
+ * 3. Reparent Client -> Frame.
+ * 4. Map both windows (if visible).
+ *
+ * This function transitions the client from STATE_NEW to STATE_MAPPED (or UNMAPPED).
+ */
 void client_finish_manage(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
@@ -414,7 +451,9 @@ void client_finish_manage(server_t* s, handle_t h) {
                              XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
     xcb_change_window_attributes(s->conn, hot->xid, XCB_CW_EVENT_MASK, &client_events);
 
-    // 1. Create frame
+    // ---------------------------------------------------------
+    // 1. Frame Creation
+    // ---------------------------------------------------------
     rect_t geom = hot->desired;
 
     uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
@@ -441,7 +480,9 @@ void client_finish_manage(server_t* s, handle_t h) {
     // 2. Add to SaveSet (crash safety)
     xcb_change_save_set(s->conn, XCB_SET_MODE_INSERT, hot->xid);
 
-    // 3. Reparent
+    // ---------------------------------------------------------
+    // 3. Reparenting
+    // ---------------------------------------------------------
     int16_t rx = bw;
     int16_t ry = th;
 
@@ -546,7 +587,10 @@ void client_finish_manage(server_t* s, handle_t h) {
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_ALLOWED_ACTIONS, XCB_ATOM_ATOM, 32,
                         num_actions, actions);
 
-    // 4. Map if visible on current desktop and not requested to start iconic
+    // ---------------------------------------------------------
+    // 4. Mapping & Visibility
+    // ---------------------------------------------------------
+    // Map if visible on current desktop and not requested to start iconic
     bool visible = (hot->sticky || (hot->desktop == (int32_t)s->current_desktop)) &&
                    (hot->initial_state != XCB_ICCCM_WM_STATE_ICONIC);
 
@@ -679,6 +723,16 @@ void client_finish_manage(server_t* s, handle_t h) {
     }
 }
 
+/*
+ * client_unmanage:
+ * Stop managing a window (e.g., it was closed or destroyed).
+ *
+ * Critical Safety:
+ * - We must remove the window from the SaveSet.
+ * - If the window still exists (not destroyed by app), we MUST reparent it back
+ *   to the root window to avoid it getting lost in the void when the frame dies.
+ * - Cleanup all internal maps to prevent stale handle access.
+ */
 void client_unmanage(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     client_cold_t* cold = server_ccold(s, h);

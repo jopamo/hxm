@@ -1,10 +1,9 @@
 /* src/core.c
- * Core system counters and initialization
+ * System-wide counters and time utilities.
  *
- * Notes:
- *  - counters is a global singleton, zeroed on init
- *  - monotonic_time_ns is weak so tests can override it
- *  - dump prints human-friendly + machine-scrapable-ish output
+ * Implements:
+ * - `counters`: Global singleton for performance metrics (zero-overhead in release ifdef).
+ * - `monotonic_time_ns`: High-resolution clock source for the event loop.
  */
 
 #include <inttypes.h>

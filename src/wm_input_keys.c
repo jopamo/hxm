@@ -1,6 +1,10 @@
 /* src/wm_input_keys.c
- * Keyboard input handling and focus cycling
- * Improved for robustness, lock-state handling, and process safety.
+ * Keyboard input handling and focus cycling.
+ *
+ * This module manages:
+ * - Global key bindings (Alt-Tab, Workspace switching, etc.).
+ * - Focus cycling logic (MRU traversal).
+ * - Executing external commands (spawn).
  */
 
 #include <errno.h>
@@ -127,6 +131,15 @@ void wm_cycle_focus(server_t* s, bool forward) {
 }
 
 #ifndef TEST_WM_INPUT_KEYS
+/*
+ * wm_setup_keys:
+ * Grab all configured global keys on the root window.
+ *
+ * Robustness:
+ * X11 grabs are exact. If NumLock or CapsLock is on, the modifier mask changes.
+ * To ensure bindings work regardless of Lock state, we grab every binding with
+ * all 8 combinations of (CapsLock | NumLock | ScrollLock).
+ */
 void wm_setup_keys(server_t* s) {
     if (s->keysyms) xcb_key_symbols_free(s->keysyms);
     s->keysyms = xcb_key_symbols_alloc(s->conn);

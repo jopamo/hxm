@@ -1,5 +1,12 @@
 /* src/menu.c
  * Menu rendering and interaction
+ *
+ * The menu system runs as a modal overlay.
+ * When `menu_show` is called:
+ * 1. The menu window is mapped (OverrideRedirect).
+ * 2. We grab the pointer and keyboard to steal all input.
+ * 3. The main event loop delegates events to `menu_handle_*` functions.
+ * 4. On dismissal (Escape, click outside, selection), grabs are released.
  */
 
 #include "menu.h"
@@ -175,6 +182,15 @@ static void menu_populate_root(server_t* s) {
     menu_add_item(s, "Exit", MENU_ACTION_EXEC, "hxm --exit", HANDLE_INVALID, NULL);
 }
 
+/*
+ * menu_show:
+ * Display the root menu at the specified coordinates.
+ *
+ * This function transitions the WM into `INTERACTION_MENU` mode.
+ * Crucially, it establishes an ASYNC grab on both Pointer and Keyboard.
+ * This ensures that all subsequent events (clicks, keypresses) are delivered
+ * to the WM for menu handling, effectively modalizing the UI.
+ */
 void menu_show(server_t* s, int16_t x, int16_t y) {
     if (s->menu.visible) {
         menu_hide(s);

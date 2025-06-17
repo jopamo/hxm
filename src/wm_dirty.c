@@ -1,5 +1,22 @@
 /* src/wm_dirty.c
  * Window manager dirty state flushing and property publishing
+ *
+ * The "Commit Phase":
+ * -------------------
+ * hxm uses a deferred rendering model. Logic code (event handlers) does not
+ * send updates to X11 immediately. Instead, it modifies the internal model
+ * (client_hot_t) and sets dirty flags (DIRTY_GEOM, DIRTY_STATE, etc.).
+ *
+ * At the end of every tick, `wm_flush_dirty` is called. This function:
+ *  1. Iterates over all active clients.
+ *  2. Resolves conflicting dirty states.
+ *  3. Batches XCB requests (ConfigureWindow, ChangeProperty).
+ *  4. Updates global properties (ClientList, Workarea).
+ *
+ * This ensures:
+ *  - Visual consistency (no half-applied states).
+ *  - Reduced X11 traffic (coalescing multiple geometry changes).
+ *  - Correct ordering (stacking changes applied before geometry).
  */
 
 #include <assert.h>
@@ -166,14 +183,16 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
 }
 
 /*
- * EWMH note
- *  - _NET_CLIENT_LIST is "initial mapping order"
- *  - _NET_CLIENT_LIST_STACKING is bottom-to-top stacking order
+ * wm_flush_dirty:
+ * Commit all pending state changes to the X server.
  *
- * If you don't maintain a dedicated mapping-order list yet, it's better to
- * publish only the stacking-correct list for _NET_CLIENT_LIST_STACKING and keep
- * _NET_CLIENT_LIST as-is (or omit it) instead of incorrectly reusing stacking
- * order.
+ * Phases:
+ * 1. Visibility: Map/Unmap windows based on desktop state.
+ * 2. Per-Client Updates: Flush geometry, title, hints, and stacking.
+ * 3. Focus Commit: Apply deferred focus changes (SetInputFocus).
+ * 4. Root Properties: Update _NET_CLIENT_LIST, WORKAREA, etc.
+ *
+ * Returns true if any X requests were issued (triggering a flush).
  */
 bool wm_flush_dirty(server_t* s, uint64_t now) {
     bool flushed = false;

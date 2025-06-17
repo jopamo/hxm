@@ -1,11 +1,37 @@
+/*
+ * xcb_utils.h - XCB helper functions and atom cache
+ *
+ * Provides:
+ * - A pre-interned cache of all X atoms used by the WM (struct atoms)
+ * - Atom name helper (for logging/debug)
+ * - Connection setup wrapper
+ * - Visual lookup helpers
+ *
+ * Usage:
+ * - Call xcb_connect_cached() to open a connection (wrapper around xcb_connect)
+ * - Call atoms_init(conn) once after connecting and before using atoms.*
+ * - Use xcb_get_visualtype to look up visuals for cairo-xcb surfaces and similar
+ *
+ * Threading:
+ * - Not thread-safe
+ * - The global atoms cache is process-global and expected to be initialized once on startup
+ */
+
 #ifndef XCB_UTILS_H
 #define XCB_UTILS_H
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <xcb/randr.h>
 #include <xcb/xcb.h>
 #include <xcb/xkb.h>
 
-// Atoms cache - all atoms we will ever touch
+/* Atoms cache - all atoms the WM may touch */
 struct atoms {
     xcb_atom_t WM_PROTOCOLS;
     xcb_atom_t WM_DELETE_WINDOW;
@@ -118,13 +144,33 @@ struct atoms {
 };
 
 extern struct atoms atoms;
+
+/* Return a stable human-readable name for an atom
+ * If unknown, may return a placeholder like "<atom:123>"
+ */
 const char* atom_name(xcb_atom_t atom);
 
-// Initialize connection and cache atoms
+/* Connect to the X server
+ * Wrapper so call sites can centralize error handling and preferred setup
+ * Returns NULL on failure
+ */
 xcb_connection_t* xcb_connect_cached(void);
+
+/* Intern all atoms into the global cache
+ * Must be called exactly once per connection lifecycle before using atoms.*
+ */
 void atoms_init(xcb_connection_t* conn);
+
+/* Debug: print atoms and their numeric IDs */
 void atoms_print(void);
 
+/* Look up a visual type by visual id (searches screens and allowed depths)
+ * Returns NULL if not found
+ */
 xcb_visualtype_t* xcb_get_visualtype(xcb_connection_t* conn, xcb_visualid_t visual_id);
 
-#endif  // XCB_UTILS_H
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* XCB_UTILS_H */

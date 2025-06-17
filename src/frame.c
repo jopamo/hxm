@@ -98,6 +98,15 @@ void frame_redraw_region(server_t* s, handle_t h, const dirty_region_t* dirty) {
     }
 }
 
+/*
+ * frame_flush:
+ * Render the frame decorations to the X server.
+ *
+ * Optimization:
+ * Instead of redrawing the entire frame every time, we compute a "dirty region"
+ * (clip_ptr). This allows us to only upload pixels for the title bar or a single
+ * button if that's all that changed, significantly reducing bandwidth and CPU usage.
+ */
 void frame_flush(server_t* s, handle_t h) {
     assert(s->in_commit_phase);
     client_hot_t* hot = server_chot(s, h);

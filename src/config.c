@@ -1,5 +1,14 @@
 /* src/config.c
  * Configuration file parsing and handling
+ *
+ * This module parses the `hxm.conf` and `themerc` files.
+ * Format is line-based key-value pairs: `key = value`.
+ *
+ * It supports:
+ * - Basic types: integers, booleans, strings.
+ * - Colors (hex).
+ * - Keybindings (modifiers + keysym + action).
+ * - Window Rules (regex matching -> placement/layer/desktop).
  */
 
 #include "config.h"

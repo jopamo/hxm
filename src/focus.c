@@ -1,5 +1,11 @@
 /* src/focus.c
- * Window focus handling and history
+ * Window focus handling and history.
+ *
+ * Model:
+ * - MRU History: We maintain a global Most Recently Used list (`s->focus_history`).
+ * - Logical vs Physical: `wm_set_focus` updates the logical state (`s->focused_client`).
+ *   The actual X11 `SetInputFocus` request is deferred to the flush phase via `s->root_dirty`.
+ *   This prevents focus stealing races and flickering.
  */
 
 #include <stdlib.h>
@@ -56,6 +62,16 @@ void wm_install_client_colormap(server_t* s, client_hot_t* hot) {
     }
 }
 
+/*
+ * wm_set_focus:
+ * Update the focused client.
+ *
+ * Actions:
+ * 1. Update `s->focused_client`.
+ * 2. Mark the old and new clients as dirty (for frame redraws).
+ * 3. Move the new client to the head of the MRU focus list.
+ * 4. Mark `ROOT_DIRTY_ACTIVE_WINDOW` to trigger the X11 focus update in the flush phase.
+ */
 void wm_set_focus(server_t* s, handle_t h) {
     TRACE_LOG("set_focus from=%lx to=%lx", s->focused_client, h);
     if (s->focused_client == h) return;

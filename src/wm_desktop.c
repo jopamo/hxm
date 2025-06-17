@@ -1,5 +1,12 @@
 /* src/wm_desktop.c
- * Workspace and desktop management
+ * Workspace and desktop management.
+ *
+ * Implements EWMH virtual desktops.
+ * - Desktops are essentially visibility filters.
+ * - Windows on the `current_desktop` (or sticky) are mapped.
+ * - Windows on other desktops are unmapped (iconified).
+ *
+ * This module also handles workarea computation (subtracting struts).
  */
 
 #include <stdio.h>
@@ -143,6 +150,16 @@ void wm_publish_desktop_props(server_t* s) {
     }
 }
 
+/*
+ * wm_compute_workarea:
+ * Calculate the usable screen geometry (minus panels/docks).
+ *
+ * Logic:
+ * 1. Start with full monitor geometry.
+ * 2. Iterate all mapped clients with _NET_WM_STRUT_PARTIAL.
+ * 3. If a strut edge intersects a monitor edge, shrink the workarea.
+ * 4. This is an O(N*M) operation, but N (struts) and M (monitors) are usually small.
+ */
 void wm_compute_workarea(server_t* s, rect_t* out) {
     if (!s || !out) return;
 

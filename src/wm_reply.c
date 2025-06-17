@@ -1,5 +1,13 @@
 /* src/wm_reply.c
  * Window manager reply handling
+ *
+ * This module implements the callback handlers for asynchronous XCB requests.
+ * It is invoked by the Cookie Jar when a reply arrives or times out.
+ *
+ * Key responsibilities:
+ * - Parsing X properties (Atom, String, Cardinal) safely.
+ * - Initializing client state from window attributes and geometry.
+ * - Handling EWMH/ICCCM discovery (Struts, Hints, Icons).
  */
 
 #include <stdint.h>
@@ -416,6 +424,18 @@ static bool check_transient_cycle(server_t* s, handle_t child, handle_t parent) 
     return false;
 }
 
+/*
+ * wm_handle_reply:
+ * Central callback for all async X11 replies.
+ *
+ * Logic:
+ * 1. Validate the reply (check for NULL or X errors).
+ * 2. Validate the target client handle (ensure it's still alive).
+ * 3. Check transaction ID (discard stale replies that race with new state).
+ * 4. Dispatch based on cookie type (Attributes, Geometry, Property, etc.).
+ * 5. Update client state (hot/cold) and mark dirty flags.
+ * 6. Advance the state machine (STATE_NEW -> STATE_READY) if initial probing is done.
+ */
 void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
     if (err) {
         LOG_DEBUG("Cookie %u returned error code %d", slot->sequence, err->error_code);

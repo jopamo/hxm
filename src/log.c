@@ -1,11 +1,10 @@
 /* src/log.c
- * Logging utilities
+ * Logging subsystem.
  *
- * Goals:
- *  - async-signal-safe enough for "best effort" diagnostics (avoid malloc)
- *  - cheap fast-path when filtered
- *  - tolerate bad inputs (NULL fmt, invalid level)
- *  - optional monotonic timestamps for ordering
+ * Designed to be robust and lightweight.
+ * - Handles formatting and timestamps (Realtime or Monotonic).
+ * - Routes DEBUG/INFO to stdout, WARN/ERROR to stderr.
+ * - In production builds, often compiled out or reduced to ERROR-only.
  */
 
 #include <errno.h>

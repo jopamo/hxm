@@ -1,5 +1,11 @@
 /* src/wm.c
  * Window manager core logic
+ *
+ * This module implements the core "business logic" of the window manager:
+ * - Seizing control of the X display (wm_become)
+ * - Handling core X events (MapRequest, ConfigureRequest)
+ * - Implementing EWMH/ICCCM protocols
+ * - Managing window placement, maximize, and minimize logic
  */
 
 #include "wm.h"
@@ -237,6 +243,16 @@ void wm_client_set_maximize(server_t* s, client_hot_t* hot, bool max_horz, bool 
     hot->dirty |= DIRTY_GEOM | DIRTY_STATE;
 }
 
+/*
+ * wm_become:
+ * Try to become the Window Manager for the screen.
+ *
+ * 1. Acquire WM_S0 selection: This is the cooperative lock used by EWMH/ICCCM
+ *    to ensure only one WM is running.
+ * 2. Select SubstructureRedirect: This is the X protocol mechanism that intercepts
+ *    window map/configure requests, allowing us to control placement.
+ *    If this fails (BadAccess), another WM is already running.
+ */
 void wm_become(server_t* s) {
     xcb_connection_t* conn = s->conn;
     xcb_window_t root = s->root;
@@ -443,6 +459,15 @@ void wm_release(server_t* s) {
     s->supporting_wm_check = XCB_WINDOW_NONE;
 }
 
+/*
+ * wm_adopt_children:
+ * Scan for existing windows to manage (e.g., when restarting the WM).
+ *
+ * Strategy: Async Pipelining
+ * We query the tree once, then iterate children and issue async GetWindowAttributes
+ * requests for each. We do NOT block on replies here. The replies will be handled
+ * by the cookie jar in the main loop, triggering `client_manage_start`.
+ */
 void wm_adopt_children(server_t* s) {
     LOG_INFO("Adopting existing windows...");
     xcb_query_tree_cookie_t cookie = xcb_query_tree(s->conn, s->root);
@@ -550,6 +575,15 @@ void wm_handle_destroy_notify(server_t* s, xcb_destroy_notify_event_t* ev) {
     client_unmanage(s, h);
 }
 
+/*
+ * wm_handle_configure_request:
+ * Handle a client's request to change its geometry (e.g., self-resize).
+ *
+ * We update the `desired` geometry but do NOT apply it immediately.
+ * The `DIRTY_GEOM` flag is set, and the actual X11 configure event will be sent
+ * during the flush phase. This allows us to coalesce multiple requests and
+ * apply constraints (min/max size, aspect ratio) in one place.
+ */
 void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) {
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;

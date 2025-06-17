@@ -1,5 +1,12 @@
-/* src/containers.c
- * Container layout and management
+/* src/ds.c
+ * Container layout and management.
+ *
+ * Implements core data structures:
+ * - Arena: Bump allocator for fast per-tick temporary memory.
+ * - SmallVec: Inline-storage vector to avoid heap allocs for common small cases.
+ * - HashMap: Open-addressing map with linear probing and backshift deletion.
+ *
+ * Invariant: All allocators must fail hard (abort) on OOM to fail fast.
  */
 
 #include "ds.h"
@@ -66,6 +73,13 @@ static arena_block_t* arena_add_block(struct arena* a, size_t min_size) {
     return block;
 }
 
+/*
+ * arena_alloc:
+ * Allocate memory from the current block.
+ *
+ * Guaranteed 8-byte alignment for safety with all standard types.
+ * If the request doesn't fit, a new block is allocated and chained.
+ */
 void* arena_alloc(struct arena* a, size_t size) {
     if (!a) return NULL;
 
@@ -367,5 +381,3 @@ bool hash_map_remove(hash_map_t* map, uint64_t key) {
 
     return false;
 }
-
-size_t hash_map_size(const hash_map_t* map) { return map ? map->size : 0; }
