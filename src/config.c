@@ -393,14 +393,10 @@ bool config_load(config_t* config, const char* path) {
     char* line = NULL;
     size_t len = 0;
     ssize_t read;
-#ifdef HXM_ENABLE_DEBUG_LOGGING
     int line_num = 0;
-#endif
 
     while ((read = getline(&line, &len, f)) != -1) {
-#ifdef HXM_ENABLE_DEBUG_LOGGING
         line_num++;
-#endif
         char* trimmed = trim_whitespace(line);
         if (trimmed[0] == '#' || trimmed[0] == '\0') continue;
 
@@ -508,14 +504,10 @@ bool theme_load(theme_t* theme, const char* path) {
     char* line = NULL;
     size_t len = 0;
     ssize_t read;
-#ifdef HXM_ENABLE_DEBUG_LOGGING
     int line_num = 0;
-#endif
 
     while ((read = getline(&line, &len, f)) != -1) {
-#ifdef HXM_ENABLE_DEBUG_LOGGING
         line_num++;
-#endif
         char* trimmed = trim_whitespace(line);
         if (trimmed[0] == '#' || trimmed[0] == '!' || trimmed[0] == '\0') continue;
 

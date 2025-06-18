@@ -115,8 +115,8 @@ void frame_flush(server_t* s, handle_t h) {
 
     if (hot->flags & CLIENT_FLAG_UNDECORATED) return;
 
-    uint32_t f_dirty =
-        hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_TITLE);
+    uint32_t f_dirty = hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER |
+                                     DIRTY_TITLE | DIRTY_FRAME_STYLE);
 
     if (!f_dirty && !hot->frame_damage.valid) return;
 
@@ -135,7 +135,7 @@ void frame_flush(server_t* s, handle_t h) {
     const dirty_region_t* clip_ptr = NULL;
     dirty_region_t partial_clip = {0};
 
-    if (!(hot->dirty & DIRTY_FRAME_ALL)) {
+    if (!(hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_STYLE))) {
         if (hot->frame_damage.valid) {
             clip_ptr = &hot->frame_damage;
         } else if (hot->dirty & DIRTY_FRAME_TITLE) {
@@ -144,16 +144,23 @@ void frame_flush(server_t* s, handle_t h) {
         } else if (hot->dirty & DIRTY_FRAME_BUTTONS) {
             // Button area is roughly right side of titlebar
             uint16_t btn_area_w = (uint16_t)(3 * (BUTTON_WIDTH + BUTTON_PADDING) + BUTTON_PADDING);
-            partial_clip = dirty_region_make((int16_t)(frame_w - btn_area_w), 0, btn_area_w,
+            // Fix: Include border width in the clip region calculation.
+            // Buttons are positioned relative to the right edge minus border.
+            // Clip region is in frame coordinates (0,0 is top-left of frame).
+            int16_t clip_x = (int16_t)(frame_w - btn_area_w - s->config.theme.border_width);
+            if (clip_x < 0) clip_x = 0;
+
+            partial_clip = dirty_region_make(clip_x, 0, btn_area_w + s->config.theme.border_width,
                                              (uint16_t)s->config.theme.title_height);
             clip_ptr = &partial_clip;
         }
     }
 
     render_frame(s->conn, hot->frame, visual, &hot->render_ctx, (int)s->root_depth, s->is_test, cold ? cold->title : "",
-                 active, frame_w, frame_h, &s->config.theme, hot->icon_surface, clip_ptr);
+                 active, frame_w, frame_h, &s->config.theme, hot->icon_surface ? hot->icon_surface : s->default_icon,
+                 clip_ptr);
 
-    hot->dirty &= ~(DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER);
+    hot->dirty &= ~(DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_FRAME_STYLE);
     dirty_region_reset(&hot->frame_damage);
 }
 

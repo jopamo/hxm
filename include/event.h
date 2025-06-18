@@ -270,6 +270,9 @@ typedef struct server {
     /* Configuration */
     config_t config;
     bool is_test;
+
+    /* Resources */
+    cairo_surface_t* default_icon;
 } server_t;
 
 /* ---------- Common server helpers ---------- */

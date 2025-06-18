@@ -276,6 +276,19 @@ void server_init(server_t* s) {
     // Root menu
     menu_init(s);
 
+    // Default Icon
+    s->default_icon = cairo_image_surface_create_from_png("assets/hxm-black.png");
+    if (cairo_surface_status(s->default_icon) != CAIRO_STATUS_SUCCESS) {
+        if (s->default_icon) cairo_surface_destroy(s->default_icon);
+        // Fallback: blue square
+        s->default_icon = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 16, 16);
+        cairo_t* cr = cairo_create(s->default_icon);
+        cairo_set_source_rgb(cr, 0.0, 0.0, 1.0);
+        cairo_rectangle(cr, 0, 0, 16, 16);
+        cairo_fill(cr);
+        cairo_destroy(cr);
+    }
+
     // Setup keys
     wm_setup_keys(s);
 
@@ -290,6 +303,11 @@ static void cleanup_client_visitor(void* hot, void* cold, handle_t h, void* user
 }
 
 void server_cleanup(server_t* s) {
+    if (s->default_icon) {
+        cairo_surface_destroy(s->default_icon);
+        s->default_icon = NULL;
+    }
+
     if (s->prefetched_event) {
         free(s->prefetched_event);
         s->prefetched_event = NULL;

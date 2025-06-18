@@ -18,8 +18,6 @@
 
 #include "hxm.h"
 
-#ifdef HXM_ENABLE_DEBUG_LOGGING
-
 static bool use_utc = false;
 static bool use_monotonic = false;
 
@@ -100,4 +98,3 @@ void hxm_log(enum log_level level, const char* fmt, ...) {
     }
 #endif
 }
-#endif

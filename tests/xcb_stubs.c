@@ -58,6 +58,11 @@ static xcb_window_t stub_selection_owner = XCB_NONE;
 // Atom allocator
 static xcb_atom_t stub_atom_counter = 1;
 
+// Image capture
+uint32_t stub_last_image_w = 0;
+uint32_t stub_last_image_h = 0;
+uint8_t stub_last_image_data[200 * 1024];
+
 // Property capture for assertions
 xcb_window_t stub_last_prop_window = 0;
 xcb_atom_t stub_last_prop_atom = 0;
@@ -241,6 +246,10 @@ void xcb_stubs_reset(void) {
     stub_save_set_delete_count = 0;
     stub_last_save_set_window = XCB_NONE;
     stub_sync_await_count = 0;
+
+    stub_last_image_w = 0;
+    stub_last_image_h = 0;
+    memset(stub_last_image_data, 0, sizeof(stub_last_image_data));
 
     stub_poll_for_reply_hook = NULL;
 
@@ -1070,14 +1079,22 @@ xcb_void_cookie_t xcb_put_image(xcb_connection_t* c, uint8_t format, xcb_drawabl
     (void)format;
     (void)drawable;
     (void)gc;
-    (void)width;
-    (void)height;
     (void)dst_x;
     (void)dst_y;
     (void)left_pad;
     (void)depth;
-    (void)data_len;
-    (void)data;
+
+    stub_last_image_w = width;
+    stub_last_image_h = height;
+
+    if (data && data_len > 0) {
+        uint32_t copy_len = data_len;
+        if (copy_len > sizeof(stub_last_image_data)) copy_len = sizeof(stub_last_image_data);
+        memcpy(stub_last_image_data, data, copy_len);
+    } else {
+        memset(stub_last_image_data, 0, sizeof(stub_last_image_data));
+    }
+
     return (xcb_void_cookie_t){0};
 }
 

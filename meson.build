@@ -209,6 +209,20 @@ test_wm_name_fallback = executable('test_wm_name_fallback',
 )
 test('wm_name_fallback', test_wm_name_fallback)
 
+test_window_title = executable('test_window_title',
+  ['tests/test_window_title.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('window_title', test_window_title)
+
+test_wm_property = executable('test_wm_property',
+  ['tests/test_wm_property.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('wm_property', test_wm_property)
+
 test_icccm_props_extra = executable('test_icccm_props_extra',
   ['tests/test_icccm_props_extra.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
@@ -320,6 +334,13 @@ test_frame_destroy = executable('test_frame_destroy',
   dependencies: deps,
 )
 test('frame_destroy', test_frame_destroy)
+
+test_frame_render = executable('test_frame_render',
+  ['tests/test_frame_render.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('frame_render', test_frame_render)
 
 test_wm_config_theme = executable('test_wm_config_theme',
   ['tests/test_wm_config_theme.c', 'tests/xcb_stubs.c'] + test_src,

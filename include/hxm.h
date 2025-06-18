@@ -243,19 +243,28 @@ uint64_t monotonic_time_ns(void);
 
 /* ---------- Logging ---------- */
 
+#define HXM_LOG_LEVEL_DEBUG 0
+#define HXM_LOG_LEVEL_INFO 1
+#define HXM_LOG_LEVEL_WARN 2
+#define HXM_LOG_LEVEL_ERROR 3
+
 enum log_level {
-    LOG_DEBUG = 0,
-    LOG_INFO,
-    LOG_WARN,
-    LOG_ERROR,
+    LOG_DEBUG = HXM_LOG_LEVEL_DEBUG,
+    LOG_INFO = HXM_LOG_LEVEL_INFO,
+    LOG_WARN = HXM_LOG_LEVEL_WARN,
+    LOG_ERROR = HXM_LOG_LEVEL_ERROR,
 };
 
 /* Compile-time log level selection
- * Define HXM_LOG_LEVEL to one of enum log_level
+ * Define HXM_LOG_LEVEL to one of HXM_LOG_LEVEL_*
  * Default keeps INFO/WARN/ERROR and compiles out DEBUG
  */
 #ifndef HXM_LOG_LEVEL
-#define HXM_LOG_LEVEL LOG_INFO
+#ifdef HXM_ENABLE_DEBUG_LOGGING
+#define HXM_LOG_LEVEL HXM_LOG_LEVEL_DEBUG
+#else
+#define HXM_LOG_LEVEL HXM_LOG_LEVEL_INFO
+#endif
 #endif
 
 /* The logger backend should be implemented in a .c file
@@ -265,7 +274,7 @@ void hxm_log(enum log_level level, const char* fmt, ...) HXM_ATTR_PRINTF(2, 3);
 
 #define HXM_LOG_ENABLED(level) ((level) >= HXM_LOG_LEVEL)
 
-#if HXM_LOG_ENABLED(LOG_DEBUG)
+#if HXM_LOG_ENABLED(HXM_LOG_LEVEL_DEBUG)
 #define LOG_DEBUG(...) hxm_log(LOG_DEBUG, __VA_ARGS__)
 #define TRACE_LOG(...) hxm_log(LOG_DEBUG, __VA_ARGS__)
 #else
@@ -277,7 +286,7 @@ void hxm_log(enum log_level level, const char* fmt, ...) HXM_ATTR_PRINTF(2, 3);
     } while (0)
 #endif
 
-#if HXM_LOG_ENABLED(LOG_INFO)
+#if HXM_LOG_ENABLED(HXM_LOG_LEVEL_INFO)
 #define LOG_INFO(...) hxm_log(LOG_INFO, __VA_ARGS__)
 #else
 #define LOG_INFO(...) \
@@ -285,7 +294,7 @@ void hxm_log(enum log_level level, const char* fmt, ...) HXM_ATTR_PRINTF(2, 3);
     } while (0)
 #endif
 
-#if HXM_LOG_ENABLED(LOG_WARN)
+#if HXM_LOG_ENABLED(HXM_LOG_LEVEL_WARN)
 #define LOG_WARN(...) hxm_log(LOG_WARN, __VA_ARGS__)
 #define TRACE_WARN(...) hxm_log(LOG_WARN, __VA_ARGS__)
 #else
@@ -297,7 +306,7 @@ void hxm_log(enum log_level level, const char* fmt, ...) HXM_ATTR_PRINTF(2, 3);
     } while (0)
 #endif
 
-#if HXM_LOG_ENABLED(LOG_ERROR)
+#if HXM_LOG_ENABLED(HXM_LOG_LEVEL_ERROR)
 #define LOG_ERROR(...) hxm_log(LOG_ERROR, __VA_ARGS__)
 #else
 #define LOG_ERROR(...) \
@@ -306,7 +315,7 @@ void hxm_log(enum log_level level, const char* fmt, ...) HXM_ATTR_PRINTF(2, 3);
 #endif
 
 /* Run code only when debug logs are compiled in */
-#if HXM_LOG_ENABLED(LOG_DEBUG)
+#if HXM_LOG_ENABLED(HXM_LOG_LEVEL_DEBUG)
 #define TRACE_ONLY(...) \
     do {                \
         __VA_ARGS__;    \
