@@ -319,7 +319,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
                     s->txn_id, wm_handle_reply);
 
     // 20. _NET_WM_ICON
-    uint32_t c20 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 16384).sequence;
+    uint32_t c20 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 1048576).sequence;
     cookie_jar_push(&s->cookie_jar, c20, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON, s->txn_id,
                     wm_handle_reply);
 

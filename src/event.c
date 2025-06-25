@@ -144,7 +144,6 @@ void server_init(server_t* s) {
     // Initialize configuration (defaults then optional load)
     config_init_defaults(&s->config);
     load_config_from_home(s);
-    run_autostart();
 
     // Initialize workspace state from config
     s->desktop_count = s->config.desktop_count ? s->config.desktop_count : 1;
@@ -280,17 +279,14 @@ void server_init(server_t* s) {
     s->default_icon = cairo_image_surface_create_from_png("assets/hxm-black.png");
     if (cairo_surface_status(s->default_icon) != CAIRO_STATUS_SUCCESS) {
         if (s->default_icon) cairo_surface_destroy(s->default_icon);
-        // Fallback: blue square
-        s->default_icon = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 16, 16);
-        cairo_t* cr = cairo_create(s->default_icon);
-        cairo_set_source_rgb(cr, 0.0, 0.0, 1.0);
-        cairo_rectangle(cr, 0, 0, 16, 16);
-        cairo_fill(cr);
-        cairo_destroy(cr);
+        s->default_icon = NULL;
+        LOG_WARN("Failed to load default icon assets/hxm-black.png, icons will be disabled for windows without one");
     }
 
     // Setup keys
     wm_setup_keys(s);
+
+    run_autostart();
 
     LOG_INFO("Server initialized");
 }
