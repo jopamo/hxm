@@ -185,7 +185,7 @@ typedef struct client_hot {
     int8_t stacking_layer;
 
     uint32_t dirty;
-    uint32_t last_log_dirty;
+    HXM_DIAG_FIELD(uint32_t last_log_dirty;)
 
     uint8_t state;         /* client_state_t */
     uint8_t initial_state; /* from WM_HINTS */

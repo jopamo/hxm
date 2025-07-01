@@ -1,22 +1,19 @@
 /* src/log.c
  * Logging subsystem.
- *
- * Designed to be robust and lightweight.
- * - Handles formatting and timestamps (Realtime or Monotonic).
- * - Routes DEBUG/INFO to stdout, WARN/ERROR to stderr.
- * - In production builds, often compiled out or reduced to ERROR-only.
  */
 
-#include <errno.h>
 #include <stdarg.h>
-#include <stdbool.h>
 #include <stdio.h>
+
+#include "hxm.h"
+
+#if HXM_DIAG
+
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
-
-#include "hxm.h"
 
 static bool use_utc = false;
 static bool use_monotonic = false;
@@ -70,6 +67,7 @@ static void format_timestamp(char* out, size_t out_sz, long* ms_out) {
 }
 
 void hxm_log(enum log_level level, const char* fmt, ...) {
+    if (!HXM_LOG_ENABLED(level)) return;
     log_init_once();
 
     if (!fmt) fmt = "(null fmt)";
@@ -78,23 +76,25 @@ void hxm_log(enum log_level level, const char* fmt, ...) {
     long ms = 0;
     format_timestamp(tsbuf, sizeof(tsbuf), &ms);
 
-#ifdef HXM_ENABLE_DEBUG_LOGGING
-    FILE* out = (level == LOG_ERROR) ? stderr : stdout;
+    FILE* out = (level >= LOG_WARN) ? stderr : stdout;
     fprintf(out, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
     va_list ap;
     va_start(ap, fmt);
     vfprintf(out, fmt, ap);
     va_end(ap);
     fputc('\n', out);
-#else
-    // In production, only log ERRORs to stderr.
-    if (level == LOG_ERROR) {
-        fprintf(stderr, "[%s.%03ld %s] ", tsbuf, ms, safe_level_str(level));
-        va_list ap;
-        va_start(ap, fmt);
-        vfprintf(stderr, fmt, ap);
-        va_end(ap);
-        fputc('\n', stderr);
-    }
-#endif
 }
+
+#else
+
+void hxm_err(const char* fmt, ...) {
+    if (!fmt) fmt = "(null fmt)";
+
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(stderr, fmt, ap);
+    va_end(ap);
+    fputc('\n', stderr);
+}
+
+#endif

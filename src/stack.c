@@ -72,27 +72,9 @@ static bool stack_vec_remove(server_t* s, small_vec_t* v, size_t idx) {
 }
 
 #include "hxm.h"
+#include "hxm_diag.h"
 #include "wm.h"
 #include "wm_internal.h"
-
-#ifdef HXM_ENABLE_DEBUG_LOGGING
-static void debug_dump_layer(const server_t* s, layer_t l, const char* tag) {
-    if (!s) return;
-    const small_vec_t* v = &s->layers[l];
-    LOG_DEBUG("stack %s layer=%d count=%zu", tag, l, v->length);
-
-    for (size_t i = 0; i < v->length && i < 64; i++) {
-        handle_t h = ptr_to_handle(v->items[i]);
-        const client_hot_t* c = server_chot((server_t*)s, h);
-        if (!c) continue;
-        LOG_DEBUG("  [%zu] h=%lx xid=%u frame=%u", i, c->self, c->xid, c->frame);
-    }
-
-    if (v->length > 64) {
-        LOG_WARN("stack %s layer=%d guard hit at %d, possible loop", tag, l, 64);
-    }
-}
-#endif
 
 void stack_remove(server_t* s, handle_t h) {
     if (!s) return;
@@ -114,14 +96,14 @@ void stack_remove(server_t* s, handle_t h) {
     }
 
     TRACE_LOG("stack_remove h=%lx layer=%d index=%d", h, layer, idx);
-    TRACE_ONLY(debug_dump_layer(s, layer, "before remove"));
+    TRACE_ONLY(diag_dump_layer(s, layer, "before remove"));
 
     stack_vec_remove(s, v, (size_t)idx);
     c->stacking_index = -1;
     c->stacking_layer = -1;
 
     mark_stacking_dirty(s);
-    TRACE_ONLY(debug_dump_layer(s, layer, "after remove"));
+    TRACE_ONLY(diag_dump_layer(s, layer, "after remove"));
 }
 
 static void stack_insert_top(server_t* s, client_hot_t* c, int layer) {
@@ -153,7 +135,7 @@ void stack_raise(server_t* s, handle_t h) {
 
     stack_remove(s, h);
     stack_insert_top(s, c, layer);
-    TRACE_ONLY(debug_dump_layer(s, layer, "after raise"));
+    TRACE_ONLY(diag_dump_layer(s, layer, "after raise"));
 
     stack_restack(s, h);
 
@@ -183,7 +165,7 @@ void stack_move_to_layer(server_t* s, handle_t h) {
 
     stack_remove(s, h);
     stack_insert_top(s, c, c->layer);
-    TRACE_ONLY(debug_dump_layer(s, c->layer, "after move"));
+    TRACE_ONLY(diag_dump_layer(s, c->layer, "after move"));
 }
 
 void stack_lower(server_t* s, handle_t h) {
@@ -210,7 +192,7 @@ void stack_lower(server_t* s, handle_t h) {
 
     stack_remove(s, h);
     stack_insert_bottom(s, c, layer);
-    TRACE_ONLY(debug_dump_layer(s, layer, "after lower"));
+    TRACE_ONLY(diag_dump_layer(s, layer, "after lower"));
 
     stack_restack(s, h);
 }
@@ -252,7 +234,7 @@ void stack_place_above(server_t* s, handle_t h, handle_t sibling_h) {
     c->stacking_layer = (int8_t)layer;
     c->stacking_index = (int32_t)new_idx;
     mark_stacking_dirty(s);
-    TRACE_ONLY(debug_dump_layer(s, layer, "after place_above"));
+    TRACE_ONLY(diag_dump_layer(s, layer, "after place_above"));
 
     stack_restack(s, h);
 }
@@ -293,7 +275,7 @@ void stack_place_below(server_t* s, handle_t h, handle_t sibling_h) {
     c->stacking_layer = (int8_t)layer;
     c->stacking_index = (int32_t)new_idx;
     mark_stacking_dirty(s);
-    TRACE_ONLY(debug_dump_layer(s, layer, "after place_below"));
+    TRACE_ONLY(diag_dump_layer(s, layer, "after place_below"));
 
     stack_restack(s, h);
 }

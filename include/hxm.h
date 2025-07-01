@@ -243,6 +243,12 @@ uint64_t monotonic_time_ns(void);
 
 /* ---------- Logging ---------- */
 
+#ifndef HXM_DIAG
+#define HXM_DIAG 0
+#endif
+
+#if HXM_DIAG
+
 #define HXM_LOG_LEVEL_DEBUG 0
 #define HXM_LOG_LEVEL_INFO 1
 #define HXM_LOG_LEVEL_WARN 2
@@ -256,15 +262,19 @@ enum log_level {
 };
 
 /* Compile-time log level selection
- * Define HXM_LOG_LEVEL to one of HXM_LOG_LEVEL_*
- * Default keeps INFO/WARN/ERROR and compiles out DEBUG
+ * Define HXM_LOG_MIN_LEVEL to one of HXM_LOG_LEVEL_*
+ * Default keeps DEBUG/INFO/WARN/ERROR in diagnostics builds.
  */
-#ifndef HXM_LOG_LEVEL
-#ifdef HXM_ENABLE_DEBUG_LOGGING
-#define HXM_LOG_LEVEL HXM_LOG_LEVEL_DEBUG
+#ifndef HXM_LOG_MIN_LEVEL
+#ifdef HXM_LOG_LEVEL
+#define HXM_LOG_MIN_LEVEL HXM_LOG_LEVEL
 #else
-#define HXM_LOG_LEVEL HXM_LOG_LEVEL_INFO
+#define HXM_LOG_MIN_LEVEL HXM_LOG_LEVEL_DEBUG
 #endif
+#endif
+
+#ifndef HXM_LOG_LEVEL
+#define HXM_LOG_LEVEL HXM_LOG_MIN_LEVEL
 #endif
 
 /* The logger backend should be implemented in a .c file
@@ -272,7 +282,7 @@ enum log_level {
  */
 void hxm_log(enum log_level level, const char* fmt, ...) HXM_ATTR_PRINTF(2, 3);
 
-#define HXM_LOG_ENABLED(level) ((level) >= HXM_LOG_LEVEL)
+#define HXM_LOG_ENABLED(level) ((level) >= HXM_LOG_MIN_LEVEL)
 
 #if HXM_LOG_ENABLED(HXM_LOG_LEVEL_DEBUG)
 #define LOG_DEBUG(...) hxm_log(LOG_DEBUG, __VA_ARGS__)
@@ -314,16 +324,41 @@ void hxm_log(enum log_level level, const char* fmt, ...) HXM_ATTR_PRINTF(2, 3);
     } while (0)
 #endif
 
-/* Run code only when debug logs are compiled in */
-#if HXM_LOG_ENABLED(HXM_LOG_LEVEL_DEBUG)
 #define TRACE_ONLY(...) \
     do {                \
         __VA_ARGS__;    \
     } while (0)
+
 #else
+
+void hxm_err(const char* fmt, ...) HXM_ATTR_PRINTF(1, 2);
+
+#define LOG_ERROR(...) hxm_err(__VA_ARGS__)
+#define LOG_WARN(...) \
+    do {              \
+    } while (0)
+#define LOG_INFO(...) \
+    do {              \
+    } while (0)
+#define LOG_DEBUG(...) \
+    do {               \
+    } while (0)
+#define TRACE_LOG(...) \
+    do {               \
+    } while (0)
+#define TRACE_WARN(...) \
+    do {                \
+    } while (0)
 #define TRACE_ONLY(...) \
     do {                \
     } while (0)
+
+#endif
+
+#if HXM_DIAG
+#define HXM_DIAG_FIELD(x) x
+#else
+#define HXM_DIAG_FIELD(x)
 #endif
 
 /* ---------- Perf counters ---------- */
@@ -348,7 +383,7 @@ extern struct counters counters;
 
 void counters_init(void);
 
-#if HXM_LOG_ENABLED(LOG_DEBUG)
+#if HXM_DIAG
 void counters_dump(void);
 #endif
 

@@ -825,6 +825,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
     free(ev);
 }
 
+#if HXM_DIAG
 static void log_unhandled_summary(void) {
     static rl_t rl = {0};
     uint64_t now = monotonic_time_ns();
@@ -851,6 +852,7 @@ static void log_unhandled_summary(void) {
         LOG_INFO("%s", buf);
     }
 }
+#endif
 
 void event_process(server_t* s) {
     static rl_t rl_process = {0};
@@ -1207,7 +1209,7 @@ static void event_handle_signals(server_t* s) {
             g_shutdown_pending = 1;
             break;
         case SIGUSR1:
-#ifdef HXM_ENABLE_DEBUG_LOGGING
+#if HXM_DIAG
             counters_dump();
 #endif
             break;
@@ -1364,7 +1366,9 @@ void server_run(server_t* s) {
             next_timeout = (int)(diff / 1000000) + 1;
         }
 
+#if HXM_DIAG
         log_unhandled_summary();
+#endif
 
         uint64_t end = monotonic_time_ns();
         uint64_t duration = end - start;
