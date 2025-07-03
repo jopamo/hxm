@@ -572,7 +572,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             hot->original_border_width = r->border_width;
 
             // Treat 0x0 as uninitialized/invalid
-            if (r->width == 0 || r->height == 0) {
+            bool tiny_geom = (r->width <= 1 || r->height <= 1);
+            if (r->width == 0 || r->height == 0 || (hot->state == STATE_NEW && tiny_geom)) {
                 hot->server.w = 800;
                 hot->server.h = 600;
                 xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
@@ -790,21 +791,26 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         hot->dirty |= DIRTY_STATE;  // Allowed actions might change
 
                         if (hot->state == STATE_NEW && hot->manage_phase != MANAGE_DONE) {
-                            if (next_flags & (XCB_ICCCM_SIZE_HINT_US_SIZE | XCB_ICCCM_SIZE_HINT_P_SIZE)) {
+                            bool user_size = (next_flags & XCB_ICCCM_SIZE_HINT_US_SIZE);
+                            bool prog_size = (next_flags & XCB_ICCCM_SIZE_HINT_P_SIZE);
+                            if (user_size || prog_size) {
                                 if (!hot->geometry_from_configure) {
-                                    if (hints.width > 0) hot->desired.w = (uint16_t)hints.width;
+                                    if (hints.width > 0 && (user_size || hints.width > 1))
+                                        hot->desired.w = (uint16_t)hints.width;
 
-                                    if (hints.height > 0) hot->desired.h = (uint16_t)hints.height;
+                                    if (hints.height > 0 && (user_size || hints.height > 1))
+                                        hot->desired.h = (uint16_t)hints.height;
 
                                 } else {
-                                    if (hot->desired.w == 0 && hints.width > 0) hot->desired.w = (uint16_t)hints.width;
+                                    if (hot->desired.w == 0 && hints.width > 0 && (user_size || hints.width > 1))
+                                        hot->desired.w = (uint16_t)hints.width;
 
-                                    if (hot->desired.h == 0 && hints.height > 0)
+                                    if (hot->desired.h == 0 && hints.height > 0 && (user_size || hints.height > 1))
                                         hot->desired.h = (uint16_t)hints.height;
                                 }
                             }
 
-                            if (next_flags & (XCB_ICCCM_SIZE_HINT_US_POSITION | XCB_ICCCM_SIZE_HINT_P_POSITION)) {
+                            if (next_flags & XCB_ICCCM_SIZE_HINT_US_POSITION) {
                                 if (!hot->geometry_from_configure) {
                                     hot->desired.x = (int16_t)hints.x;
 
