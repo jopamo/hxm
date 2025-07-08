@@ -654,6 +654,11 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
         xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_PROTOCOLS, XCB_ATOM_ATOM, 0, 32);
         cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
                         ((uint64_t)hot->xid << 32) | atoms.WM_PROTOCOLS, s->txn_id, wm_handle_reply);
+    } else if (ev->atom == atoms._NET_WM_ICON) {
+        xcb_get_property_cookie_t ck =
+            xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 1048576);
+        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
+                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_ICON, s->txn_id, wm_handle_reply);
     } else if (ev->atom == atoms._NET_WM_SYNC_REQUEST_COUNTER) {
         xcb_get_property_cookie_t ck =
             xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_SYNC_REQUEST_COUNTER, XCB_ATOM_CARDINAL, 0, 1);
