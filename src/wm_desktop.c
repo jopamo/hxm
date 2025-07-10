@@ -9,6 +9,7 @@
  * This module also handles workarea computation (subtracting struts).
  */
 
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -267,6 +268,37 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
     } else {
         *out = default_mon.workarea;
     }
+}
+
+int wm_monitor_at_point(const server_t* s, int root_x, int root_y) {
+    if (!s || s->monitor_count == 0) return -1;
+
+    int best_idx = 0;
+    int best_dist_sq = INT32_MAX;
+
+    for (uint32_t i = 0; i < s->monitor_count; i++) {
+        const monitor_t* mon = &s->monitors[i];
+        int mx1 = mon->geom.x;
+        int my1 = mon->geom.y;
+        int mx2 = mon->geom.x + (int)mon->geom.w;
+        int my2 = mon->geom.y + (int)mon->geom.h;
+
+        if (root_x >= mx1 && root_x < mx2 && root_y >= my1 && root_y < my2) {
+            return (int)i;
+        }
+
+        int cx = mx1 + (int)(mon->geom.w / 2);
+        int cy = my1 + (int)(mon->geom.h / 2);
+        int dx = root_x - cx;
+        int dy = root_y - cy;
+        int dist_sq = dx * dx + dy * dy;
+        if (dist_sq < best_dist_sq) {
+            best_dist_sq = dist_sq;
+            best_idx = (int)i;
+        }
+    }
+
+    return best_idx;
 }
 
 void wm_switch_workspace(server_t* s, uint32_t new_desktop) {

@@ -1329,6 +1329,15 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 break;
             }
 
+            if (is_move && s->snap_enabled && hot && hot->snap_active) {
+                hot->desired = hot->snap_restore_frame_rect;
+                hot->snap_active = false;
+                hot->snap_edge = SNAP_NONE;
+                hot->snap_preview_active = false;
+                hot->snap_preview_edge = SNAP_NONE;
+                hot->dirty |= DIRTY_GEOM;
+            }
+
             wm_start_interaction(s, slot->client, hot, is_move, resize_dir, root_x, root_y, 0);
             break;
         }

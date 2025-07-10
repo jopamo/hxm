@@ -29,6 +29,7 @@
 #include "event.h"
 #include "frame.h"
 #include "hxm.h"
+#include "snap_preview.h"
 #include "wm.h"
 #include "wm_internal.h"
 
@@ -212,6 +213,22 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         if (i < s->active_clients.length && s->active_clients.items[i] == ptr) {
             i++;
         }
+    }
+
+    // Preview window for snap-to-edge
+    {
+        client_hot_t* preview_hot = NULL;
+        if (s->interaction_mode == INTERACTION_MOVE) {
+            preview_hot = server_chot(s, s->interaction_handle);
+        }
+
+        bool should_show = (preview_hot && preview_hot->snap_preview_active);
+        bool was_mapped = s->snap_preview_mapped;
+        rect_t preview_rect = {0};
+        if (should_show) preview_rect = preview_hot->snap_preview_frame_rect;
+        snap_preview_apply(s, should_show ? &preview_rect : NULL, should_show);
+
+        if (should_show || was_mapped != s->snap_preview_mapped) flushed = true;
     }
 
     // 1. Visibility (Map/Unmap) - Must happen before focus

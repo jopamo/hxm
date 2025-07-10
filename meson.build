@@ -89,6 +89,8 @@ src = files(
   'src/menu.c',
   'src/render.c',
   'src/config.c',
+  'src/snap.c',
+  'src/snap_preview.c',
 )
 
 if get_option('debug')
@@ -123,6 +125,8 @@ test_src = [
   'src/menu.c',
   'src/render.c',
   'src/config.c',
+  'src/snap.c',
+  'src/snap_preview.c',
 ]
 
 test_src += ['src/diag.c']
@@ -416,6 +420,13 @@ test_gtk_decorations = executable('test_gtk_decorations',
   dependencies: deps,
 )
 test('gtk_decorations', test_gtk_decorations)
+
+test_snap = executable('test_snap',
+  ['tests/test_snap.c', 'src/snap.c'],
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('snap', test_snap)
 
 test_stacking = executable('test_stacking',
   ['tests/test_stacking.c', 'tests/xcb_stubs.c'] + test_src,
