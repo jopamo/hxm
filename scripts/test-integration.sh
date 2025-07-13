@@ -4,24 +4,10 @@ set -euo pipefail
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
 
-if ! command -v Xvfb >/dev/null 2>&1; then
-  echo "SKIP: Xvfb not found" >&2
+if ! command -v xvfb-run >/dev/null 2>&1; then
+  echo "SKIP: xvfb-run not found" >&2
   exit 77
 fi
-
-pick_display() {
-  if [ -n "${XVFB_DISPLAY:-}" ]; then
-    echo "$XVFB_DISPLAY"
-    return 0
-  fi
-  for i in $(seq 98 110); do
-    if [ ! -e "/tmp/.X${i}-lock" ]; then
-      echo ":$i"
-      return 0
-    fi
-  done
-  echo ":98"
-}
 
 hxm_bin=${HXM_BIN:-}
 if [ -z "$hxm_bin" ]; then
@@ -47,41 +33,35 @@ if [ -z "$integration_client" ]; then
   fi
 fi
 
-DISPLAY_NUM=$(pick_display)
-export DISPLAY=$DISPLAY_NUM
-
-cleanup() {
-  if [ -n "${HXM_PID:-}" ] && kill -0 "$HXM_PID" 2>/dev/null; then
-    kill "$HXM_PID"
-    wait "$HXM_PID" || true
-  fi
-  if [ -n "${XVFB_PID:-}" ] && kill -0 "$XVFB_PID" 2>/dev/null; then
-    kill "$XVFB_PID"
-    wait "$XVFB_PID" || true
-  fi
-}
-trap cleanup EXIT
-
-# Start Xvfb
-echo "Starting Xvfb on $DISPLAY..."
-Xvfb "$DISPLAY" -screen 0 1280x720x24 +extension RANDR >/dev/null 2>&1 &
-XVFB_PID=$!
-
-sleep 2
-if ! kill -0 "$XVFB_PID" 2>/dev/null; then
-  echo "Xvfb failed to start on $DISPLAY" >&2
-  exit 1
+# Pass a longer timeout to the C client if TSAN is active
+timeout_ms=5000
+if [[ -n "${TSAN_OPTIONS:-}" ]]; then
+  timeout_ms=30000
 fi
+export HXM_TEST_TIMEOUT_MS="$timeout_ms"
 
-# Start hxm
-echo "Starting hxm..."
-"$hxm_bin" >/dev/null 2>&1 &
-HXM_PID=$!
+wm_log="${repo_root}/build/hxm.log"
+mkdir -p "$(dirname "$wm_log")"
 
-sleep 2
+echo "Running integration client with xvfb-run..."
 
-# Run integration test
-echo "Running integration client..."
-"$integration_client"
+# Use xvfb-run to auto-allocate a display and run the test
+xvfb-run -a -s "-screen 0 1280x720x24 +extension RANDR" bash -c "
+  set -e
+  \"$hxm_bin\" >\"$wm_log\" 2>&1 &
+  HXM_PID=\$!
+  sleep 2
+  
+  if ! \"$integration_client\"; then
+    echo \"Integration test failed!\" >&2
+    echo \"WM log tail:\" >&2
+    tail -n 200 \"$wm_log\" >&2 || true
+    kill \$HXM_PID
+    exit 1
+  fi
+  
+  kill \$HXM_PID
+  wait \$HXM_PID || true
+"
 
 echo "Integration test complete."

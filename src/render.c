@@ -12,8 +12,12 @@
 #include "render.h"
 
 #include <math.h>
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
+
+// Mutex for thread-unsafe library calls (librsvg/pango/cairo interactions)
+static pthread_mutex_t render_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Helper to convert hex uint32 to RGBA
 static rgba_t u32_to_rgba(uint32_t c) {
@@ -109,14 +113,17 @@ static void draw_appearance(cairo_t* cr, int w, int h, appearance_t* app) {
 }
 
 void render_init(render_context_t* ctx) {
+    pthread_mutex_lock(&render_mutex);
     ctx->surface = NULL;
     ctx->cr = NULL;
     ctx->layout = NULL;
     ctx->width = 0;
     ctx->height = 0;
+    pthread_mutex_unlock(&render_mutex);
 }
 
 void render_free(render_context_t* ctx) {
+    pthread_mutex_lock(&render_mutex);
     if (ctx->layout) {
         g_object_unref(ctx->layout);
         ctx->layout = NULL;
@@ -131,6 +138,7 @@ void render_free(render_context_t* ctx) {
     }
     ctx->width = 0;
     ctx->height = 0;
+    pthread_mutex_unlock(&render_mutex);
 }
 
 static void ensure_layout(render_context_t* ctx) {
