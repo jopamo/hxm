@@ -56,6 +56,13 @@ typedef enum menu_action {
     MENU_ACTION_SEPARATOR
 } menu_action_t;
 
+typedef struct menu_item_spec {
+    char* label;
+    menu_action_t action;
+    char* cmd;
+    char* icon_path;
+} menu_item_spec_t;
+
 /* A single menu item */
 typedef struct menu_item {
     char* label;
@@ -89,6 +96,9 @@ typedef struct menu {
 
     /* Vector of menu_item_t* */
     small_vec_t items;
+
+    /* Parsed menu.conf entries (menu_item_spec_t*) */
+    small_vec_t config_items;
 } menu_t;
 
 typedef struct server server_t;
@@ -96,6 +106,9 @@ typedef struct server server_t;
 /* Resource lifecycle */
 void menu_init(server_t* s);
 void menu_destroy(server_t* s);
+
+/* Load menu configuration from YAML (menu.conf) */
+bool menu_load_config(server_t* s, const char* path);
 
 /* Show/hide */
 void menu_show(server_t* s, int16_t x, int16_t y);

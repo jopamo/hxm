@@ -42,6 +42,9 @@ hxm
 
 Configure hxm by placing a config file at `~/.config/hxm/hxm.conf` or
 `$XDG_CONFIG_HOME/hxm/hxm.conf`.
+Menu entries are loaded from a YAML file at `~/.config/hxm/menu.conf`
+(falling back to `/etc/hxm/menu.conf` or `data/menu.conf` when running from
+the source tree).
 
 To start hxm as your window manager, configure your display manager or X startup
 scripts accordingly.
