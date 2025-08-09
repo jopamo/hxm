@@ -22,6 +22,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <unistd.h>
 #include <xcb/randr.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_icccm.h>
