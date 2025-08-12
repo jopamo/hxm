@@ -913,6 +913,12 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                             hot->base_layer = LAYER_DESKTOP;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             hot->type_from_net = true;
+                            hot->skip_taskbar = true;
+                            hot->skip_pager = true;
+                            if (!hot->net_wm_desktop_seen) {
+                                hot->sticky = true;
+                                hot->desktop = -1;
+                            }
                             break;
                         } else if (types[i] == atoms._NET_WM_WINDOW_TYPE_SPLASH) {
                             hot->type = WINDOW_TYPE_SPLASH;
@@ -1030,14 +1036,19 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             } else if (atom == atoms._NET_WM_DESKTOP) {
                 uint32_t* val = prop_get_u32_array(r, 1, NULL);
                 if (val) {
-                    if (*val == 0xFFFFFFFFu) {
-                        hot->sticky = true;
-                        hot->desktop = -1;
+                    hot->net_wm_desktop_seen = true;
+                    bool sticky = (*val == 0xFFFFFFFFu);
+                    uint32_t desk = *val;
+                    if (!sticky && desk >= s->desktop_count) desk = s->current_desktop;
+                    int32_t new_desk = sticky ? -1 : (int32_t)desk;
+
+                    if (hot->sticky == sticky && hot->desktop == new_desk) {
+                        // No change
+                    } else if (hot->manage_phase == MANAGE_DONE) {
+                        wm_client_move_to_workspace(s, slot->client, sticky ? 0xFFFFFFFFu : desk, false);
                     } else {
-                        hot->sticky = false;
-                        uint32_t desk = *val;
-                        if (desk >= s->desktop_count) desk = s->current_desktop;
-                        hot->desktop = (int32_t)desk;
+                        hot->sticky = sticky;
+                        hot->desktop = new_desk;
                     }
                 }
 

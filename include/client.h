@@ -219,6 +219,7 @@ typedef struct client_hot {
     bool sticky;
     bool skip_taskbar;
     bool skip_pager;
+    bool net_wm_desktop_seen;
 
     bool maximized_horz;
     bool maximized_vert;
