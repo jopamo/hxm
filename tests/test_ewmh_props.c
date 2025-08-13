@@ -19,6 +19,10 @@ extern void xcb_stubs_reset(void);
 extern xcb_atom_t stub_last_prop_atom;
 extern uint32_t stub_last_prop_len;
 extern uint8_t stub_last_prop_data[4096];
+extern int stub_map_window_count;
+extern int stub_unmap_window_count;
+extern xcb_window_t stub_last_mapped_window;
+extern xcb_window_t stub_last_unmapped_window;
 extern int stub_prop_calls_len;
 extern struct stub_prop_call {
     xcb_window_t window;
@@ -277,6 +281,298 @@ static void test_desktop_props_publish_and_switch(void) {
     cleanup_server(&s);
 }
 
+static void test_net_wm_desktop_reply_sets_sticky_and_desktop(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    atoms._NET_WM_DESKTOP = 410;
+
+    handle_t h = add_mapped_client(&s, 8001, 8101);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->manage_phase = MANAGE_PHASE1;
+    hot->desktop = 0;
+    hot->sticky = false;
+
+    cookie_slot_t slot = {0};
+    slot.client = h;
+    slot.type = COOKIE_GET_PROPERTY;
+    slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_DESKTOP;
+
+    struct {
+        xcb_get_property_reply_t r;
+        uint32_t data[1];
+    } reply;
+    memset(&reply, 0, sizeof(reply));
+    reply.r.format = 32;
+    reply.r.value_len = 1;
+    reply.r.type = XCB_ATOM_CARDINAL;
+
+    reply.data[0] = 0xFFFFFFFFu;
+    wm_handle_reply(&s, &slot, &reply.r, NULL);
+    assert(hot->net_wm_desktop_seen);
+    assert(hot->sticky == true);
+    assert(hot->desktop == -1);
+
+    reply.data[0] = 2;
+    wm_handle_reply(&s, &slot, &reply.r, NULL);
+    assert(hot->sticky == false);
+    assert(hot->desktop == 2);
+
+    printf("test_net_wm_desktop_reply_sets_sticky_and_desktop passed\n");
+    cleanup_server(&s);
+}
+
+static void test_net_wm_desktop_reply_clamps_out_of_range(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    atoms._NET_WM_DESKTOP = 411;
+    s.desktop_count = 2;
+    s.current_desktop = 1;
+
+    handle_t h = add_mapped_client(&s, 8002, 8102);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->manage_phase = MANAGE_PHASE1;
+
+    cookie_slot_t slot = {0};
+    slot.client = h;
+    slot.type = COOKIE_GET_PROPERTY;
+    slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_DESKTOP;
+
+    struct {
+        xcb_get_property_reply_t r;
+        uint32_t data[1];
+    } reply;
+    memset(&reply, 0, sizeof(reply));
+    reply.r.format = 32;
+    reply.r.value_len = 1;
+    reply.r.type = XCB_ATOM_CARDINAL;
+    reply.data[0] = 7;
+
+    wm_handle_reply(&s, &slot, &reply.r, NULL);
+    assert(hot->net_wm_desktop_seen);
+    assert(hot->sticky == false);
+    assert(hot->desktop == (int32_t)s.current_desktop);
+
+    printf("test_net_wm_desktop_reply_clamps_out_of_range passed\n");
+    cleanup_server(&s);
+}
+
+static void test_net_wm_desktop_reply_moves_after_manage(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    atoms._NET_WM_DESKTOP = 412;
+    s.desktop_count = 3;
+    s.current_desktop = 0;
+
+    handle_t h = add_mapped_client(&s, 8003, 8103);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->manage_phase = MANAGE_DONE;
+    hot->desktop = 0;
+    hot->sticky = false;
+
+    stub_map_window_count = 0;
+    stub_unmap_window_count = 0;
+
+    cookie_slot_t slot = {0};
+    slot.client = h;
+    slot.type = COOKIE_GET_PROPERTY;
+    slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_DESKTOP;
+
+    struct {
+        xcb_get_property_reply_t r;
+        uint32_t data[1];
+    } reply;
+    memset(&reply, 0, sizeof(reply));
+    reply.r.format = 32;
+    reply.r.value_len = 1;
+    reply.r.type = XCB_ATOM_CARDINAL;
+    reply.data[0] = 2;
+
+    wm_handle_reply(&s, &slot, &reply.r, NULL);
+    assert(hot->desktop == 2);
+    assert(hot->sticky == false);
+    assert(hot->net_wm_desktop_seen);
+
+    wm_flush_dirty(&s, monotonic_time_ns());
+
+    assert(stub_unmap_window_count == 1);
+    assert(stub_last_unmapped_window == hot->frame);
+
+    const struct stub_prop_call* desk = find_prop_call(hot->xid, atoms._NET_WM_DESKTOP, false);
+    assert(desk != NULL);
+    assert(((uint32_t*)desk->data)[0] == 2);
+
+    printf("test_net_wm_desktop_reply_moves_after_manage passed\n");
+    cleanup_server(&s);
+}
+
+static void test_window_type_desktop_defaults_sticky(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    atoms._NET_WM_WINDOW_TYPE = 420;
+    atoms._NET_WM_WINDOW_TYPE_DESKTOP = 421;
+
+    handle_t h = add_mapped_client(&s, 8010, 8110);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->manage_phase = MANAGE_PHASE1;
+    hot->sticky = false;
+    hot->desktop = 0;
+
+    cookie_slot_t slot = {0};
+    slot.client = h;
+    slot.type = COOKIE_GET_PROPERTY;
+    slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE;
+
+    struct {
+        xcb_get_property_reply_t r;
+        xcb_atom_t types[1];
+    } reply;
+    memset(&reply, 0, sizeof(reply));
+    reply.r.format = 32;
+    reply.r.value_len = 1;
+    reply.r.type = XCB_ATOM_ATOM;
+    reply.types[0] = atoms._NET_WM_WINDOW_TYPE_DESKTOP;
+
+    wm_handle_reply(&s, &slot, &reply.r, NULL);
+
+    assert(hot->type == WINDOW_TYPE_DESKTOP);
+    assert(hot->layer == LAYER_DESKTOP);
+    assert(hot->base_layer == LAYER_DESKTOP);
+    assert(hot->flags & CLIENT_FLAG_UNDECORATED);
+    assert(hot->skip_taskbar == true);
+    assert(hot->skip_pager == true);
+    assert(hot->sticky == true);
+    assert(hot->desktop == -1);
+
+    printf("test_window_type_desktop_defaults_sticky passed\n");
+    cleanup_server(&s);
+}
+
+static void test_window_type_desktop_respects_net_wm_desktop(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    atoms._NET_WM_DESKTOP = 430;
+    atoms._NET_WM_WINDOW_TYPE = 431;
+    atoms._NET_WM_WINDOW_TYPE_DESKTOP = 432;
+
+    handle_t h = add_mapped_client(&s, 8020, 8120);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->manage_phase = MANAGE_PHASE1;
+
+    cookie_slot_t desk_slot = {0};
+    desk_slot.client = h;
+    desk_slot.type = COOKIE_GET_PROPERTY;
+    desk_slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_DESKTOP;
+
+    struct {
+        xcb_get_property_reply_t r;
+        uint32_t data[1];
+    } desk_reply;
+    memset(&desk_reply, 0, sizeof(desk_reply));
+    desk_reply.r.format = 32;
+    desk_reply.r.value_len = 1;
+    desk_reply.r.type = XCB_ATOM_CARDINAL;
+    desk_reply.data[0] = 1;
+
+    wm_handle_reply(&s, &desk_slot, &desk_reply.r, NULL);
+    assert(hot->net_wm_desktop_seen);
+    assert(hot->sticky == false);
+    assert(hot->desktop == 1);
+
+    cookie_slot_t type_slot = {0};
+    type_slot.client = h;
+    type_slot.type = COOKIE_GET_PROPERTY;
+    type_slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE;
+
+    struct {
+        xcb_get_property_reply_t r;
+        xcb_atom_t types[1];
+    } type_reply;
+    memset(&type_reply, 0, sizeof(type_reply));
+    type_reply.r.format = 32;
+    type_reply.r.value_len = 1;
+    type_reply.r.type = XCB_ATOM_ATOM;
+    type_reply.types[0] = atoms._NET_WM_WINDOW_TYPE_DESKTOP;
+
+    wm_handle_reply(&s, &type_slot, &type_reply.r, NULL);
+
+    assert(hot->type == WINDOW_TYPE_DESKTOP);
+    assert(hot->layer == LAYER_DESKTOP);
+    assert(hot->base_layer == LAYER_DESKTOP);
+    assert(hot->skip_taskbar == true);
+    assert(hot->skip_pager == true);
+    assert(hot->sticky == false);
+    assert(hot->desktop == 1);
+
+    printf("test_window_type_desktop_respects_net_wm_desktop passed\n");
+    cleanup_server(&s);
+}
+
+static void test_desktop_type_then_net_wm_desktop_updates(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    atoms._NET_WM_DESKTOP = 440;
+    atoms._NET_WM_WINDOW_TYPE = 441;
+    atoms._NET_WM_WINDOW_TYPE_DESKTOP = 442;
+
+    handle_t h = add_mapped_client(&s, 8030, 8130);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->manage_phase = MANAGE_PHASE1;
+
+    cookie_slot_t type_slot = {0};
+    type_slot.client = h;
+    type_slot.type = COOKIE_GET_PROPERTY;
+    type_slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE;
+
+    struct {
+        xcb_get_property_reply_t r;
+        xcb_atom_t types[1];
+    } type_reply;
+    memset(&type_reply, 0, sizeof(type_reply));
+    type_reply.r.format = 32;
+    type_reply.r.value_len = 1;
+    type_reply.r.type = XCB_ATOM_ATOM;
+    type_reply.types[0] = atoms._NET_WM_WINDOW_TYPE_DESKTOP;
+
+    wm_handle_reply(&s, &type_slot, &type_reply.r, NULL);
+    assert(hot->sticky == true);
+    assert(hot->desktop == -1);
+
+    cookie_slot_t desk_slot = {0};
+    desk_slot.client = h;
+    desk_slot.type = COOKIE_GET_PROPERTY;
+    desk_slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_DESKTOP;
+
+    struct {
+        xcb_get_property_reply_t r;
+        uint32_t data[1];
+    } desk_reply;
+    memset(&desk_reply, 0, sizeof(desk_reply));
+    desk_reply.r.format = 32;
+    desk_reply.r.value_len = 1;
+    desk_reply.r.type = XCB_ATOM_CARDINAL;
+    desk_reply.data[0] = 2;
+
+    wm_handle_reply(&s, &desk_slot, &desk_reply.r, NULL);
+    assert(hot->sticky == false);
+    assert(hot->desktop == 2);
+    assert(hot->net_wm_desktop_seen);
+
+    printf("test_desktop_type_then_net_wm_desktop_updates passed\n");
+    cleanup_server(&s);
+}
+
 static void test_strut_updates_workarea(void) {
     server_t s;
     setup_server(&s);
@@ -459,6 +755,12 @@ int main(void) {
     test_client_list_add_remove();
     test_client_list_filters_skip_and_dock();
     test_desktop_props_publish_and_switch();
+    test_net_wm_desktop_reply_sets_sticky_and_desktop();
+    test_net_wm_desktop_reply_clamps_out_of_range();
+    test_net_wm_desktop_reply_moves_after_manage();
+    test_window_type_desktop_defaults_sticky();
+    test_window_type_desktop_respects_net_wm_desktop();
+    test_desktop_type_then_net_wm_desktop_updates();
     test_strut_updates_workarea();
     test_window_type_dock_layer();
     test_state_idempotent_and_unknown();
