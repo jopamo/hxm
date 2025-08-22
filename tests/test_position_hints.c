@@ -56,6 +56,22 @@ static handle_t add_client(server_t* s, int16_t x, int16_t y, uint16_t w, uint16
     return handle;
 }
 
+static bool rects_intersect(const rect_t* a, const rect_t* b) {
+    int32_t ax2 = (int32_t)a->x + (int32_t)a->w;
+    int32_t ay2 = (int32_t)a->y + (int32_t)a->h;
+    int32_t bx2 = (int32_t)b->x + (int32_t)b->w;
+    int32_t by2 = (int32_t)b->y + (int32_t)b->h;
+    return !(ax2 <= b->x || ay2 <= b->y || a->x >= bx2 || a->y >= by2);
+}
+
+static bool rect_intersects_any_monitor(const server_t* s, const rect_t* r) {
+    if (!s || !s->monitors || s->monitor_count == 0) return false;
+    for (uint32_t i = 0; i < s->monitor_count; i++) {
+        if (rects_intersect(r, &s->monitors[i].geom)) return true;
+    }
+    return false;
+}
+
 static void test_us_position_preserved(void) {
     server_t s;
     setup_server(&s);
@@ -103,9 +119,72 @@ static void test_position_clamped_without_hint(void) {
     cleanup_server(&s);
 }
 
+static void test_position_intersects_workarea_after_place(void) {
+    server_t s;
+    setup_server(&s);
+
+    handle_t h = add_client(&s, -20000, -20000, 120, 80);
+    client_hot_t* hot = server_chot(&s, h);
+
+    wm_place_window(&s, h);
+
+    rect_t wa = s.workarea;
+    assert(rects_intersect(&hot->desired, &wa));
+
+    printf("test_position_intersects_workarea_after_place passed\n");
+    cleanup_server(&s);
+}
+
+static void test_position_intersects_workarea_after_place_far_positive(void) {
+    server_t s;
+    setup_server(&s);
+
+    handle_t h = add_client(&s, 9000, 7000, 200, 200);
+    client_hot_t* hot = server_chot(&s, h);
+
+    wm_place_window(&s, h);
+
+    rect_t wa = s.workarea;
+    assert(rects_intersect(&hot->desired, &wa));
+
+    printf("test_position_intersects_workarea_after_place_far_positive passed\n");
+    cleanup_server(&s);
+}
+
+static void test_position_intersects_monitor_multihead(void) {
+    server_t s;
+    setup_server(&s);
+
+    s.monitor_count = 2;
+    s.monitors = calloc(2, sizeof(monitor_t));
+    assert(s.monitors != NULL);
+
+    s.monitors[0].geom = (rect_t){0, 0, 800, 600};
+    s.monitors[1].geom = (rect_t){800, 0, 800, 600};
+
+    // Use a workarea that spans both monitors to simulate union placement.
+    s.workarea = (rect_t){0, 0, 1600, 600};
+
+    handle_t h = add_client(&s, 20000, 20000, 200, 200);
+    client_hot_t* hot = server_chot(&s, h);
+
+    wm_place_window(&s, h);
+
+    assert(rect_intersects_any_monitor(&s, &hot->desired));
+
+    printf("test_position_intersects_monitor_multihead passed\n");
+    free(s.monitors);
+    s.monitors = NULL;
+    s.monitor_count = 0;
+    cleanup_server(&s);
+}
+
 int main(void) {
     test_us_position_preserved();
     test_p_position_preserved();
     test_position_clamped_without_hint();
+    test_position_intersects_workarea_after_place();
+    test_position_intersects_workarea_after_place_far_positive();
+    test_position_intersects_monitor_multihead();
     return 0;
 }
