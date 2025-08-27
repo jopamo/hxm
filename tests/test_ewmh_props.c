@@ -34,6 +34,8 @@ extern struct stub_prop_call {
     bool deleted;
 } stub_prop_calls[128];
 
+static bool atom_in_state_list(const xcb_atom_t* atoms_list, uint32_t count, xcb_atom_t needle);
+
 static const struct stub_prop_call* find_prop_call(xcb_window_t win, xcb_atom_t atom, bool deleted) {
     for (int i = stub_prop_calls_len - 1; i >= 0; i--) {
         if (stub_prop_calls[i].window == win && stub_prop_calls[i].atom == atom &&
@@ -226,12 +228,9 @@ static void test_client_list_filters_skip_and_dock(void) {
 
     const struct stub_prop_call* list = find_prop_call(s.root, atoms._NET_CLIENT_LIST, false);
     assert(list != NULL);
-    assert(list->len == 4);
+    assert(list->len == 1);
     const uint32_t* list_vals = (const uint32_t*)list->data;
     assert(list_vals[0] == 7001);
-    assert(list_vals[1] == 7002);
-    assert(list_vals[2] == 7003);
-    assert(list_vals[3] == 7004);
 
     const struct stub_prop_call* list_stack = find_prop_call(s.root, atoms._NET_CLIENT_LIST_STACKING, false);
     assert(list_stack != NULL);
@@ -662,8 +661,76 @@ static void test_window_type_dock_layer(void) {
     assert(hot->type == WINDOW_TYPE_DOCK);
     assert(hot->base_layer == LAYER_DOCK);
     assert(hot->flags & CLIENT_FLAG_UNDECORATED);
+    hot->focus_override = -1;
+    assert(should_focus_on_map(hot) == false);
+    assert(client_can_move(hot) == false);
 
     printf("test_window_type_dock_layer passed\n");
+    cleanup_server(&s);
+}
+
+static void test_state_below_sticky_skip_applies(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    atoms._NET_WM_STATE = 910;
+    atoms._NET_WM_STATE_BELOW = 911;
+    atoms._NET_WM_STATE_STICKY = 912;
+    atoms._NET_WM_STATE_SKIP_TASKBAR = 913;
+    atoms._NET_WM_STATE_SKIP_PAGER = 914;
+
+    s.desktop_count = 2;
+    s.current_desktop = 0;
+
+    handle_t h = add_mapped_client(&s, 6001, 6101);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->manage_phase = MANAGE_DONE;
+
+    cookie_slot_t slot = {0};
+    slot.client = h;
+    slot.type = COOKIE_GET_PROPERTY;
+    slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_STATE;
+
+    struct {
+        xcb_get_property_reply_t r;
+        xcb_atom_t states[4];
+    } reply;
+    memset(&reply, 0, sizeof(reply));
+    reply.r.format = 32;
+    reply.r.value_len = 4;
+    reply.r.type = XCB_ATOM_ATOM;
+    reply.states[0] = atoms._NET_WM_STATE_BELOW;
+    reply.states[1] = atoms._NET_WM_STATE_STICKY;
+    reply.states[2] = atoms._NET_WM_STATE_SKIP_TASKBAR;
+    reply.states[3] = atoms._NET_WM_STATE_SKIP_PAGER;
+
+    wm_handle_reply(&s, &slot, &reply.r, NULL);
+
+    assert(hot->state_below == true);
+    assert(hot->layer == LAYER_BELOW);
+    assert(hot->sticky == true);
+    assert(hot->skip_taskbar == true);
+    assert(hot->skip_pager == true);
+
+    wm_flush_dirty(&s, monotonic_time_ns());
+
+    assert(s.layers[LAYER_BELOW].length == 1);
+    assert(ptr_to_handle(s.layers[LAYER_BELOW].items[0]) == h);
+
+    const struct stub_prop_call* state = find_prop_call(hot->xid, atoms._NET_WM_STATE, false);
+    assert(state != NULL);
+    assert(atom_in_state_list((xcb_atom_t*)state->data, state->len, atoms._NET_WM_STATE_BELOW));
+    assert(atom_in_state_list((xcb_atom_t*)state->data, state->len, atoms._NET_WM_STATE_STICKY));
+    assert(atom_in_state_list((xcb_atom_t*)state->data, state->len, atoms._NET_WM_STATE_SKIP_TASKBAR));
+    assert(atom_in_state_list((xcb_atom_t*)state->data, state->len, atoms._NET_WM_STATE_SKIP_PAGER));
+
+    stub_unmap_window_count = 0;
+    wm_switch_workspace(&s, 1);
+    wm_flush_dirty(&s, monotonic_time_ns());
+    assert(stub_unmap_window_count == 0);
+
+    printf("test_state_below_sticky_skip_applies passed\n");
     cleanup_server(&s);
 }
 
@@ -763,6 +830,7 @@ int main(void) {
     test_desktop_type_then_net_wm_desktop_updates();
     test_strut_updates_workarea();
     test_window_type_dock_layer();
+    test_state_below_sticky_skip_applies();
     test_state_idempotent_and_unknown();
     test_urgency_hint_maps_to_ewmh_state();
     return 0;
