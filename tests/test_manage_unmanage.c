@@ -162,6 +162,18 @@ static size_t count_live_clients(server_t* s) {
     return count;
 }
 
+static bool cookie_jar_has_atom(cookie_jar_t* cj, xcb_atom_t atom) {
+    if (!cj || !cj->slots) return false;
+    for (size_t i = 0; i < cj->cap; i++) {
+        const cookie_slot_t* slot = &cj->slots[i];
+        if (!slot->live) continue;
+        if (slot->type != COOKIE_GET_PROPERTY) continue;
+        xcb_atom_t slot_atom = (xcb_atom_t)(slot->data & 0xFFFFFFFFu);
+        if (slot_atom == atom) return true;
+    }
+    return false;
+}
+
 static void test_map_request_starts_manage_once(void) {
     server_t s;
     setup_server(&s);
@@ -503,6 +515,19 @@ static void test_manage_start_already_managed(void) {
     cleanup_server(&s);
 }
 
+static void test_manage_start_requests_window_type(void) {
+    server_t s;
+    setup_server(&s);
+
+    xcb_window_t win = 2222;
+    client_manage_start(&s, win);
+
+    assert(cookie_jar_has_atom(&s.cookie_jar, atoms._NET_WM_WINDOW_TYPE));
+
+    printf("test_manage_start_requests_window_type passed\n");
+    cleanup_server(&s);
+}
+
 static void test_manage_start_slot_full(void) {
     server_t s;
     memset(&s, 0, sizeof(s));
@@ -594,6 +619,7 @@ int main(void) {
     test_reparent_notify_ignored();
 
     test_manage_start_already_managed();
+    test_manage_start_requests_window_type();
     test_manage_start_slot_full();
     test_manage_start_defaults_desktop_current();
     test_should_focus_on_map_override();
