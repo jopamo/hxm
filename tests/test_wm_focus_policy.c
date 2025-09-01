@@ -553,6 +553,58 @@ void test_finish_manage_focus_override(void) {
     free(s.conn);
 }
 
+void test_finish_manage_no_focus_for_dock_desktop(void) {
+    server_t s;
+    setup_server_for_manage(&s);
+
+    handle_t h1 = alloc_test_client(&s, 451, 0);
+    set_client_mapped(&s, h1, 1451);
+    client_cold_t* cold1 = server_ccold(&s, h1);
+    cold1->can_focus = true;
+
+    wm_set_focus(&s, h1);
+    wm_flush_dirty(&s, monotonic_time_ns());
+    int focus_calls = stub_set_input_focus_count;
+    assert(s.focused_client == h1);
+
+    handle_t h2 = alloc_test_client(&s, 452, 0);
+    client_hot_t* hot2 = server_chot(&s, h2);
+    hot2->type = WINDOW_TYPE_DOCK;
+    hot2->layer = LAYER_DOCK;
+    hot2->base_layer = LAYER_DOCK;
+    client_finish_manage(&s, h2);
+    wm_flush_dirty(&s, monotonic_time_ns());
+    assert(s.focused_client == h1);
+    assert(stub_set_input_focus_count == focus_calls);
+
+    handle_t h3 = alloc_test_client(&s, 453, 0);
+    client_hot_t* hot3 = server_chot(&s, h3);
+    hot3->type = WINDOW_TYPE_DESKTOP;
+    hot3->layer = LAYER_DESKTOP;
+    hot3->base_layer = LAYER_DESKTOP;
+    client_finish_manage(&s, h3);
+    wm_flush_dirty(&s, monotonic_time_ns());
+    assert(s.focused_client == h1);
+    assert(stub_set_input_focus_count == focus_calls);
+
+    printf("test_finish_manage_no_focus_for_dock_desktop passed\n");
+    for (uint32_t i = 1; i < s.clients.cap; i++) {
+        if (s.clients.hdr[i].live) {
+            handle_t h = handle_make(i, s.clients.hdr[i].gen);
+            client_hot_t* hot = server_chot(&s, h);
+            if (hot) {
+                render_free(&hot->render_ctx);
+                if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
+            }
+        }
+    }
+    arena_destroy(&s.tick_arena);
+    slotmap_destroy(&s.clients);
+    hash_map_destroy(&s.window_to_client);
+    hash_map_destroy(&s.frame_to_client);
+    free(s.conn);
+}
+
 void test_iconify_updates_focus(void) {
     server_t s;
     setup_server_for_manage(&s);
@@ -802,6 +854,7 @@ int main(void) {
     test_finish_manage_visibility();
     test_finish_manage_show_desktop_hides();
     test_finish_manage_focus_override();
+    test_finish_manage_no_focus_for_dock_desktop();
     test_iconify_updates_focus();
     test_restore_maps_window();
     test_set_focus_ignores_unmapped();
