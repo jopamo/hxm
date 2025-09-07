@@ -61,9 +61,13 @@ void test_property_net_wm_desktop_enqueues_cookie(void) {
 
     xcb_stubs_reset();
     s.conn = xcb_connect(NULL, NULL);
-    atoms_init(s.conn);
-
-    atoms._NET_WM_DESKTOP = 10;
+    // Avoid atoms_init here to prevent atom id collisions with early-return filters.
+    atoms._NET_WM_ALLOWED_ACTIONS = 0;
+    atoms._NET_FRAME_EXTENTS = 0;
+    atoms.WM_STATE = 0;
+    atoms._NET_WM_VISIBLE_NAME = 0;
+    atoms._NET_WM_VISIBLE_ICON_NAME = 0;
+    atoms._NET_WM_DESKTOP = 42;
 
     if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) {
         fprintf(stderr, "Failed to init slotmap\n");
