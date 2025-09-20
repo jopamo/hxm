@@ -445,6 +445,9 @@ void client_finish_manage(server_t* s, handle_t h) {
         ry = 0;
     }
 
+    // Reparent triggers an UnmapNotify side-effect on the client window.
+    // Mark it as internal so we don't treat it as a client-initiated withdraw.
+    if (hot->ignore_unmap < UINT8_MAX) hot->ignore_unmap++;
     xcb_reparent_window(s->conn, hot->xid, hot->frame, rx, ry);
     if (hot->original_border_width != 0) {
         uint32_t bw_values[] = {0};
