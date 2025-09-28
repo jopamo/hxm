@@ -319,10 +319,36 @@ void test_workspace_relative(void) {
     xcb_disconnect(s.conn);
 }
 
+void test_sticky_panel_ignores_workspace_move(void) {
+    server_t s;
+    setup_server(&s);
+
+    handle_t h = slotmap_alloc(&s.clients, NULL, NULL);
+    small_vec_push(&s.active_clients, handle_to_ptr(h));
+    client_hot_t* c = server_chot(&s, h);
+    c->state = STATE_MAPPED;
+    c->desktop = 0;
+    c->sticky = true;
+    c->type = WINDOW_TYPE_DOCK;
+    c->frame = 2001;
+
+    wm_client_move_to_workspace(&s, h, 2, false);
+
+    assert(c->sticky == true);
+    assert(c->desktop == -1);
+
+    printf("test_sticky_panel_ignores_workspace_move passed\n");
+
+    slotmap_destroy(&s.clients);
+    small_vec_destroy(&s.active_clients);
+    xcb_disconnect(s.conn);
+}
+
 int main(void) {
     test_workspace_switch_basics();
     test_client_move_to_workspace();
     test_client_toggle_sticky();
+    test_sticky_panel_ignores_workspace_move();
     test_workspace_relative();
     printf("All tests passed!\n");
     return 0;

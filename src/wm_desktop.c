@@ -345,6 +345,10 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
 
+    if (c->sticky && (c->type == WINDOW_TYPE_DOCK || c->type == WINDOW_TYPE_DESKTOP) && desktop != 0xFFFFFFFF) {
+        desktop = 0xFFFFFFFF;
+    }
+
     if (desktop != 0xFFFFFFFF && desktop >= s->desktop_count) {
         if (s->desktop_count == 1) {
             desktop = 0;
@@ -389,6 +393,9 @@ void wm_client_toggle_sticky(server_t* s, handle_t h) {
     if (!c) return;
 
     c->sticky = !c->sticky;
+    if (c->sticky && (c->type == WINDOW_TYPE_DOCK || c->type == WINDOW_TYPE_DESKTOP)) {
+        c->desktop = -1;
+    }
 
     LOG_INFO("Client %u sticky toggled to %d", c->xid, c->sticky);
 

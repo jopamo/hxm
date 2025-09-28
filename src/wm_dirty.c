@@ -55,6 +55,49 @@ static void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t 
     xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
 }
 
+static rect_t wm_monitor_bounds_for_rect(server_t* s, const rect_t* r) {
+    rect_t bounds;
+
+    if (s->monitor_count > 0 && s->monitors) {
+        int center_x = r->x + (int32_t)r->w / 2;
+        int center_y = r->y + (int32_t)r->h / 2;
+        int mid = wm_monitor_at_point(s, center_x, center_y);
+        if (mid < 0 || (uint32_t)mid >= s->monitor_count) mid = 0;
+        bounds = s->monitors[mid].geom;
+        return bounds;
+    }
+
+    xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+    bounds.x = 0;
+    bounds.y = 0;
+    bounds.w = (uint16_t)screen->width_in_pixels;
+    bounds.h = (uint16_t)screen->height_in_pixels;
+    return bounds;
+}
+
+static void wm_clamp_rect_to_bounds(rect_t* r, const rect_t* bounds) {
+    if (!r || !bounds) return;
+
+    int32_t x = r->x;
+    int32_t y = r->y;
+    int32_t bw = bounds->x;
+    int32_t bh = bounds->y;
+    int32_t bwmax = bounds->x + (int32_t)bounds->w;
+    int32_t bhmax = bounds->y + (int32_t)bounds->h;
+
+    if (x < bw) x = bw;
+    if (y < bh) y = bh;
+
+    if (x + (int32_t)r->w > bwmax) x = bwmax - (int32_t)r->w;
+    if (y + (int32_t)r->h > bhmax) y = bhmax - (int32_t)r->h;
+
+    if (x < bw) x = bw;
+    if (y < bh) y = bh;
+
+    r->x = (int16_t)x;
+    r->y = (int16_t)y;
+}
+
 void wm_send_synthetic_configure(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
@@ -336,25 +379,37 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
             uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
             uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
 
-            // Safety: Do not configure if we have no geometry yet.
-            if (hot->desired.w == 0 || hot->desired.h == 0) {
-                hot->dirty &= ~DIRTY_GEOM;  // Clear dirty flag to prevent spin
-                goto end_dirty_geom;
-            }
-
             // Defer configuration until management is complete
             if (hot->state == STATE_NEW) {
                 goto end_dirty_geom;
             }
 
-            // Robust clamping: Ensure frame is at least large enough for
-            // decorations/buttons and client is never <= 0.
-            if (hot->desired.w < MIN_FRAME_SIZE) hot->desired.w = (uint16_t)MIN_FRAME_SIZE;
-            if (hot->desired.h < MIN_FRAME_SIZE) hot->desired.h = (uint16_t)MIN_FRAME_SIZE;
+            bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
 
-            // Apply size hints (increments, aspect ratio, min/max) to ensure we send a valid
-            // geometry that the client won't immediately reject.
-            client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+            // Safety: Do not configure if we have no geometry yet (except panels).
+            if (hot->desired.w == 0 || hot->desired.h == 0) {
+                if (is_panel) {
+                    if (hot->desired.w == 0) hot->desired.w = 1;
+                    if (hot->desired.h == 0) hot->desired.h = 1;
+                } else {
+                    hot->dirty &= ~DIRTY_GEOM;  // Clear dirty flag to prevent spin
+                    goto end_dirty_geom;
+                }
+            }
+
+            if (is_panel) {
+                rect_t bounds = wm_monitor_bounds_for_rect(s, &hot->desired);
+                wm_clamp_rect_to_bounds(&hot->desired, &bounds);
+            } else {
+                // Robust clamping: Ensure frame is at least large enough for
+                // decorations/buttons and client is never <= 0.
+                if (hot->desired.w < MIN_FRAME_SIZE) hot->desired.w = (uint16_t)MIN_FRAME_SIZE;
+                if (hot->desired.h < MIN_FRAME_SIZE) hot->desired.h = (uint16_t)MIN_FRAME_SIZE;
+
+                // Apply size hints (increments, aspect ratio, min/max) to ensure we send a valid
+                // geometry that the client won't immediately reject.
+                client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+            }
 
             int32_t frame_x = hot->desired.x;
             int32_t frame_y = hot->desired.y;
