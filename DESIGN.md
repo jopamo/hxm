@@ -14,7 +14,7 @@ Rendering is limited to window frames and the built-in menu UI. hxm does not
 perform compositing and is designed to coexist cleanly with external
 compositors.
 
-For a step-by-step runtime walkthrough, see `FLOW.md`.
+This document is the authoritative source for the high-level design and runtime walkthrough; see the event loop and pipeline sections below.
 
 ---
 
