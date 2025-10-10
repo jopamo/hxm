@@ -750,8 +750,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
             idx_stacking = wm_build_client_list_stacking(s, wins_stacking, (uint32_t)cap);
         }
 
-        // _NET_CLIENT_LIST: mapping order (slotmap order), minus docks and
-        // skip-taskbar/pager clients.
+        // _NET_CLIENT_LIST: mapping order (slotmap order) for all managed clients.
         uint32_t cap_list = (uint32_t)s->active_clients.length;
         xcb_window_t* wins_list =
             cap_list ? (xcb_window_t*)arena_alloc(&s->tick_arena, cap_list * sizeof(xcb_window_t)) : NULL;
