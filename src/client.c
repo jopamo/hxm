@@ -2,20 +2,21 @@
  * Client state management and handling
  *
  * Lifecycle:
- *  1. manage_start: Allocate slot, send initial property queries (async).
- *     State: STATE_NEW
- *  2. wm_handle_reply (callbacks): Process replies, populate client struct.
- *     State: STATE_NEW (gathering data)
- *  3. client_finish_manage: All critical data ready. Create frame, reparent, map.
- *     State: STATE_MAPPED (or STATE_UNMAPPED if iconic)
- *  4. Running: Handle configure/property/focus events.
- *  5. client_unmanage: Window destroyed or withdrawn. Cleanup resources.
- *     State: STATE_UNMANAGING -> Free
+ *  - manage_start: Allocate slot, send initial property queries (async)
+ *    State: STATE_NEW
+ *  - wm_handle_reply (callbacks): Process replies, populate client struct
+ *    State: STATE_NEW (gathering data)
+ *  - client_finish_manage: All critical data ready. Create frame, reparent, map
+ *    State: STATE_MAPPED (or STATE_UNMAPPED if iconic)
+ *  - Running: Handle configure/property/focus events
+ *  - client_unmanage: Window destroyed or withdrawn. Cleanup resources
+ *    State: STATE_UNMANAGING -> Free
  */
 
 #include "client.h"
 
 #include <ctype.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 #include <xcb/xcb_icccm.h>
@@ -27,6 +28,17 @@
 #include "slotmap.h"
 #include "wm.h"
 #include "xcb_utils.h"
+
+#ifndef ARRAY_LEN
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+
+static void client_queue_get_property(server_t* s, handle_t h, xcb_window_t win, xcb_atom_t prop, xcb_atom_t type,
+                                      uint32_t long_len) {
+    uint32_t seq = xcb_get_property(s->conn, 0, win, prop, type, 0, long_len).sequence;
+    cookie_jar_push(&s->cookie_jar, seq, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | prop, s->txn_id,
+                    wm_handle_reply);
+}
 
 static bool str_contains_case(const char* haystack, const char* needle) {
     if (!haystack || !needle || !*needle) return false;
@@ -76,12 +88,12 @@ static bool should_hide_for_show_desktop(const client_hot_t* hot) {
  * client_manage_start:
  * Begin the management process for a new window.
  *
- * Strategy: Zero-Blocking Initialization
- * 1. Allocate internal structures (hot/cold).
- * 2. Issue a batch of X11 requests (GetGeometry, GetProperty for all EWMH/ICCCM atoms).
- *    We do NOT wait for replies here.
- * 3. Store the sequence numbers in the cookie jar.
- * 4. Set state to STATE_NEW.
+ * Strategy: zero-blocking initialization
+ *  - Allocate internal structures (hot/cold)
+ *  - Issue a batch of X requests (attributes, geometry, ICCCM/EWMH properties)
+ *    No reply is waited on here
+ *  - Track replies via cookie_jar (sequence -> callback + context)
+ *  - Keep client in STATE_NEW until critical data is present
  *
  * The main loop will wake up as replies arrive, populating the client struct
  * piece-by-piece. When all critical data is present, `client_finish_manage` is called.
@@ -93,7 +105,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
         return;
     }
 
-    // Allocate slot
+    // Allocate slot for hot/cold client storage
     void* hot_ptr;
     void* cold_ptr;
     handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
@@ -168,12 +180,44 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->gtk_extents.bottom = 0;
     hot->original_border_width = 0;
 
-    // Phase 1 cookie budget
-    // Attrs, Geom, Class, ClientMachine, ColormapWindows, Command, Hints, NormalHints, Transient, Type, Protocols,
-    // NetName, Name, NetIconName, IconName, NetState, Desktop,
-    // Strut, StrutPartial, Icon, PID, UserTime, UserTimeWindow,
-    // SyncCounter, IconGeometry, MotifHints, GtkFrameExtents, WindowOpacity
-    hot->pending_replies = 28;
+    // Phase 1 reply budget
+    // Keep this in sync with the queued requests below
+    // Attributes + geometry + property batch
+    // When this counter hits zero, we can finish manage (or time out)
+    struct {
+        xcb_atom_t prop;
+        xcb_atom_t type;
+        uint32_t long_len;
+    } props[] = {
+        {atoms.WM_CLASS, XCB_ATOM_STRING, 1024},
+        {atoms.WM_CLIENT_MACHINE, XCB_ATOM_STRING, 1024},
+        {atoms.WM_COMMAND, XCB_ATOM_STRING, 1024},
+        {atoms.WM_HINTS, atoms.WM_HINTS, 32},
+        {atoms.WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 32},
+        {atoms.WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 1},
+        {atoms.WM_COLORMAP_WINDOWS, XCB_ATOM_WINDOW, 64},
+        {atoms._NET_WM_WINDOW_TYPE, XCB_ATOM_ATOM, 32},
+        {atoms.WM_PROTOCOLS, XCB_ATOM_ATOM, 32},
+        {atoms._NET_WM_NAME, atoms.UTF8_STRING, 1024},
+        {atoms.WM_NAME, XCB_ATOM_STRING, 1024},
+        {atoms._NET_WM_ICON_NAME, atoms.UTF8_STRING, 1024},
+        {atoms.WM_ICON_NAME, XCB_ATOM_STRING, 1024},
+        {atoms._NET_WM_STATE, XCB_ATOM_ATOM, 32},
+        {atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 1},
+        {atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 4},
+        {atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 12},
+        {atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 1048576},
+        {atoms._NET_WM_PID, XCB_ATOM_CARDINAL, 1},
+        {atoms._NET_WM_USER_TIME, XCB_ATOM_CARDINAL, 1},
+        {atoms._NET_WM_USER_TIME_WINDOW, XCB_ATOM_WINDOW, 1},
+        {atoms._NET_WM_SYNC_REQUEST_COUNTER, XCB_ATOM_CARDINAL, 1},
+        {atoms._NET_WM_ICON_GEOMETRY, XCB_ATOM_CARDINAL, 4},
+        {atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 5},
+        {atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 4},
+        {atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 1},
+    };
+
+    hot->pending_replies = 2 + (uint8_t)ARRAY_LEN(props);
     hot->late_probe_ticks = 0;
     hot->late_probe_attempts = 0;
     hot->late_probe_deadline_ns = 0;
@@ -197,144 +241,17 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     uint32_t early_events = XCB_EVENT_MASK_PROPERTY_CHANGE;
     xcb_change_window_attributes(s->conn, win, XCB_CW_EVENT_MASK, &early_events);
 
-    // 1. GetWindowAttributes (override_redirect, visual)
+    // Query window attributes (override_redirect, visual, etc)
     uint32_t c1 = xcb_get_window_attributes(s->conn, win).sequence;
     cookie_jar_push(&s->cookie_jar, c1, COOKIE_GET_WINDOW_ATTRIBUTES, h, win, s->txn_id, wm_handle_reply);
 
-    // 2. GetGeometry
+    // Query initial geometry
     uint32_t c2 = xcb_get_geometry(s->conn, win).sequence;
     cookie_jar_push(&s->cookie_jar, c2, COOKIE_GET_GEOMETRY, h, win, s->txn_id, wm_handle_reply);
 
-    // 3. WM_CLASS
-    uint32_t c3 = xcb_get_property(s->conn, 0, win, atoms.WM_CLASS, XCB_ATOM_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c3, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_CLASS, s->txn_id,
-                    wm_handle_reply);
-
-    // 4. WM_CLIENT_MACHINE
-    uint32_t c4 = xcb_get_property(s->conn, 0, win, atoms.WM_CLIENT_MACHINE, XCB_ATOM_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c4, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_CLIENT_MACHINE,
-                    s->txn_id, wm_handle_reply);
-
-    // 5. WM_COMMAND
-    uint32_t c5 = xcb_get_property(s->conn, 0, win, atoms.WM_COMMAND, XCB_ATOM_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c5, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_COMMAND, s->txn_id,
-                    wm_handle_reply);
-
-    // 6. WM_HINTS
-    uint32_t c6 = xcb_get_property(s->conn, 0, win, atoms.WM_HINTS, atoms.WM_HINTS, 0, 32).sequence;
-    cookie_jar_push(&s->cookie_jar, c6, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_HINTS, s->txn_id,
-                    wm_handle_reply);
-
-    // 7. WM_NORMAL_HINTS
-    uint32_t c7 = xcb_get_property(s->conn, 0, win, atoms.WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 0, 32).sequence;
-    cookie_jar_push(&s->cookie_jar, c7, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_NORMAL_HINTS,
-                    s->txn_id, wm_handle_reply);
-
-    // 8. WM_TRANSIENT_FOR
-    uint32_t c8 = xcb_get_property(s->conn, 0, win, atoms.WM_TRANSIENT_FOR, XCB_ATOM_WINDOW, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c8, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_TRANSIENT_FOR,
-                    s->txn_id, wm_handle_reply);
-
-    // 9. WM_COLORMAP_WINDOWS
-    uint32_t c9 = xcb_get_property(s->conn, 0, win, atoms.WM_COLORMAP_WINDOWS, XCB_ATOM_WINDOW, 0, 64).sequence;
-    cookie_jar_push(&s->cookie_jar, c9, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_COLORMAP_WINDOWS,
-                    s->txn_id, wm_handle_reply);
-
-    // 10. _NET_WM_WINDOW_TYPE
-    uint32_t c10 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_WINDOW_TYPE, XCB_ATOM_ATOM, 0, 32).sequence;
-    cookie_jar_push(&s->cookie_jar, c10, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_WINDOW_TYPE,
-                    s->txn_id, wm_handle_reply);
-
-    // 11. WM_PROTOCOLS
-    uint32_t c11 = xcb_get_property(s->conn, 0, win, atoms.WM_PROTOCOLS, XCB_ATOM_ATOM, 0, 32).sequence;
-    cookie_jar_push(&s->cookie_jar, c11, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_PROTOCOLS, s->txn_id,
-                    wm_handle_reply);
-
-    // 12. _NET_WM_NAME (UTF8)
-    uint32_t c12 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_NAME, atoms.UTF8_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c12, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_NAME, s->txn_id,
-                    wm_handle_reply);
-
-    // 13. WM_NAME
-    uint32_t c13 = xcb_get_property(s->conn, 0, win, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c13, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_NAME, s->txn_id,
-                    wm_handle_reply);
-
-    // 14. _NET_WM_ICON_NAME (UTF8)
-    uint32_t c14 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON_NAME, atoms.UTF8_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c14, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON_NAME,
-                    s->txn_id, wm_handle_reply);
-
-    // 15. WM_ICON_NAME
-    uint32_t c15 = xcb_get_property(s->conn, 0, win, atoms.WM_ICON_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-    cookie_jar_push(&s->cookie_jar, c15, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms.WM_ICON_NAME, s->txn_id,
-                    wm_handle_reply);
-
-    // 16. _NET_WM_STATE
-    uint32_t c16 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STATE, XCB_ATOM_ATOM, 0, 32).sequence;
-    cookie_jar_push(&s->cookie_jar, c16, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STATE, s->txn_id,
-                    wm_handle_reply);
-
-    // 17. _NET_WM_DESKTOP
-    uint32_t c17 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c17, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_DESKTOP,
-                    s->txn_id, wm_handle_reply);
-
-    // 18. _NET_WM_STRUT
-    uint32_t c18 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
-    cookie_jar_push(&s->cookie_jar, c18, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT, s->txn_id,
-                    wm_handle_reply);
-
-    // 19. _NET_WM_STRUT_PARTIAL
-    uint32_t c19 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
-    cookie_jar_push(&s->cookie_jar, c19, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_STRUT_PARTIAL,
-                    s->txn_id, wm_handle_reply);
-
-    // 20. _NET_WM_ICON
-    uint32_t c20 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 1048576).sequence;
-    cookie_jar_push(&s->cookie_jar, c20, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON, s->txn_id,
-                    wm_handle_reply);
-
-    // 21. _NET_WM_PID
-    uint32_t c21 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_PID, XCB_ATOM_CARDINAL, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c21, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_PID, s->txn_id,
-                    wm_handle_reply);
-
-    // 22. _NET_WM_USER_TIME
-    uint32_t c22 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_USER_TIME, XCB_ATOM_CARDINAL, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c22, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_USER_TIME,
-                    s->txn_id, wm_handle_reply);
-
-    // 23. _NET_WM_USER_TIME_WINDOW
-    uint32_t c23 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_USER_TIME_WINDOW, XCB_ATOM_WINDOW, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c23, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_USER_TIME_WINDOW,
-                    s->txn_id, wm_handle_reply);
-
-    // 24. _NET_WM_SYNC_REQUEST_COUNTER
-    uint32_t c24 =
-        xcb_get_property(s->conn, 0, win, atoms._NET_WM_SYNC_REQUEST_COUNTER, XCB_ATOM_CARDINAL, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c24, COOKIE_GET_PROPERTY, h,
-                    ((uint64_t)win << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, s->txn_id, wm_handle_reply);
-
-    // 25. _NET_WM_ICON_GEOMETRY
-    uint32_t c25 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_ICON_GEOMETRY, XCB_ATOM_CARDINAL, 0, 4).sequence;
-    cookie_jar_push(&s->cookie_jar, c25, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_ICON_GEOMETRY,
-                    s->txn_id, wm_handle_reply);
-
-    // 26. _MOTIF_WM_HINTS
-    uint32_t c26 = xcb_get_property(s->conn, 0, win, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5).sequence;
-    cookie_jar_push(&s->cookie_jar, c26, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._MOTIF_WM_HINTS,
-                    s->txn_id, wm_handle_reply);
-
-    // 27. _GTK_FRAME_EXTENTS
-    uint32_t c27 = xcb_get_property(s->conn, 0, win, atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 0, 4).sequence;
-    cookie_jar_push(&s->cookie_jar, c27, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._GTK_FRAME_EXTENTS,
-                    s->txn_id, wm_handle_reply);
-
-    // 28. _NET_WM_WINDOW_OPACITY
-    uint32_t c28 = xcb_get_property(s->conn, 0, win, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 0, 1).sequence;
-    cookie_jar_push(&s->cookie_jar, c28, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | atoms._NET_WM_WINDOW_OPACITY,
-                    s->txn_id, wm_handle_reply);
+    for (size_t i = 0; i < ARRAY_LEN(props); i++) {
+        client_queue_get_property(s, h, win, props[i].prop, props[i].type, props[i].long_len);
+    }
 
     LOG_DEBUG("Started management for window %u (handle %lx)", win, h);
     TRACE_ONLY(diag_dump_focus_history(s, "after manage_start"));
@@ -404,10 +321,10 @@ static void client_apply_rules(server_t* s, handle_t h) {
  * Called when all critical initial properties have been received (or timed out).
  *
  * The "Reparenting Dance":
- * 1. Create a Frame window (parent of the client).
- * 2. Add client to SaveSet (so it survives if we crash).
- * 3. Reparent Client -> Frame.
- * 4. Map both windows (if visible).
+ *  - Create a frame window (parent of the client)
+ *  - Add client to SaveSet (so it survives if we crash)
+ *  - Reparent client -> frame
+ *  - Map both windows (if visible)
  *
  * This function transitions the client from STATE_NEW to STATE_MAPPED (or UNMAPPED).
  */
@@ -430,20 +347,20 @@ void client_finish_manage(server_t* s, handle_t h) {
 
     wm_place_window(s, h);
 
-    // Subscribe to client events before framing/mapping.
+    // Subscribe to client events before framing/mapping
     uint32_t client_events = XCB_EVENT_MASK_PROPERTY_CHANGE | XCB_EVENT_MASK_ENTER_WINDOW |
                              XCB_EVENT_MASK_FOCUS_CHANGE | XCB_EVENT_MASK_STRUCTURE_NOTIFY;
     xcb_change_window_attributes(s->conn, hot->xid, XCB_CW_EVENT_MASK, &client_events);
 
     // ---------------------------------------------------------
-    // 1. Frame Creation
+    // Frame creation
     // ---------------------------------------------------------
     rect_t geom = hot->desired;
 
     uint32_t mask = XCB_CW_EVENT_MASK;
     uint32_t values[3];
 
-    // Use parent-relative background for desktop windows to avoid opaque frames.
+    // Use parent-relative background for desktop windows to avoid opaque frames
     if (hot->type == WINDOW_TYPE_DESKTOP) {
         mask |= XCB_CW_BACK_PIXMAP;
         values[0] = XCB_BACK_PIXMAP_PARENT_RELATIVE;
@@ -458,7 +375,7 @@ void client_finish_manage(server_t* s, handle_t h) {
     uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
     uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
 
-    // Use root visual/depth for frames to avoid visual-specific artifacts in clients (e.g., video players).
+    // Use root visual/depth for frames to avoid client-visual artifacts (ex: video overlays)
 
     hot->frame = xcb_generate_id(s->conn);
     xcb_create_window(s->conn, s->root_depth, hot->frame, s->root, geom.x, geom.y, geom.w + 2 * bw, geom.h + th + bw, 0,
@@ -467,11 +384,11 @@ void client_finish_manage(server_t* s, handle_t h) {
     // Register frame mapping
     hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));
 
-    // 2. Add to SaveSet (crash safety)
+    // Add to SaveSet for crash safety
     xcb_change_save_set(s->conn, XCB_SET_MODE_INSERT, hot->xid);
 
     // ---------------------------------------------------------
-    // 3. Reparenting
+    // Reparenting
     // ---------------------------------------------------------
     int16_t rx = bw;
     int16_t ry = th;
@@ -481,8 +398,8 @@ void client_finish_manage(server_t* s, handle_t h) {
         ry = 0;
     }
 
-    // Reparent triggers an UnmapNotify side-effect on the client window.
-    // Mark it as internal so we don't treat it as a client-initiated withdraw.
+    // Reparent triggers an UnmapNotify on the client window
+    // Mark it as internal so we don't treat it as a client-initiated withdraw
     if (hot->ignore_unmap < UINT8_MAX) hot->ignore_unmap++;
     xcb_reparent_window(s->conn, hot->xid, hot->frame, rx, ry);
     if (hot->original_border_width != 0) {
@@ -490,7 +407,7 @@ void client_finish_manage(server_t* s, handle_t h) {
         xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_BORDER_WIDTH, bw_values);
     }
 
-    // 4.5. Apply initial sizes/positions after reparenting.
+    // Apply initial sizes/positions after reparenting
     int32_t frame_x = geom.x;
     int32_t frame_y = geom.y;
     uint32_t frame_w = geom.w;
@@ -538,7 +455,7 @@ void client_finish_manage(server_t* s, handle_t h) {
     hot->server.h = (uint16_t)client_h;
     hot->dirty |= DIRTY_GEOM;
 
-    // Set _NET_FRAME_EXTENTS (before mapping)
+    // Set _NET_FRAME_EXTENTS before mapping
     // if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
     uint32_t extents[4] = {bw, bw, th + bw, bw};
     if (hot->flags & CLIENT_FLAG_UNDECORATED) {
@@ -555,7 +472,7 @@ void client_finish_manage(server_t* s, handle_t h) {
                             32, 1, &hot->window_opacity);
     }
 
-    // Set _NET_WM_ALLOWED_ACTIONS (before mapping)
+    // Set _NET_WM_ALLOWED_ACTIONS before mapping
     xcb_atom_t actions[16];
     uint32_t num_actions = 0;
 
@@ -581,9 +498,9 @@ void client_finish_manage(server_t* s, handle_t h) {
                         num_actions, actions);
 
     // ---------------------------------------------------------
-    // 4. Mapping & Visibility
+    // Mapping and visibility
     // ---------------------------------------------------------
-    // Map if visible on current desktop and not requested to start iconic
+    // Map only if visible on current desktop and not requested to start iconic
     bool visible = (hot->sticky || (hot->desktop == (int32_t)s->current_desktop)) &&
                    (hot->initial_state != XCB_ICCCM_WM_STATE_ICONIC);
 
@@ -630,23 +547,23 @@ void client_finish_manage(server_t* s, handle_t h) {
             if (s->initial_focus != XCB_NONE && hot->xid == s->initial_focus) {
                 focus_it = true;
             } else if (should_focus_on_map(hot)) {
-                // Always focus dialogs/transients/user-interacted
+                // Focus dialogs/transients/user-interacted
                 focus_it = true;
             } else if (s->focused_client == HANDLE_INVALID && s->initial_focus == XCB_NONE) {
-                // Only default focus if we aren't waiting for a specific restore
+                // Default focus only if we aren't waiting for a specific restore
                 focus_it = true;
             }
         }
 
         // Initial stacking
         if (hot->transient_for != HANDLE_INVALID) {
-            // Only stack above if we aren't going to raise it anyway via focus
+            // Stack above parent only if we aren't going to raise via focus anyway
             if (!focus_it || !s->config.focus_raise) {
                 TRACE_LOG("finish_manage stack above parent h=%lx parent=%lx", h, hot->transient_for);
                 stack_place_above(s, h, hot->transient_for);
             }
         } else {
-            // Avoid double raise if we are about to focus it and focus_raise is enabled
+            // Avoid double raise if we're about to focus and focus_raise is enabled
             if (!focus_it || !s->config.focus_raise) {
                 if (hot->type == WINDOW_TYPE_DESKTOP && !is_conky) {
                     TRACE_LOG("finish_manage stack lower desktop background h=%lx", h);
@@ -726,10 +643,9 @@ void client_finish_manage(server_t* s, handle_t h) {
  * Stop managing a window (e.g., it was closed or destroyed).
  *
  * Critical Safety:
- * - We must remove the window from the SaveSet.
- * - If the window still exists (not destroyed by app), we MUST reparent it back
- *   to the root window to avoid it getting lost in the void when the frame dies.
- * - Cleanup all internal maps to prevent stale handle access.
+ *  - Remove the window from the SaveSet
+ *  - If the client still exists, reparent it back to root so it doesn't vanish with the frame
+ *  - Cleanup internal maps so stale handles cannot be resolved
  */
 void client_unmanage(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
@@ -981,7 +897,7 @@ void client_setup_grabs(server_t* s, handle_t h) {
     if (!hot) return;
 
     // Grab buttons 1, 2, 3 for click-to-focus and Alt-move/resize
-    // We use SYNC mode for the pointer to allow interception of clicks
+    // Use SYNC mode for the pointer so we can intercept clicks
     uint16_t buttons[] = {1, 2, 3};
     for (int i = 0; i < 3; i++) {
         xcb_grab_button(s->conn, 0, hot->xid, XCB_EVENT_MASK_BUTTON_PRESS, XCB_GRAB_MODE_SYNC, XCB_GRAB_MODE_ASYNC,
@@ -993,7 +909,7 @@ bool client_can_move(const client_hot_t* hot) {
     if (!hot) return false;
     if (hot->layer == LAYER_FULLSCREEN) return false;
 
-    // Special types that should not be moved
+    // Types that should not be moved
     switch (hot->type) {
         case WINDOW_TYPE_DOCK:
         case WINDOW_TYPE_DESKTOP:
@@ -1008,7 +924,7 @@ bool client_can_move(const client_hot_t* hot) {
 bool client_can_resize(const client_hot_t* hot) {
     if (!client_can_move(hot)) return false;
 
-    // Check for fixed size
+    // Reject resize when min == max
     if ((hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) && (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE)) {
         if (hot->hints.min_w > 0 && hot->hints.min_w == hot->hints.max_w && hot->hints.min_h > 0 &&
             hot->hints.min_h == hot->hints.max_h) {
