@@ -1,9 +1,13 @@
 /* src/core.c
- * System-wide counters and time utilities.
+ * System-wide counters and time utilities
  *
  * Implements:
- * - `counters`: Global singleton for performance metrics (zero-overhead in release ifdef).
- * - `monotonic_time_ns`: High-resolution clock source for the event loop.
+ * - counters: global singleton for metrics
+ *   Compiles out when HXM_DIAG is disabled
+ * - monotonic_time_ns: high-resolution clock for the event loop
+ *
+ * Notes:
+ * - tick_duration_min starts at UINT64_MAX as a sentinel for "no samples"
  */
 
 #include <inttypes.h>
@@ -23,7 +27,7 @@ static inline uint64_t u64_max(uint64_t a, uint64_t b) { return (a > b) ? a : b;
 void counters_init(void) {
     memset(&counters, 0, sizeof(counters));
 
-    /* If no ticks recorded, min stays at UINT64_MAX (sentinel) */
+    // If no ticks recorded, min stays at UINT64_MAX as a sentinel
     counters.tick_duration_min = UINT64_MAX;
 }
 
@@ -88,6 +92,6 @@ __attribute__((weak)) uint64_t monotonic_time_ns(void) {
     struct timespec ts;
     if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) return 0;
 
-    /* Avoid UB on weird platforms; cast after multiply */
+    // Avoid UB on weird platforms, cast after multiply
     return ((uint64_t)ts.tv_sec * 1000000000ULL) + (uint64_t)ts.tv_nsec;
 }
