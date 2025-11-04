@@ -1,12 +1,15 @@
 /* src/ds.c
- * Container layout and management.
+ * Container layout and management
  *
  * Implements core data structures:
- * - Arena: Bump allocator for fast per-tick temporary memory.
- * - SmallVec: Inline-storage vector to avoid heap allocs for common small cases.
- * - HashMap: Open-addressing map with linear probing and backshift deletion.
+ * - Arena: bump allocator for fast per-tick temporary memory
+ * - SmallVec: inline-storage vector to avoid heap allocs for common small cases
+ * - HashMap: open-addressing map with linear probing and backshift deletion
  *
- * Invariant: All allocators must fail hard (abort) on OOM to fail fast.
+ * Invariants:
+ * - allocators fail hard (abort) on OOM
+ * - hash_map reserves key=0 as the empty sentinel
+ * - arena allocations are 8-byte aligned
  */
 
 #include "ds.h"
@@ -23,24 +26,16 @@ __attribute__((weak)) void* ds_malloc(size_t size) { return malloc(size); }
 __attribute__((weak)) void* ds_realloc(void* ptr, size_t size) { return realloc(ptr, size); }
 __attribute__((weak)) void* ds_calloc(size_t nmemb, size_t size) { return calloc(nmemb, size); }
 
-/*
- * containers.c
- *
- * Includes:
- *  - arena allocator (bump allocator with linked blocks)
- *  - small vector (inline storage, grows to heap)
- *  - hash map (open addressing, linear probing, backshift delete)
- *
- * Notes:
- *  - arena allocations are 8-byte aligned
- *  - hash_map reserves key=0 as empty sentinel (use XCB_NONE replacement too)
- */
+// This file is intentionally standalone so allocators can be overridden in tests
+// via weak symbols (ds_malloc/ds_realloc/ds_calloc)
 
 /* -----------------------------
  * Arena allocator
  * ----------------------------- */
 
 void arena_init(struct arena* a, size_t block_size) {
+    // block_size is the default payload per block
+    // larger requests may allocate larger blocks
     a->first = NULL;
     a->current = NULL;
     a->pos = 0;
@@ -48,6 +43,7 @@ void arena_init(struct arena* a, size_t block_size) {
 }
 
 static arena_block_t* arena_add_block(struct arena* a, size_t min_size) {
+    // Allocate a new block with at least min_size payload
     size_t payload = a->block_size;
     if (payload < min_size) payload = min_size;
 
@@ -86,6 +82,7 @@ void* arena_alloc(struct arena* a, size_t size) {
     // Align to 8 bytes
     size = (size + 7u) & ~7u;
 
+    // Keep behavior predictable for callers that expect a non-NULL unique-ish pointer
     if (size == 0) size = 8;
 
     if (!a->current) {
@@ -113,6 +110,7 @@ void* arena_alloc(struct arena* a, size_t size) {
 }
 
 char* arena_strndup(struct arena* a, const char* s, size_t n) {
+    // Copies up to n bytes and always NUL-terminates
     if (!s) return NULL;
     char* res = (char*)arena_alloc(a, n + 1);
     memcpy(res, s, n);
@@ -120,12 +118,10 @@ char* arena_strndup(struct arena* a, const char* s, size_t n) {
     return res;
 }
 
-char* arena_strdup(struct arena* a, const char* s) {
-    if (!s) return NULL;
-    return arena_strndup(a, s, strlen(s));
-}
+char* arena_strdup(struct arena* a, const char* s) { return arena_strndup(a, s, strlen(s)); }
 
 void arena_reset(struct arena* a) {
+    // Reset allocation cursor but keep memory around for reuse
     if (!a) return;
 
     a->current = a->first;
@@ -139,6 +135,7 @@ void arena_reset(struct arena* a) {
 }
 
 void arena_destroy(struct arena* a) {
+    // Free all blocks
     if (!a) return;
 
     arena_block_t* block = a->first;
@@ -159,12 +156,14 @@ void arena_destroy(struct arena* a) {
  * ----------------------------- */
 
 void small_vec_init(small_vec_t* v) {
+    // Starts backed by inline storage and grows to heap as needed
     v->items = v->inline_storage;
     v->length = 0;
     v->capacity = SMALL_VEC_INLINE_CAP;
 }
 
 static void small_vec_grow(small_vec_t* v, size_t min_cap) {
+    // Grow capacity geometrically to keep amortized O(1) push
     size_t new_cap = v->capacity ? v->capacity : SMALL_VEC_INLINE_CAP;
     while (new_cap < min_cap) new_cap *= 2;
 
@@ -212,6 +211,7 @@ void small_vec_destroy(small_vec_t* v) {
 }
 
 void small_vec_remove_swap(small_vec_t* v, void* item) {
+    // Unordered remove in O(n) time, O(1) move once found
     for (size_t i = 0; i < v->length; i++) {
         if (v->items[i] == item) {
             v->items[i] = v->items[--v->length];
@@ -225,7 +225,7 @@ void small_vec_remove_swap(small_vec_t* v, void* item) {
  * ----------------------------- */
 
 static inline uint32_t hash_key(uint64_t key) {
-    // MurmurHash3 finalizer for 64-bit keys -> 32-bit hash
+    // MurmurHash3 finalizer, 64-bit key -> 32-bit hash
     key ^= key >> 33;
     key *= 0xff51afd7ed558ccdULL;
     key ^= key >> 33;
@@ -237,6 +237,8 @@ static inline uint32_t hash_key(uint64_t key) {
 static inline size_t probe_next(size_t idx, size_t mask) { return (idx + 1) & mask; }
 
 static size_t round_up_pow2(size_t n) {
+    // Round n up to a power of two, minimum 16
+    // Capacity is always a power of two so we can mask instead of modulo
     if (n < 16) return 16;
     n--;
     n |= n >> 1;
@@ -252,6 +254,7 @@ static size_t round_up_pow2(size_t n) {
 }
 
 static void hash_map_resize(hash_map_t* map, size_t new_capacity) {
+    // Rehash into new table
     new_capacity = round_up_pow2(new_capacity);
 
     hash_map_entry_t* new_entries = (hash_map_entry_t*)ds_calloc(new_capacity, sizeof(hash_map_entry_t));
@@ -275,6 +278,7 @@ static void hash_map_resize(hash_map_t* map, size_t new_capacity) {
     free(map->entries);
     map->entries = new_entries;
     map->capacity = new_capacity;
+    // Load factor 0.75 keeps probe chains short without wasting too much space
     map->max_load = (new_capacity * 3) / 4;
 }
 
@@ -294,6 +298,7 @@ void hash_map_destroy(hash_map_t* map) {
 }
 
 bool hash_map_insert(hash_map_t* map, uint64_t key, void* value) {
+    // key=0 is reserved as the empty sentinel
     assert(key != 0 && "key=0 is reserved for hash_map_t");
 
     if (map->capacity == 0 || map->size >= map->max_load) {
@@ -307,6 +312,7 @@ bool hash_map_insert(hash_map_t* map, uint64_t key, void* value) {
 
     while (map->entries[idx].key != 0) {
         if (map->entries[idx].key == key) {
+            // Replace existing
             map->entries[idx].value = value;
             return true;
         }
@@ -321,6 +327,7 @@ bool hash_map_insert(hash_map_t* map, uint64_t key, void* value) {
 }
 
 void* hash_map_get(const hash_map_t* map, uint64_t key) {
+    // Returns NULL if not found
     assert(key != 0 && "key=0 is reserved for hash_map_t");
     if (!map || map->capacity == 0) return NULL;
 
@@ -340,6 +347,9 @@ bool hash_map_remove(hash_map_t* map, uint64_t key) {
     assert(key != 0 && "key=0 is reserved for hash_map_t");
     if (!map || map->capacity == 0) return false;
 
+    // Backshift deletion (Knuth Algorithm R) for linear probing:
+    // remove the target slot, then shift forward entries backward when their
+    // probe chain would have visited the hole
     size_t mask = map->capacity - 1;
     uint32_t hash = hash_key(key);
     size_t idx = hash & mask;
@@ -357,6 +367,7 @@ bool hash_map_remove(hash_map_t* map, uint64_t key) {
                 if (home <= j) {
                     should_move = (home <= hole && hole < j);
                 } else {
+                    // Home wrapped around end of table
                     should_move = (hole < j) || (home <= hole);
                 }
 
@@ -368,6 +379,7 @@ bool hash_map_remove(hash_map_t* map, uint64_t key) {
                 j = probe_next(j, mask);
             }
 
+            // Clear final hole
             map->entries[hole].key = 0;
             map->entries[hole].value = NULL;
             map->entries[hole].hash = 0;

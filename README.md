@@ -54,4 +54,4 @@ For system architecture and design rationale, see `DESIGN.md`.
 
 ## License
 
-TBD
+GPL-2
