@@ -75,6 +75,7 @@ void server_init(server_t* s) {
     bool is_test = s->is_test;
     memset(s, 0, sizeof(*s));
     s->is_test = is_test;
+    s->epoll_fd = s->signal_fd = s->timer_fd = s->xcb_fd = -1;
 
     s->conn = xcb_connect_cached();
     if (!s->conn) {
@@ -342,15 +343,15 @@ void server_cleanup(server_t* s) {
         s->monitors = NULL;
     }
 
-    if (s->signal_fd > 0) {
+    if (s->signal_fd >= 0) {
         close(s->signal_fd);
         s->signal_fd = -1;
     }
-    if (s->timer_fd > 0) {
+    if (s->timer_fd >= 0) {
         close(s->timer_fd);
         s->timer_fd = -1;
     }
-    if (s->epoll_fd > 0) {
+    if (s->epoll_fd >= 0) {
         close(s->epoll_fd);
         s->epoll_fd = -1;
     }
@@ -1142,7 +1143,9 @@ void server_schedule_timer(server_t* s, int ms) {
     if (ms > 0 && its.it_value.tv_sec == 0 && its.it_value.tv_nsec == 0) {
         its.it_value.tv_nsec = 1;  // Minimal positive value
     }
-    timerfd_settime(s->timer_fd, 0, &its, NULL);
+    if (timerfd_settime(s->timer_fd, 0, &its, NULL) < 0) {
+        LOG_WARN("timerfd_settime failed: %s", strerror(errno));
+    }
 }
 
 bool event_drain_cookies(server_t* s) {
@@ -1156,30 +1159,7 @@ bool event_drain_cookies(server_t* s) {
 
         bool cookies_progress = (s->cookie_jar.live_count != before_live);
         if (cookies_progress) any_progress = true;
-
-        bool need_flush = (s->root_dirty != 0);
-        if (!need_flush) {
-            for (size_t i = 0; i < s->active_clients.length; i++) {
-                handle_t h = ptr_to_handle(s->active_clients.items[i]);
-                client_hot_t* hot = server_chot(s, h);
-                if (hot && hot->dirty != DIRTY_NONE) {
-                    need_flush = true;
-                    break;
-                }
-            }
-        }
-
-        bool flushed = false;
-        if (need_flush) {
-            // flushed = true;
-            // Note: We deliberately do NOT call wm_flush_dirty(s) here.
-            // We rely on the main loop to flush once per tick (Flush Coalescing).
-            // Setting flushed=true here would just satisfy the loop condition to stop draining if we are busy,
-            // but for now we let it run.
-            flushed = true;
-        }
-
-        if (!cookies_progress && !flushed) break;
+        if (!cookies_progress) break;
         if (s->cookie_jar.live_count == 0) break;
     }
     return any_progress;
@@ -1279,39 +1259,45 @@ static void apply_reload(server_t* s) {
 }
 
 static void event_handle_signals(server_t* s) {
-    struct signalfd_siginfo fdsi;
-    ssize_t s_size = read(s->signal_fd, &fdsi, sizeof(fdsi));
-    if (s_size != sizeof(fdsi)) return;
+    for (;;) {
+        struct signalfd_siginfo fdsi;
+        ssize_t s_size = read(s->signal_fd, &fdsi, sizeof(fdsi));
+        if (s_size < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return;
+            return;
+        }
+        if (s_size != sizeof(fdsi)) return;
 
-    int sig = (int)fdsi.ssi_signo;
-    switch (sig) {
-        case SIGHUP:
-            LOG_INFO("Reload requested (signalfd)");
-            g_reload_pending = 1;
-            break;
-        case SIGINT:
-        case SIGTERM:
-            LOG_INFO("Shutting down (signalfd)");
-            g_shutdown_pending = 1;
-            break;
-        case SIGUSR1:
+        int sig = (int)fdsi.ssi_signo;
+        switch (sig) {
+            case SIGHUP:
+                LOG_INFO("Reload requested (signalfd)");
+                g_reload_pending = 1;
+                break;
+            case SIGINT:
+            case SIGTERM:
+                LOG_INFO("Shutting down (signalfd)");
+                g_shutdown_pending = 1;
+                break;
+            case SIGUSR1:
 #if HXM_DIAG
-            counters_dump();
+                counters_dump();
 #endif
-            break;
-        case SIGUSR2:
-            LOG_INFO("Restart requested (signalfd)");
-            g_restart_pending = 1;
-            break;
-        case SIGCHLD:
-            // Handle zombies if we fork processes
-            while (waitpid(-1, NULL, WNOHANG) > 0);
-            break;
+                break;
+            case SIGUSR2:
+                LOG_INFO("Restart requested (signalfd)");
+                g_restart_pending = 1;
+                break;
+            case SIGCHLD:
+                // Handle zombies if we fork processes
+                while (waitpid(-1, NULL, WNOHANG) > 0);
+                break;
+        }
     }
 }
 
 static bool server_wait_for_events(server_t* s, int timeout_ms) {
-    if (s->epoll_fd <= 0) return true;
+    if (s->epoll_fd < 0) return true;
 
     if (s->prefetched_event) return true;
 
@@ -1328,7 +1314,12 @@ static bool server_wait_for_events(server_t* s, int timeout_ms) {
 
     // If we have pending cookies, make sure requests are flushed so replies can arrive
     if (cookie_jar_has_pending(&s->cookie_jar)) {
-        // xcb_flush(s->conn);
+        static rl_t rl_cookie_flush = {0};
+        uint64_t now = monotonic_time_ns();
+        if (rl_allow(&rl_cookie_flush, now, 1000000)) {
+            xcb_flush(s->conn);
+            counters.x_flush_count++;
+        }
     }
 
     struct epoll_event evs[8];
@@ -1361,8 +1352,8 @@ static bool server_wait_for_events(server_t* s, int timeout_ms) {
             if (g_shutdown_pending || g_restart_pending || g_reload_pending) return false;
 
             // If we woke up but X wasn't ready (just signals), and we aren't stopping,
-            // we might want to continue waiting or return false to let the loop run once.
-            // Returning false will trigger a tick with 0 events, which is fine.
+            // we might want to continue waiting or return false to let the loop run once
+            // Returning false will trigger a tick with 0 events, which is fine
             return false;
         }
         if (n == 0) return false;
@@ -1440,6 +1431,7 @@ void server_run(server_t* s) {
         }
 
         uint64_t flush_now = monotonic_time_ns();
+        if (last_flush_time == 0) last_flush_time = flush_now;
         bool busy = s->x_poll_immediate;
         if (s->pending_flush && (!busy || flush_now - last_flush_time >= 8000000)) {  // 8ms ~ 125Hz
             xcb_flush(s->conn);
@@ -1448,8 +1440,13 @@ void server_run(server_t* s) {
             counters.x_flush_count++;
             next_timeout = -1;
         } else {
-            uint64_t diff = 8000000 - (flush_now - last_flush_time);
-            next_timeout = (int)(diff / 1000000) + 1;
+            uint64_t elapsed = (flush_now >= last_flush_time) ? (flush_now - last_flush_time) : 0;
+            if (elapsed >= 8000000) {
+                next_timeout = 0;
+            } else {
+                uint64_t rem = 8000000 - elapsed;
+                next_timeout = (int)(rem / 1000000) + 1;
+            }
         }
 
 #if HXM_DIAG
@@ -1458,15 +1455,6 @@ void server_run(server_t* s) {
 
         uint64_t end = monotonic_time_ns();
         uint64_t duration = end - start;
-
-        if (counters.tick_count == 0) {
-            counters.tick_duration_min = duration;
-            counters.tick_duration_max = duration;
-        } else {
-            if (duration < counters.tick_duration_min) counters.tick_duration_min = duration;
-            if (duration > counters.tick_duration_max) counters.tick_duration_max = duration;
-        }
-        counters.tick_duration_sum += duration;
-        counters.tick_count++;
+        counters_tick_record(duration);
     }
 }
