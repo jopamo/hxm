@@ -961,17 +961,28 @@ void event_process(server_t* s) {
     // 2. keys (keybindings)
     for (size_t i = 0; i < s->buckets.key_presses.length; i++) {
         xcb_key_press_event_t* ev = s->buckets.key_presses.items[i];
-        wm_handle_key_press(s, ev);
+        if (s->interaction_mode == INTERACTION_MENU) {
+            menu_handle_key_press(s, ev);
+        } else {
+            wm_handle_key_press(s, ev);
+        }
     }
 
     // 3. buttons (menu, focus, move/resize)
     for (size_t i = 0; i < s->buckets.button_events.length; i++) {
         xcb_generic_event_t* gev = s->buckets.button_events.items[i];
         uint8_t type = gev->response_type & ~0x80;
-        if (type == XCB_BUTTON_PRESS) {
-            wm_handle_button_press(s, (xcb_button_press_event_t*)gev);
-        } else if (type == XCB_BUTTON_RELEASE) {
-            wm_handle_button_release(s, (xcb_button_release_event_t*)gev);
+        if (s->interaction_mode == INTERACTION_MENU) {
+            if (type == XCB_BUTTON_PRESS)
+                menu_handle_button_press(s, (xcb_button_press_event_t*)gev);
+            else if (type == XCB_BUTTON_RELEASE)
+                menu_handle_button_release(s, (xcb_button_release_event_t*)gev);
+        } else {
+            if (type == XCB_BUTTON_PRESS) {
+                wm_handle_button_press(s, (xcb_button_press_event_t*)gev);
+            } else if (type == XCB_BUTTON_RELEASE) {
+                wm_handle_button_release(s, (xcb_button_release_event_t*)gev);
+            }
         }
     }
 
@@ -1017,7 +1028,13 @@ void event_process(server_t* s) {
             if (entry->key == 0) continue;
 
             xcb_motion_notify_event_t* ev = (xcb_motion_notify_event_t*)entry->value;
-            if (ev) wm_handle_motion_notify(s, ev);
+            if (!ev) continue;
+
+            if (s->interaction_mode == INTERACTION_MENU) {
+                menu_handle_pointer_motion(s, ev->event_x, ev->event_y);
+            } else {
+                wm_handle_motion_notify(s, ev);
+            }
         }
     }
 
