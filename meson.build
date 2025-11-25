@@ -19,6 +19,7 @@ xcb_dep = dependency('xcb')
 xcb_icccm_dep = dependency('xcb-icccm')
 xcb_xkb_dep = dependency('xcb-xkb')
 xcb_randr_dep = dependency('xcb-randr')
+xcb_shape_dep = dependency('xcb-shape')
 xcb_xinerama_dep = dependency('xcb-xinerama', required: false)
 xcb_keysyms_dep = dependency('xcb-keysyms', required: false)
 xcb_damage_dep = dependency('xcb-damage')
@@ -54,6 +55,7 @@ deps = [
   xcb_icccm_dep,
   xcb_xkb_dep,
   xcb_randr_dep,
+  xcb_shape_dep,
   xcb_xinerama_dep,
   xcb_keysyms_dep,
   xcb_damage_dep,
