@@ -10,6 +10,7 @@
  */
 #include <assert.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -40,6 +41,21 @@ static int32_t stack_find_index(const small_vec_t* v, handle_t h) {
     return -1;
 }
 
+static bool stack_locate_any_layer(server_t* s, handle_t h, int* layer_out, int32_t* idx_out) {
+    if (!s) return false;
+    for (int l = 0; l < LAYER_COUNT; l++) {
+        small_vec_t* v = layer_vec(s, l);
+        if (!v || v->length == 0) continue;
+        int32_t idx = stack_find_index(v, h);
+        if (idx >= 0) {
+            if (layer_out) *layer_out = l;
+            if (idx_out) *idx_out = idx;
+            return true;
+        }
+    }
+    return false;
+}
+
 static void stack_update_indices(server_t* s, const small_vec_t* v, size_t start) {
     for (size_t i = start; i < v->length; i++) {
         handle_t h = ptr_to_handle(v->items[i]);
@@ -65,15 +81,14 @@ static bool stack_vec_remove(server_t* s, small_vec_t* v, size_t idx) {
         memmove(&v->items[idx], &v->items[idx + 1], (v->length - idx - 1) * sizeof(void*));
     }
     v->length--;
+    v->items[v->length] = NULL;
     if (idx < v->length) {
         stack_update_indices(s, v, idx);
     }
     return true;
 }
 
-#include "hxm.h"
 #include "hxm_diag.h"
-#include "wm.h"
 #include "wm_internal.h"
 
 void stack_remove(server_t* s, handle_t h) {
@@ -92,7 +107,15 @@ void stack_remove(server_t* s, handle_t h) {
     int32_t idx = c->stacking_index;
     if (idx < 0 || (size_t)idx >= v->length || ptr_to_handle(v->items[idx]) != h) {
         idx = stack_find_index(v, h);
-        if (idx < 0) return;
+        if (idx < 0) {
+            int real_layer = -1;
+            int32_t real_idx = -1;
+            if (!stack_locate_any_layer(s, h, &real_layer, &real_idx)) return;
+            layer = real_layer;
+            v = layer_vec(s, layer);
+            if (!v) return;
+            idx = real_idx;
+        }
     }
 
     TRACE_LOG("stack_remove h=%lx layer=%d index=%d", h, layer, idx);
@@ -104,6 +127,12 @@ void stack_remove(server_t* s, handle_t h) {
 
     mark_stacking_dirty(s);
     TRACE_ONLY(diag_dump_layer(s, layer, "after remove"));
+}
+
+static xcb_window_t stack_window_xid(const client_hot_t* c) {
+    if (!c) return XCB_NONE;
+    if (c->frame != XCB_NONE) return c->frame;
+    return c->xid;
 }
 
 static void stack_insert_top(server_t* s, client_hot_t* c, int layer) {
@@ -292,7 +321,8 @@ static xcb_window_t find_window_below(server_t* s, client_hot_t* c) {
         if (idx > 0) {
             handle_t below_h = ptr_to_handle(v->items[idx - 1]);
             client_hot_t* below = server_chot(s, below_h);
-            if (below) return below->frame;
+            xcb_window_t win = stack_window_xid(below);
+            if (win != XCB_NONE) return win;
         }
     }
 
@@ -302,7 +332,8 @@ static xcb_window_t find_window_below(server_t* s, client_hot_t* c) {
         if (lv && lv->length > 0) {
             handle_t below_h = ptr_to_handle(lv->items[lv->length - 1]);
             client_hot_t* below = server_chot(s, below_h);
-            if (below) return below->frame;
+            xcb_window_t win = stack_window_xid(below);
+            if (win != XCB_NONE) return win;
         }
     }
 
@@ -321,7 +352,8 @@ static xcb_window_t find_window_above(server_t* s, client_hot_t* c) {
         if (idx >= 0 && (size_t)(idx + 1) < v->length) {
             handle_t above_h = ptr_to_handle(v->items[idx + 1]);
             client_hot_t* above = server_chot(s, above_h);
-            if (above) return above->frame;
+            xcb_window_t win = stack_window_xid(above);
+            if (win != XCB_NONE) return win;
         }
     }
 
@@ -331,7 +363,8 @@ static xcb_window_t find_window_above(server_t* s, client_hot_t* c) {
         if (lv && lv->length > 0) {
             handle_t above_h = ptr_to_handle(lv->items[0]);
             client_hot_t* above = server_chot(s, above_h);
-            if (above) return above->frame;
+            xcb_window_t win = stack_window_xid(above);
+            if (win != XCB_NONE) return win;
         }
     }
 
