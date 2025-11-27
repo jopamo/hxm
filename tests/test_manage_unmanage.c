@@ -632,6 +632,15 @@ static void test_iconify_ignores_unmap_notify_send_event(void) {
     assert(hot->state == STATE_UNMAPPED);
     assert(hot->ignore_unmap > 0);
 
+    // Simulate UnmapNotify for the frame (consumed by ignore_unmap)
+    xcb_unmap_notify_event_t unmap_frame;
+    memset(&unmap_frame, 0, sizeof(unmap_frame));
+    unmap_frame.response_type = XCB_UNMAP_NOTIFY | 0x80;
+    unmap_frame.window = hot->frame;
+    unmap_frame.event = s.root;
+    wm_handle_unmap_notify(&s, &unmap_frame);
+
+    // Simulate UnmapNotify for the client (consumed by ignore_unmap)
     xcb_unmap_notify_event_t unmap;
     memset(&unmap, 0, sizeof(unmap));
     unmap.response_type = XCB_UNMAP_NOTIFY | 0x80;

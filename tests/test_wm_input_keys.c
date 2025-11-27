@@ -362,7 +362,7 @@ void xcb_warp_pointer(void* conn, uint32_t src, uint32_t dst, int16_t src_x, int
 }
 
 void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir, int16_t root_x,
-                          int16_t root_y, uint32_t time) {
+                          int16_t root_y, uint32_t time, bool is_keyboard) {
     (void)s;
     (void)h;
     (void)hot;
@@ -371,6 +371,7 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
     (void)root_x;
     (void)root_y;
     (void)time;
+    (void)is_keyboard;
 }
 
 // -----------------------------

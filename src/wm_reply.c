@@ -1356,7 +1356,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 hot->dirty |= DIRTY_GEOM;
             }
 
-            wm_start_interaction(s, slot->client, hot, is_move, resize_dir, root_x, root_y, 0);
+            wm_start_interaction(s, slot->client, hot, is_move, resize_dir, root_x, root_y, 0, is_keyboard);
             break;
         }
 

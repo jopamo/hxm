@@ -29,10 +29,6 @@ static inline small_vec_t* layer_vec(server_t* s, int layer) {
 
 static inline void mark_stacking_dirty(server_t* s) { s->root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING; }
 
-static inline int stack_current_layer(const client_hot_t* c) {
-    return (c->stacking_layer >= 0) ? (int)c->stacking_layer : (int)c->layer;
-}
-
 static int32_t stack_find_index(const small_vec_t* v, handle_t h) {
     if (!v) return -1;
     for (size_t i = 0; i < v->length; i++) {

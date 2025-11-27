@@ -52,6 +52,18 @@ enum {
     NET_WM_MOVERESIZE_CANCEL = 11,
 };
 
+static void ignore_one_unmap(client_hot_t* hot) {
+    if (!hot) return;
+    if (hot->ignore_unmap == 0) return;
+    hot->ignore_unmap--;
+}
+
+static void add_ignore_unmaps(client_hot_t* hot, uint8_t n) {
+    if (!hot) return;
+    uint16_t sum = (uint16_t)hot->ignore_unmap + (uint16_t)n;
+    hot->ignore_unmap = (sum > UINT8_MAX) ? UINT8_MAX : (uint8_t)sum;
+}
+
 static bool check_wm_s0_available(server_t* s) {
     xcb_get_selection_owner_cookie_t cookie = xcb_get_selection_owner(s->conn, atoms.WM_S0);
     xcb_get_selection_owner_reply_t* reply = xcb_get_selection_owner_reply(s->conn, cookie, NULL);
@@ -422,7 +434,7 @@ void wm_become(server_t* s) {
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32, 2,
                         geometry);
 
-    // Initialize workarea to full screen (no struts yet).
+    // Initialize workarea to full screen (no struts yet)
     s->workarea.x = 0;
     s->workarea.y = 0;
     s->workarea.w = (uint16_t)screen->width_in_pixels;
@@ -434,7 +446,7 @@ void wm_become(server_t* s) {
     wm_compute_workarea(s, &wa);
     wm_publish_workarea(s, &wa);
 
-    // Initialize root lists and focus to sane empty values.
+    // Initialize root lists and focus to sane empty values
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CLIENT_LIST, XCB_ATOM_WINDOW, 32, 0, NULL);
     xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CLIENT_LIST_STACKING, XCB_ATOM_WINDOW, 32, 0,
                         NULL);
@@ -526,22 +538,25 @@ void wm_handle_map_request(server_t* s, xcb_map_request_event_t* ev) {
 void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
     TRACE_LOG("unmap_notify win=%u event=%u from_configure=%u", ev->window, ev->event, ev->from_configure);
     handle_t h = server_get_client_by_window(s, ev->window);
+    if (h == HANDLE_INVALID) {
+        h = server_get_client_by_frame(s, ev->window);
+    }
     if (h == HANDLE_INVALID) return;
 
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
 
-    if (hot->ignore_unmap > 0) {
-        TRACE_LOG("unmap_notify ignore h=%lx count=%u", h, hot->ignore_unmap);
-        hot->ignore_unmap--;
+    if (hot->ignore_unmap > 0 && (ev->window == hot->xid || ev->window == hot->frame)) {
+        TRACE_LOG("unmap_notify ignore h=%lx win=%u count=%u", h, ev->window, hot->ignore_unmap);
+        ignore_one_unmap(hot);
         return;
     }
 
     // Ignore unmaps of the frame itself (only care about client window unmaps)
     if (ev->window != hot->xid) return;
 
-    // Process if reported on the window itself, its frame parent, or the root.
-    // Applications withdrawing will trigger this.
+    // Process if reported on the window itself, its frame parent, or the root
+    // Applications withdrawing will trigger this
     if (ev->event != hot->xid && ev->event != hot->frame && ev->event != s->root) return;
 
     TRACE_LOG("unmap_notify unmanage h=%lx xid=%u frame=%u", h, hot->xid, hot->frame);
@@ -569,7 +584,7 @@ void wm_handle_destroy_notify(server_t* s, xcb_destroy_notify_event_t* ev) {
 
     client_hot_t* hot = server_chot(s, h);
     if (hot) {
-        // If the destroyed window is the frame, don't unmanage the client if it's still managed.
+        // If the destroyed window is the frame, don't unmanage the client if it's still managed
         if (ev->window == hot->frame) {
             if (hot->state == STATE_MAPPED) {
                 LOG_WARN("Frame %u destroyed for managed client %lx. Marking frame dead.", ev->window, h);
@@ -693,7 +708,7 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
                         ((uint64_t)hot->xid << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, s->txn_id, wm_handle_reply);
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
-        // Waterfall: Always request PARTIAL first. If it fails/empty, we fallback to STRUT in reply handler.
+        // Waterfall: Always request PARTIAL first. If it fails/empty, we fallback to STRUT in reply handler
         xcb_get_property_cookie_t ck =
             xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12);
         cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
@@ -858,7 +873,7 @@ void wm_cancel_interaction(server_t* s) {
 }
 
 void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir, int16_t root_x,
-                          int16_t root_y, uint32_t time) {
+                          int16_t root_y, uint32_t time, bool is_keyboard) {
     (void)h;
     assert(s->interaction_mode == INTERACTION_NONE);
     s->interaction_mode = start_move ? INTERACTION_MOVE : INTERACTION_RESIZE;
@@ -866,6 +881,7 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
     s->interaction_window = hot->frame;
     s->interaction_handle = h;
     s->interaction_time = time;
+    s->interaction_requires_buttons = !is_keyboard;
 
     s->interaction_start_x = start_move ? hot->desired.x : hot->server.x;
     s->interaction_start_y = start_move ? hot->desired.y : hot->server.y;
@@ -1030,7 +1046,7 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
         return;
     }
 
-    wm_start_interaction(s, h, hot, start_move, resize_dir, ev->root_x, ev->root_y, ev->time);
+    wm_start_interaction(s, h, hot, start_move, resize_dir, ev->root_x, ev->root_y, ev->time, false);
 
     xcb_allow_events(s->conn, XCB_ALLOW_ASYNC_POINTER, ev->time);
 }
@@ -1087,14 +1103,13 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
                 // client_manage_start or handle it here. Let's assume initialized to 0
                 // (RESIZE_NONE) is fine, but we might miss first update if it starts at
                 // 0. Better to use a separate logic or just force it once? Actually,
-                // RESIZE_NONE is 0. If we start at 0, and we are at 0, we do nothing.
+                // RESIZE_NONE is 0. If we start at 0, and we are at 0, we do nothing
                 // But we want to set it to LeftPtr initially. Let's rely on frame
                 // creation setting cursor to None (inherit) or LeftPtr? Frame created
                 // with mask, but no cursor attribute set? X default is "None"
                 // (inherit). So initial 0 (RESIZE_NONE) -> updates to LeftPtr. If
                 // hot->last_cursor_dir matches, we skip. We need to ensure we
-                // initialize it to something invalid, e.g. -1.
-
+                // initialize it to something invalid, e.g. -1
                 if (hot->last_cursor_dir != dir) {
                     wm_update_cursor(s, hot->frame, dir);
                     hot->last_cursor_dir = dir;
@@ -1108,7 +1123,8 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
 
     // Safety: if no buttons are down, force end interaction
     // This prevents "stuck drag" if we missed a ButtonRelease or if interaction started late
-    if (!(ev->state & (XCB_KEY_BUT_MASK_BUTTON_1 | XCB_KEY_BUT_MASK_BUTTON_2 | XCB_KEY_BUT_MASK_BUTTON_3 |
+    if (s->interaction_requires_buttons &&
+        !(ev->state & (XCB_KEY_BUT_MASK_BUTTON_1 | XCB_KEY_BUT_MASK_BUTTON_2 | XCB_KEY_BUT_MASK_BUTTON_3 |
                        XCB_KEY_BUT_MASK_BUTTON_4 | XCB_KEY_BUT_MASK_BUTTON_5))) {
         LOG_INFO("MotionNotify with no buttons down (state=0x%x): forcing interaction end", ev->state);
         wm_cancel_interaction(s);
@@ -1610,7 +1626,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         }
 
         // Async path for unmanaged windows: ask for _MOTIF_WM_HINTS and reply
-        // later.
+        // later
         xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, target, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5);
         cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY_FRAME_EXTENTS, HANDLE_INVALID,
                         (uintptr_t)target, s->txn_id, wm_handle_reply);
@@ -1631,7 +1647,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         handle_t sibling_h = (sibling_win != XCB_NONE) ? server_get_client_by_window(s, sibling_win) : HANDLE_INVALID;
         client_hot_t* sib = (sibling_h != HANDLE_INVALID) ? server_chot(s, sibling_h) : NULL;
         bool have_sibling = (sib != NULL);
-        bool same_layer = have_sibling && hot->layer == sib->layer;
+        bool same_layer = have_sibling && stack_current_layer(hot) == stack_current_layer(sib);
 
         switch (detail) {
             case XCB_STACK_MODE_ABOVE:
@@ -1829,18 +1845,18 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
         int16_t root_x = (int16_t)ev->data.data32[0];
         int16_t root_y = (int16_t)ev->data.data32[1];
+        bool is_keyboard =
+            (direction == NET_WM_MOVERESIZE_SIZE_KEYBOARD || direction == NET_WM_MOVERESIZE_MOVE_KEYBOARD);
         use_pointer_query |= (root_x == -1 || root_y == -1);
 
         TRACE_LOG("_NET_WM_MOVERESIZE h=%lx root=%d,%d use_query=%d", h, root_x, root_y, use_pointer_query);
 
         if (use_pointer_query) {
-            bool is_keyboard =
-                (direction == NET_WM_MOVERESIZE_SIZE_KEYBOARD || direction == NET_WM_MOVERESIZE_MOVE_KEYBOARD);
             uintptr_t data = (start_move ? 0x100 : 0) | (is_keyboard ? 0x200 : 0) | (uintptr_t)resize_dir;
             xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
             cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, s->txn_id, wm_handle_reply);
         } else {
-            wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y, 0);
+            wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y, 0, is_keyboard);
         }
         return;
     }
@@ -1947,18 +1963,6 @@ void wm_client_toggle_maximize(server_t* s, handle_t h) {
     bool want = !(hot->maximized_horz && hot->maximized_vert);
     wm_client_set_maximize(s, hot, want, want);
     LOG_INFO("Client %u maximized toggle: %d", hot->xid, want);
-}
-
-static void ignore_one_unmap(client_hot_t* hot) {
-    if (!hot) return;
-    if (hot->ignore_unmap == 0) return;
-    hot->ignore_unmap--;
-}
-
-static void add_ignore_unmaps(client_hot_t* hot, uint8_t n) {
-    if (!hot) return;
-    uint16_t sum = (uint16_t)hot->ignore_unmap + (uint16_t)n;
-    hot->ignore_unmap = (sum > UINT8_MAX) ? UINT8_MAX : (uint8_t)sum;
 }
 
 void wm_client_iconify(server_t* s, handle_t h) {
