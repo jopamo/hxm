@@ -107,6 +107,10 @@ typedef struct {
     key_bindings_vec_t key_bindings;
 } config_t;
 
+typedef struct {
+    size_t length;
+} small_vec_t;
+
 // Minimal xcb structs used by wm_handle_key_press
 typedef uint32_t xcb_keysym_t;
 typedef uint8_t xcb_keycode_t;
@@ -136,6 +140,7 @@ typedef struct client_hot {
     bool sticky;
     window_type_t type;
     handle_t self;
+    bool show_desktop_hidden;
 
     geom_t server;
 } client_hot_t;
@@ -160,6 +165,9 @@ typedef struct server {
     list_node_t focus_history;
     handle_t focused_client;
     uint32_t current_desktop;
+    bool showing_desktop;
+
+    small_vec_t active_clients;
 
     cookie_jar_t cookie_jar;
     uint64_t txn_id;
@@ -185,6 +193,7 @@ int g_restart_pending = 0;
 // -----------------------------
 
 static int spy_menu_hide_calls;
+static int spy_menu_handle_key_press_calls;
 static int spy_client_close_calls;
 static handle_t spy_client_close_last;
 
@@ -220,6 +229,7 @@ static int spy_exit_last_code;
 // spies reset
 static void reset_spies(void) {
     spy_menu_hide_calls = 0;
+    spy_menu_handle_key_press_calls = 0;
     spy_client_close_calls = 0;
     spy_client_close_last = HANDLE_INVALID;
 
@@ -259,6 +269,12 @@ static void reset_spies(void) {
 void menu_hide(server_t* s) {
     (void)s;
     spy_menu_hide_calls++;
+}
+
+void menu_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
+    (void)s;
+    (void)ev;
+    spy_menu_handle_key_press_calls++;
 }
 
 void client_close(server_t* s, handle_t h) {
@@ -442,6 +458,13 @@ static server_t make_server(key_binding_t** bindings, size_t nbindings, client_h
     // abuse conn as our client registry pointer for server_chot()
     s.conn = clients;
 
+    // Count clients for active_clients.length
+    size_t count = 0;
+    if (clients) {
+        while (clients[count]) count++;
+    }
+    s.active_clients.length = count;
+
     list_init(&s.focus_history);
 
     s.config.key_bindings.length = nbindings;
@@ -491,7 +514,8 @@ static void test_safe_atoi_cases(void) {
     assert(safe_atoi("abc") == 0);
     assert(safe_atoi("12") == 12);
     assert(safe_atoi("12x") == 12);  // strtol stops at first non-digit
-    assert(safe_atoi("-3") == -3);
+    assert(safe_atoi("-3") == 0);    // clamped
+    assert(safe_atoi("-0") == 0);
 }
 
 static void test_is_focusable_rules(void) {
@@ -524,6 +548,15 @@ static void test_is_focusable_rules(void) {
 
     c.type = WINDOW_TYPE_TOOLTIP;
     assert(is_focusable(&c, &s) == false);
+
+    // show_desktop_hidden -> false if showing_desktop
+    c.type = WINDOW_TYPE_NORMAL;
+    c.show_desktop_hidden = true;
+    s.showing_desktop = true;
+    assert(is_focusable(&c, &s) == false);
+
+    s.showing_desktop = false;
+    assert(is_focusable(&c, &s) == true);
 }
 
 static void test_wm_cycle_focus_selects_next_focusable(void) {
@@ -534,7 +567,8 @@ static void test_wm_cycle_focus_selects_next_focusable(void) {
     client_hot_t c = make_client(300, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL);  // focusable
 
     // focus_history order: a, b, c
-    server_t s = make_server(NULL, 0, NULL);
+    client_hot_t* registry[] = {&a, &b, &c, NULL};
+    server_t s = make_server(NULL, 0, registry);
     list_init(&s.focus_history);
     list_push_back(&s.focus_history, &a.focus_node);
     list_push_back(&s.focus_history, &b.focus_node);
@@ -542,10 +576,6 @@ static void test_wm_cycle_focus_selects_next_focusable(void) {
 
     // start from a (focused)
     s.focused_client = a.self;
-
-    // registry for server_chot
-    client_hot_t* registry[] = {&a, &b, &c, NULL};
-    s.conn = registry;
 
     wm_cycle_focus(&s, true);
 
@@ -561,13 +591,11 @@ static void test_wm_cycle_focus_no_focusable_no_calls(void) {
     client_hot_t a = make_client(100, 0, false, STATE_MAPPED, WINDOW_TYPE_DOCK);
     client_hot_t b = make_client(200, 0, false, STATE_MAPPED, WINDOW_TYPE_TOOLTIP);
 
-    server_t s = make_server(NULL, 0, NULL);
+    client_hot_t* registry[] = {&a, &b, NULL};
+    server_t s = make_server(NULL, 0, registry);
     list_init(&s.focus_history);
     list_push_back(&s.focus_history, &a.focus_node);
     list_push_back(&s.focus_history, &b.focus_node);
-
-    client_hot_t* registry[] = {&a, &b, NULL};
-    s.conn = registry;
 
     s.focused_client = a.self;
 
@@ -577,7 +605,7 @@ static void test_wm_cycle_focus_no_focusable_no_calls(void) {
     assert(spy_stack_raise_calls == 0);
 }
 
-static void test_key_press_menu_escape_hides_menu_and_returns(void) {
+static void test_key_press_menu_delegates_to_menu(void) {
     reset_spies();
 
     server_t s = make_server(NULL, 0, NULL);
@@ -591,9 +619,10 @@ static void test_key_press_menu_escape_hides_menu_and_returns(void) {
 
     wm_handle_key_press(&s, &ev);
 
-    assert(spy_menu_hide_calls == 1);
+    assert(spy_menu_handle_key_press_calls == 1);
+    // Should NOT hide menu here (menu handle does it)
+    assert(spy_menu_hide_calls == 0);
     assert(spy_client_close_calls == 0);
-    assert(spy_spawn_calls == 0);
 }
 
 static void test_key_press_matches_binding_with_ignored_mods(void) {
@@ -642,12 +671,6 @@ static void test_key_press_action_close_calls_client_close(void) {
 }
 
 static void test_key_press_action_focus_next_prev_dispatch(void) {
-    // Instead of calling wm_cycle_focus directly (we already tested it),
-    // we verify wm_handle_key_press triggers the call by overriding wm_cycle_focus
-    // via a macro trick: since we included the module already, we simulate
-    // via direct call to wm_cycle_focus and spy from outside isn't possible
-    // Therefore, we validate behavior indirectly by using a binding that calls it
-    // and checking that focus changed in a simple list
     reset_spies();
 
     client_hot_t a = make_client(10, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL);
@@ -779,7 +802,7 @@ int main(void) {
     test_is_focusable_rules();
     test_wm_cycle_focus_selects_next_focusable();
     test_wm_cycle_focus_no_focusable_no_calls();
-    test_key_press_menu_escape_hides_menu_and_returns();
+    test_key_press_menu_delegates_to_menu();
     test_key_press_matches_binding_with_ignored_mods();
     test_key_press_action_close_calls_client_close();
     test_key_press_action_focus_next_prev_dispatch();
