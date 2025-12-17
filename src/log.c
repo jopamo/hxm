@@ -105,9 +105,7 @@ void hxm_log(enum log_level level, const char* fmt, ...) {
 
 #else
 
-void hxm_log(enum log_level level, const char* fmt, ...) {
-    // In non-diagnostic builds, drop DEBUG/INFO spam
-    if (level < LOG_WARN) return;
+void hxm_err(const char* fmt, ...) {
     if (!fmt) fmt = "(null fmt)";
 
     va_list ap;

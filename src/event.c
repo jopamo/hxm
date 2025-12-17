@@ -1360,7 +1360,9 @@ static bool server_wait_for_events(server_t* s, int timeout_ms) {
                     event_handle_signals(s);
                 } else if (evs[i].data.fd == s->timer_fd) {
                     uint64_t expirations;
-                    (void)read(s->timer_fd, &expirations, sizeof(expirations));
+                    if (read(s->timer_fd, &expirations, sizeof(expirations)) < 0) {
+                        // ignore error
+                    }
                     // Timer logic if needed
                 }
             }
