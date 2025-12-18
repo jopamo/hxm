@@ -285,8 +285,17 @@ void hxm_log(enum log_level level, const char* fmt, ...) HXM_ATTR_PRINTF(2, 3);
 #define HXM_LOG_ENABLED(level) ((level) >= HXM_LOG_MIN_LEVEL)
 
 #if HXM_LOG_ENABLED(HXM_LOG_LEVEL_DEBUG)
+#if defined(HXM_VERBOSE_LOGS) && HXM_VERBOSE_LOGS
 #define LOG_DEBUG(...) hxm_log(LOG_DEBUG, __VA_ARGS__)
 #define TRACE_LOG(...) hxm_log(LOG_DEBUG, __VA_ARGS__)
+#else
+#define LOG_DEBUG(...) \
+    do {               \
+    } while (0)
+#define TRACE_LOG(...) \
+    do {               \
+    } while (0)
+#endif
 #else
 #define LOG_DEBUG(...) \
     do {               \

@@ -48,6 +48,10 @@ if get_option('debug')
   add_project_arguments('-DHXM_DIAG=1', language: 'c')
 endif
 
+if get_option('verbose_logs')
+  add_project_arguments('-DHXM_VERBOSE_LOGS=1', language: 'c')
+endif
+
 deps = [
   math,
   rt,
