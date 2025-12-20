@@ -103,18 +103,25 @@ typedef struct client_hot {
     rect_t saved_geom;
     rect_t saved_maximize_geom;
     uint8_t saved_layer;
-    uint16_t saved_flags;
+    uint16_t saved_state_mask;
     bool saved_maximize_valid;
     bool saved_maximized_horz;
     bool saved_maximized_vert;
 
     strut_t strut;
+    strut_t strut_partial;
+    strut_t strut_full;
+    bool strut_partial_active;
+    bool strut_full_active;
 
     uint32_t dirty;
     uint8_t state;            // client_state_t
     uint8_t pending_replies;  // Count of pending startup cookies
 
     uint8_t layer;
+    uint8_t base_layer;
+    bool state_above;
+    bool state_below;
     uint8_t type;     // window_type_t
     int32_t desktop;  // -1 for ALL_DESKTOPS
     bool sticky;
@@ -143,6 +150,12 @@ typedef struct client_hot {
     xcb_visualtype_t* visual_type;
     uint8_t depth;
 } client_hot_t;
+
+static inline uint8_t client_layer_from_state(const client_hot_t* hot) {
+    if (hot->state_above) return LAYER_ABOVE;
+    if (hot->state_below) return LAYER_BELOW;
+    return hot->base_layer;
+}
 
 typedef struct client_cold {
     char* title;

@@ -1,9 +1,11 @@
 #ifndef WM_H
 #define WM_H
 
+#include <stdbool.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_keysyms.h>
 
+#include "client.h"
 #include "config.h"
 #include "cookie_jar.h"
 #include "xcb_utils.h"
@@ -13,6 +15,19 @@ typedef struct pending_config pending_config_t;
 
 void wm_become(server_t* s);
 void wm_publish_desktop_props(server_t* s);
+void wm_compute_workarea(server_t* s, rect_t* out);
+
+typedef struct client_state_set {
+    bool fullscreen;
+    bool above;
+    bool below;
+    bool sticky;
+    bool urgent;
+    bool max_horz;
+    bool max_vert;
+} client_state_set_t;
+
+void wm_client_apply_state_set(server_t* s, handle_t h, const client_state_set_t* set);
 void wm_setup_keys(server_t* s);
 
 void wm_cycle_focus(server_t* s, bool forward);

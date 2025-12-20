@@ -118,6 +118,7 @@ void test_frame_extents() {
     slotmap_destroy(&s.clients);
     hash_map_destroy(&s.window_to_client);
     hash_map_destroy(&s.frame_to_client);
+    config_destroy(&s.config);
     free(s.conn);
 }
 
