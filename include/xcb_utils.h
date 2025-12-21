@@ -105,6 +105,7 @@ struct atoms {
     xcb_atom_t _NET_MOVERESIZE_WINDOW;
     xcb_atom_t _NET_RESTACK_WINDOW;
     xcb_atom_t _NET_WM_FULLSCREEN_MONITORS;
+    xcb_atom_t _NET_WM_FULL_PLACEMENT;
 
     xcb_atom_t UTF8_STRING;
     xcb_atom_t COMPOUND_TEXT;

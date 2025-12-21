@@ -99,6 +99,7 @@ static const char* atom_names[] = {
     "_NET_MOVERESIZE_WINDOW",
     "_NET_RESTACK_WINDOW",
     "_NET_WM_FULLSCREEN_MONITORS",
+    "_NET_WM_FULL_PLACEMENT",
     "UTF8_STRING",
     "COMPOUND_TEXT",
     "WM_S0",
