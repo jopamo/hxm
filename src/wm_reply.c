@@ -281,7 +281,10 @@ static bool client_apply_default_type(server_t* s, client_hot_t* hot, client_col
         }
     }
 
-    return hot->type != prev_type || hot->base_layer != prev_base || hot->placement != prev_place;
+    bool changed = hot->type != prev_type || hot->base_layer != prev_base || hot->placement != prev_place;
+    if (client_apply_decoration_hints(hot)) changed = true;
+
+    return changed;
 }
 
 static bool check_transient_cycle(server_t* s, handle_t child, handle_t parent) {
@@ -650,6 +653,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                             hot->type_from_net = true;
                             break;
                         }
+                    }
+
+                    if (client_apply_decoration_hints(hot)) {
+                        changed = true;
                     }
 
                     if (hot->layer != LAYER_FULLSCREEN) {
