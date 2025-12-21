@@ -47,6 +47,8 @@ typedef enum client_state {
     STATE_UNMANAGING  // Currently being unmanaged
 } client_state_t;
 
+typedef enum manage_phase { MANAGE_PHASE1 = 1, MANAGE_PHASE2 = 2, MANAGE_DONE = 3 } manage_phase_t;
+
 typedef struct size_hints {
     int32_t min_w, min_h;
     int32_t max_w, max_h;
@@ -71,7 +73,11 @@ typedef enum client_flags {
     CLIENT_FLAG_UNDECORATED = 1u << 2
 } client_flags_t;
 
-typedef enum protocol_flags { PROTOCOL_DELETE_WINDOW = 1u << 0, PROTOCOL_TAKE_FOCUS = 1u << 1 } protocol_flags_t;
+typedef enum protocol_flags {
+    PROTOCOL_DELETE_WINDOW = 1u << 0,
+    PROTOCOL_TAKE_FOCUS = 1u << 1,
+    PROTOCOL_SYNC_REQUEST = 1u << 2
+} protocol_flags_t;
 
 typedef enum window_type {
     WINDOW_TYPE_NORMAL = 0,
@@ -117,7 +123,9 @@ typedef struct client_hot {
 
     uint32_t dirty;
     uint8_t state;            // client_state_t
+    uint8_t initial_state;    // From WM_HINTS
     uint8_t pending_replies;  // Count of pending startup cookies
+    uint8_t ignore_unmap;
 
     uint8_t layer;
     uint8_t base_layer;
@@ -153,6 +161,17 @@ typedef struct client_hot {
 
     xcb_damage_damage_t damage;
     dirty_region_t damage_region;
+
+    manage_phase_t manage_phase;
+
+    // EWMH/ICCCM extras that some clients use for focus/sync heuristics
+    uint32_t user_time;
+    xcb_window_t user_time_window;
+    bool sync_enabled;
+    uint32_t sync_counter;
+
+    bool icon_geometry_valid;
+    rect_t icon_geometry;
 } client_hot_t;
 
 static inline uint8_t client_layer_from_state(const client_hot_t* hot) {
@@ -162,31 +181,35 @@ static inline uint8_t client_layer_from_state(const client_hot_t* hot) {
 }
 
 typedef struct client_cold {
+    // Effective/composed strings used for UI
     char* title;
+
+    // Base strings tracked from properties
+    char* base_title;
+    char* base_icon_name;
+
     char* wm_instance;
     char* wm_class;
     arena_t string_arena;
+
     bool has_net_wm_name;
+    bool has_net_wm_icon_name;
 
     uint32_t protocols;
     xcb_window_t transient_for_xid;
     bool can_focus;
+
+    uint32_t pid;
 } client_cold_t;
 
 typedef struct server server_t;
 
 void client_manage_start(server_t* s, xcb_window_t win);
-
 void client_finish_manage(server_t* s, handle_t h);
-
 void client_unmanage(server_t* s, handle_t h);
-
 void client_close(server_t* s, handle_t h);
-
-void client_constrain_size(const size_hints_t* hints, uint16_t* w, uint16_t* h);
-
+void client_constrain_size(const size_hints_t* hints, uint32_t flags, uint16_t* w, uint16_t* h);
 bool should_focus_on_map(const client_hot_t* hot);
-
 void client_setup_grabs(server_t* s, handle_t h);
 
 #endif  // CLIENT_H

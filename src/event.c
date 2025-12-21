@@ -4,9 +4,11 @@
 #include <fcntl.h>
 #include <fontconfig/fontconfig.h>
 #include <pango/pangocairo.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <unistd.h>
 #include <xcb/damage.h>
 #include <xcb/xcb_keysyms.h>
@@ -24,7 +26,7 @@
  *  - event_ingest: poll X, bucket events, and coalesce where appropriate (bounded per tick)
  *  - event_process: apply bucketed work in a stable order (lifecycle -> input -> configure -> property)
  *  - event_drain_cookies: drain async replies (never block in hot loop)
- *  - server_run: tick loop: ingest -> process -> drain -> flush
+ *  - server_run: tick loop: wait -> drain -> ingest -> process -> flush
  *
  * Invariants:
  *  - No blocking X round-trips in hot paths
@@ -39,6 +41,11 @@ static void load_config_from_home(server_t* s);
 static void apply_reload(server_t* s);
 static void buckets_reset(event_buckets_t* b);
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
+static bool server_wait_for_events(server_t* s);
+
+volatile sig_atomic_t g_shutdown_pending = 0;
+volatile sig_atomic_t g_restart_pending = 0;
+volatile sig_atomic_t g_reload_pending = 0;
 
 void server_init(server_t* s) {
     memset(s, 0, sizeof(*s));
@@ -54,6 +61,7 @@ void server_init(server_t* s) {
     s->root_visual = screen->root_visual;
     s->root_visual_type = xcb_get_visualtype(s->conn, s->root_visual);
     s->root_depth = screen->root_depth;
+
     s->xcb_fd = xcb_get_file_descriptor(s->conn);
     int flags = fcntl(s->xcb_fd, F_GETFL, 0);
     if (flags >= 0 && !(flags & O_NONBLOCK)) {
@@ -78,6 +86,7 @@ void server_init(server_t* s) {
         s->damage_supported = true;
         s->damage_event_base = damage_ext->first_event;
         s->damage_error_base = damage_ext->first_error;
+
         xcb_damage_query_version_cookie_t cookie = xcb_damage_query_version(s->conn, 1, 1);
         xcb_damage_query_version_reply_t* reply = xcb_damage_query_version_reply(s->conn, cookie, NULL);
         if (!reply) {
@@ -95,10 +104,13 @@ void server_init(server_t* s) {
     s->desktop_count = s->config.desktop_count ? s->config.desktop_count : 1;
     s->current_desktop = 0;
 
+    // Cookie jar for async request/reply handling
+    cookie_jar_init(&s->cookie_jar);
+
     // Become WM (WM_S0 selection + supporting WM check + _NET_SUPPORTED baseline)
     wm_become(s);
 
-    // Adopt existing windows (must happen after we are the WM)s
+    // Adopt existing windows (must happen after we are the WM)
     wm_adopt_children(s);
 
     // Create epoll instance and register X connection fd
@@ -140,9 +152,6 @@ void server_init(server_t* s) {
     list_init(&s->focus_history);
     s->focused_client = HANDLE_INVALID;
 
-    // Cookie jar for async request/reply handling
-    cookie_jar_init(&s->cookie_jar);
-
     // Client storage (handles + hot/cold split)
     if (!slotmap_init(&s->clients, 8192, sizeof(client_hot_t), sizeof(client_cold_t))) {
         LOG_ERROR("client slotmap init failed");
@@ -166,13 +175,13 @@ void server_cleanup(server_t* s) {
         free(s->prefetched_event);
         s->prefetched_event = NULL;
     }
+
     // Unmanage all clients (reparent back to root)
     if (s->clients.hdr) {
         for (uint32_t i = 1; i < s->clients.cap; i++) {
-            if (s->clients.hdr[i].live) {
-                handle_t h = handle_make(i, s->clients.hdr[i].gen);
-                client_unmanage(s, h);
-            }
+            if (!s->clients.hdr[i].live) continue;
+            handle_t h = handle_make(i, s->clients.hdr[i].gen);
+            client_unmanage(s, h);
         }
     }
 
@@ -278,8 +287,7 @@ static void buckets_reset(event_buckets_t* b) {
     small_vec_clear(&b->button_events);
     small_vec_clear(&b->client_messages);
 
-    // For hash maps, keep the API simple: destroy+init per tick
-    // If this shows up in profiles, replace with hash_map_clear without realloc
+    // Simple per-tick reset strategy: destroy+init
     hash_map_destroy(&b->expose_regions);
     hash_map_init(&b->expose_regions);
 
@@ -318,6 +326,7 @@ void event_ingest(server_t* s, bool x_ready) {
         s->prefetched_event = NULL;
         count++;
     }
+
     while (count < MAX_EVENTS_PER_TICK) {
         xcb_generic_event_t* ev = xcb_poll_for_queued_event(s->conn);
         if (!ev) break;
@@ -333,7 +342,6 @@ void event_ingest(server_t* s, bool x_ready) {
     while (count < MAX_EVENTS_PER_TICK) {
         xcb_generic_event_t* ev = xcb_poll_for_event(s->conn);
         if (!ev) break;
-
         count++;
         event_ingest_one(s, ev);
     }
@@ -379,8 +387,6 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 
         case XCB_BUTTON_PRESS:
         case XCB_BUTTON_RELEASE: {
-            // Keep ordering for press/release (don’t coalesce)
-            // Pointer motion is coalesced separately
             size_t sz =
                 (type == XCB_BUTTON_PRESS) ? sizeof(xcb_button_press_event_t) : sizeof(xcb_button_release_event_t);
             void* copy = arena_alloc(&s->tick_arena, sz);
@@ -424,10 +430,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
         case XCB_DESTROY_NOTIFY: {
             xcb_destroy_notify_event_t* e = (xcb_destroy_notify_event_t*)ev;
 
-            // Mark destroyed in this tick
             hash_map_insert(&s->buckets.destroyed_windows, e->window, (void*)1);
-
-            // Drop earlier ConfigureRequests for this window in this tick
             hash_map_remove(&s->buckets.configure_requests, e->window);
 
             void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
@@ -439,7 +442,6 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
         case XCB_CONFIGURE_REQUEST: {
             xcb_configure_request_event_t* e = (xcb_configure_request_event_t*)ev;
 
-            // If the window is destroyed later this tick, this work is dropped by rule
             pending_config_t* existing = hash_map_get(&s->buckets.configure_requests, e->window);
             if (existing) {
                 if (e->value_mask & XCB_CONFIG_WINDOW_X) existing->x = e->x;
@@ -471,8 +473,6 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 
         case XCB_CONFIGURE_NOTIFY: {
             xcb_configure_notify_event_t* e = (xcb_configure_notify_event_t*)ev;
-
-            // Coalesce by window: last wins
             xcb_configure_notify_event_t* copy = arena_alloc(&s->tick_arena, sizeof(*e));
             memcpy(copy, e, sizeof(*e));
 
@@ -487,7 +487,6 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
         case XCB_PROPERTY_NOTIFY: {
             xcb_property_notify_event_t* e = (xcb_property_notify_event_t*)ev;
 
-            // Coalesce by (window, atom)
             uint64_t key = ((uint64_t)e->window << 32) | (uint64_t)e->atom;
             if (hash_map_get(&s->buckets.property_notifies, key)) {
                 counters.coalesced_drops[type]++;
@@ -517,7 +516,6 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
         }
 
         case XCB_ENTER_NOTIFY: {
-            // Keep only the latest enter per tick
             xcb_enter_notify_event_t* e = (xcb_enter_notify_event_t*)ev;
             if (s->buckets.pointer_notify.enter_valid) {
                 counters.coalesced_drops[type]++;
@@ -529,7 +527,6 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
         }
 
         case XCB_LEAVE_NOTIFY: {
-            // Keep only the latest leave per tick
             xcb_leave_notify_event_t* e = (xcb_leave_notify_event_t*)ev;
             if (s->buckets.pointer_notify.leave_valid) {
                 counters.coalesced_drops[type]++;
@@ -541,7 +538,6 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
         }
 
         default:
-            // Intentionally ignored in this phase
             break;
     }
 
@@ -549,17 +545,6 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
 }
 
 void event_process(server_t* s) {
-    // Stage ordering:
-    //  1. lifecycle (map/unmap/destroy) so the model is correct for the rest of the tick
-    //  2. user input (key/buttons) which may change focus/stacking
-    //  3. expose/menu draw
-    //  4. client messages (EWMH/ICCCM requests)
-    //  5. motion/enter/leave (interactive ops)
-    //  6. configure requests/notifies
-    //  7. property notifies
-    //  8. damage tracking
-    //  9. flush dirty model -> X requests
-
     // 1. lifecycle
     for (size_t i = 0; i < s->buckets.map_requests.length; i++) {
         xcb_map_request_event_t* ev = s->buckets.map_requests.items[i];
@@ -623,13 +608,11 @@ void event_process(server_t* s) {
         wm_handle_client_message(s, ev);
     }
 
-    // 6. motion/enter/leave (interactive)
+    // 6. motion/enter/leave
     if (s->buckets.pointer_notify.enter_valid) {
-        // Optional: focus-follows-mouse or pointer tracking
         // wm_handle_enter_notify(s, &s->buckets.pointer_notify.enter);
     }
     if (s->buckets.pointer_notify.leave_valid) {
-        // Optional: focus-follows-mouse or pointer tracking
         // wm_handle_leave_notify(s, &s->buckets.pointer_notify.leave);
     }
     if (s->buckets.motion_notifies.capacity > 0) {
@@ -652,7 +635,6 @@ void event_process(server_t* s) {
             handle_t h = server_get_client_by_window(s, ev->window);
 
             if (h == HANDLE_INVALID) {
-                // Unmanaged window: forward the request as-is
                 uint32_t mask = ev->mask;
                 uint32_t values[7];
                 int j = 0;
@@ -679,16 +661,14 @@ void event_process(server_t* s) {
 
             xcb_configure_notify_event_t* ev = (xcb_configure_notify_event_t*)entry->value;
             handle_t h = server_get_client_by_window(s, ev->window);
-            if (h == HANDLE_INVALID) {
-                h = server_get_client_by_frame(s, ev->window);
-            }
+            if (h == HANDLE_INVALID) h = server_get_client_by_frame(s, ev->window);
             if (h != HANDLE_INVALID) {
                 wm_handle_configure_notify(s, h, ev);
             }
         }
     }
 
-    // 9. property changes (coalesced)
+    // 9. property notifies (coalesced)
     if (s->buckets.property_notifies.capacity > 0) {
         for (size_t i = 0; i < s->buckets.property_notifies.capacity; i++) {
             hash_map_entry_t* entry = &s->buckets.property_notifies.entries[i];
@@ -726,20 +706,13 @@ void event_process(server_t* s) {
         }
     }
 
-    // 11. maintenance (model->X)
+    // 11. maintenance
     wm_flush_dirty(s);
-
-    // Root props flush should be a separate dirty mask and applied here
-    // wm_flush_root_props(s);
 }
 
-void event_drain_cookies(server_t* s) {
-    // Drain any replies that are ready without blocking
-    cookie_jar_drain(&s->cookie_jar, s->conn, s, COOKIE_JAR_MAX_REPLIES_PER_TICK);
-}
+void event_drain_cookies(server_t* s) { cookie_jar_drain(&s->cookie_jar, s->conn, s, COOKIE_JAR_MAX_REPLIES_PER_TICK); }
 
 static void apply_reload(server_t* s) {
-    // Reload is executed in tick context, not in the signal handler
     LOG_INFO("Reloading configuration");
 
     config_t next_config;
@@ -764,7 +737,6 @@ static void apply_reload(server_t* s) {
         loaded = config_load(&next_config, "/etc/bbox/bbox.conf");
     }
 
-    // Load theme for next_config
     bool theme_loaded = false;
     if (xdg_config_home) {
         snprintf(path, sizeof(path), "%s/bbox/themerc", xdg_config_home);
@@ -778,23 +750,17 @@ static void apply_reload(server_t* s) {
         theme_load(&next_config.theme, "/etc/bbox/themerc");
     }
 
-    // Success: swap configs
     config_destroy(&s->config);
     s->config = next_config;
 
-    // Rebuild resources that depend on config
     frame_cleanup_resources(s);
     frame_init_resources(s);
 
     menu_destroy(s);
     menu_init(s);
 
-    // Rebind keys (ungrab + grab)
-    // The setup function should do the right thing, but ensure it clears old binds
-    // TODO: wm_setup_keys should probably ungrab first if we had a way to track all grabbed keys
     wm_setup_keys(s);
 
-    // Mark all frames dirty for style/geometry repaint
     for (uint32_t i = 1; i < s->clients.cap; i++) {
         if (!s->clients.hdr[i].live) continue;
         handle_t h = handle_make(i, s->clients.hdr[i].gen);
@@ -802,29 +768,28 @@ static void apply_reload(server_t* s) {
         if (hot) hot->dirty |= DIRTY_FRAME_STYLE | DIRTY_GEOM;
     }
 
-    // Single-desktop mode: clamp and re-publish root desktop properties.
     wm_publish_desktop_props(s);
 }
 
-volatile sig_atomic_t g_shutdown_pending = 0;
-volatile sig_atomic_t g_restart_pending = 0;
-
 static bool server_wait_for_events(server_t* s) {
     if (s->epoll_fd <= 0) return true;
+
     if (s->prefetched_event) return true;
+
     xcb_generic_event_t* queued = xcb_poll_for_queued_event(s->conn);
     if (queued) {
         s->prefetched_event = queued;
         return true;
     }
 
-    if (cookie_jar_has_pending(&s->cookie_jar)) {
-        xcb_flush(s->conn);
-    }
-
     if (xcb_connection_has_error(s->conn)) {
         g_shutdown_pending = 1;
         return false;
+    }
+
+    // If we have pending cookies, make sure requests are flushed so replies can arrive
+    if (cookie_jar_has_pending(&s->cookie_jar)) {
+        xcb_flush(s->conn);
     }
 
     struct epoll_event ev;
@@ -833,8 +798,10 @@ static bool server_wait_for_events(server_t* s) {
         if (n > 0) {
             if (ev.events & (EPOLLERR | EPOLLHUP)) {
                 g_shutdown_pending = 1;
+                return false;
             }
-            return true;
+            // Only treat the X fd as "ready" if that's what woke us
+            return (ev.data.fd == s->xcb_fd) && (ev.events & EPOLLIN);
         }
         if (n == 0) return false;
         if (errno == EINTR) {
@@ -850,9 +817,7 @@ void server_run(server_t* s) {
     LOG_INFO("Starting event loop");
 
     for (;;) {
-        if (g_shutdown_pending) {
-            break;
-        }
+        if (g_shutdown_pending) break;
 
         if (g_restart_pending) {
             LOG_INFO("Restarting bbox...");
@@ -862,13 +827,10 @@ void server_run(server_t* s) {
                 path[len] = '\0';
                 char* args[] = {path, NULL};
 
-                // Cleanup before exec
                 server_cleanup(s);
-
                 execv(path, args);
             }
             LOG_ERROR("Failed to restart: %s", strerror(errno));
-            // If restart fails, we just continue or exit? Better exit if it was requested.
             break;
         }
 
@@ -886,13 +848,12 @@ void server_run(server_t* s) {
 
         uint64_t start = monotonic_time_ns();
 
+        event_ingest(s, x_ready);
         if (x_ready) {
             event_drain_cookies(s);
         }
-        event_ingest(s, x_ready);
         event_process(s);
 
-        // Flush X requests once per tick
         xcb_flush(s->conn);
         counters.x_flush_count++;
 
@@ -908,11 +869,5 @@ void server_run(server_t* s) {
         }
         counters.tick_duration_sum += duration;
         counters.tick_count++;
-
-        // Optional: avoid spinning if there was nothing to do
-        // A later improvement is to block in epoll_wait with a timeout when:
-        //  - no pending cookies
-        //  - no interactive grab in progress
-        //  - no scheduled timers
     }
 }

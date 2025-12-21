@@ -59,6 +59,7 @@ typedef struct arena arena_t;
 // Small-vector for batched requests
 typedef struct small_vec small_vec_t;
 
+// Dirty rectangle region utils
 typedef struct dirty_region {
     int16_t x, y;
     uint16_t w, h;

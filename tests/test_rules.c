@@ -9,8 +9,6 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 void setup_server(server_t* s) {
     memset(s, 0, sizeof(server_t));
     s->is_test = true;

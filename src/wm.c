@@ -156,6 +156,7 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
 static void wm_publish_workarea(server_t* s, const rect_t* wa) {
     if (!s || !wa) return;
 
+    bool changed = (memcmp(&s->workarea, wa, sizeof(rect_t)) != 0);
     s->workarea = *wa;
 
     uint32_t n = s->desktop_count ? s->desktop_count : 1;
@@ -171,6 +172,8 @@ static void wm_publish_workarea(server_t* s, const rect_t* wa) {
                             wa_vals);
         free(wa_vals);
     }
+
+    if (!changed) return;
 
     // Re-apply workarea-dependent geometry for maximized/fullscreen windows.
     for (uint32_t i = 1; i < s->clients.cap; i++) {
@@ -434,8 +437,14 @@ void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
 
-    // Ignore UnmapNotify from reparenting
-    if (ev->event != hot->xid && ev->event != s->root) return;
+    if (hot->ignore_unmap > 0) {
+        hot->ignore_unmap--;
+        return;
+    }
+
+    // Process if reported on the window itself, its frame parent, or the root.
+    // Applications withdrawing will trigger this.
+    if (ev->event != hot->xid && ev->event != hot->frame && ev->event != s->root) return;
 
     client_unmanage(s, h);
 }
@@ -458,7 +467,7 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     if (ev->mask & XCB_CONFIG_WINDOW_WIDTH) hot->desired.w = ev->width;
     if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT) hot->desired.h = ev->height;
 
-    client_constrain_size(&hot->hints, &hot->desired.w, &hot->desired.h);
+    client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
     hot->dirty |= DIRTY_GEOM;
 
     LOG_DEBUG("Client %lx desired geom updated: %d,%d %dx%d (mask %x)", h, hot->desired.x, hot->desired.y,
@@ -494,6 +503,8 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
         s->root_dirty |= ROOT_DIRTY_WORKAREA;
+    } else if (ev->atom == atoms._MOTIF_WM_HINTS) {
+        hot->dirty |= DIRTY_HINTS | DIRTY_FRAME_STYLE;
     }
 }
 
@@ -542,6 +553,31 @@ static bool wm_client_is_hidden(const server_t* s, const client_hot_t* hot) {
     return false;
 }
 
+void wm_send_synthetic_configure(server_t* s, handle_t h) {
+    client_hot_t* hot = server_chot(s, h);
+    if (!hot) return;
+
+    uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
+    uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+
+    char buffer[32];
+    memset(buffer, 0, 32);
+    xcb_configure_notify_event_t* ev = (xcb_configure_notify_event_t*)buffer;
+
+    ev->response_type = XCB_CONFIGURE_NOTIFY;
+    ev->event = hot->xid;
+    ev->window = hot->xid;
+    ev->above_sibling = XCB_NONE;
+    ev->x = hot->server.x + (int16_t)bw;
+    ev->y = hot->server.y + (int16_t)th;
+    ev->width = hot->server.w;
+    ev->height = hot->server.h;
+    ev->border_width = 0;
+    ev->override_redirect = hot->override_redirect;
+
+    xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_STRUCTURE_NOTIFY, buffer);
+}
+
 void wm_flush_dirty(server_t* s) {
     for (uint32_t i = 1; i < s->clients.cap; i++) {
         if (!s->clients.hdr[i].live) continue;
@@ -587,6 +623,8 @@ void wm_flush_dirty(server_t* s) {
             // Update server state immediately to ensure redraw uses correct geometry
             hot->server = hot->desired;
 
+            wm_send_synthetic_configure(s, h);
+
             frame_redraw(s, h, FRAME_REDRAW_ALL);
 
             hot->pending = hot->desired;
@@ -619,6 +657,11 @@ void wm_flush_dirty(server_t* s) {
             c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_HINTS, atoms.WM_HINTS, 0, 32).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_HINTS,
                             wm_handle_reply);
+
+            c = xcb_get_property(s->conn, 0, hot->xid, atoms._MOTIF_WM_HINTS, atoms._MOTIF_WM_HINTS, 0, 5).sequence;
+            cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
+                            ((uint64_t)hot->xid << 32) | atoms._MOTIF_WM_HINTS, wm_handle_reply);
+
             hot->dirty &= ~DIRTY_HINTS;
         }
 
@@ -1179,8 +1222,7 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
     uint16_t h_val = (uint16_t)(new_h > 50 ? new_h : 50);
 
     // Apply hints
-    client_constrain_size(&hot->hints, &w, &h_val);
-
+    client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
     // Adjust position if resizing top/left
     // Determine effective delta
     int dw = (int)w - s->interaction_start_w;
@@ -1665,6 +1707,16 @@ void wm_client_toggle_sticky(server_t* s, handle_t h) {
 
     c->dirty |= DIRTY_STATE;
     xcb_flush(s->conn);
+}
+
+void wm_client_refresh_title(server_t* s, handle_t h) {
+    client_hot_t* hot = server_chot(s, h);
+    client_cold_t* cold = server_ccold(s, h);
+    if (!hot || !cold) return;
+
+    cold->title = cold->base_title;
+
+    hot->dirty |= DIRTY_TITLE | DIRTY_FRAME_STYLE;
 }
 
 void wm_client_toggle_maximize(server_t* s, handle_t h) {

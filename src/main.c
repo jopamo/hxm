@@ -8,8 +8,6 @@
 #include "event.h"
 #include "xcb_utils.h"
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 static server_t server;
 
 static void handle_signal(int sig) {

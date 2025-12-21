@@ -15,8 +15,6 @@ extern xcb_atom_t stub_last_prop_type;
 extern uint32_t stub_last_prop_len;
 extern uint8_t stub_last_prop_data[1024];
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 void test_frame_extents() {
     server_t s;
     memset(&s, 0, sizeof(s));

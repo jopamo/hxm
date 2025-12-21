@@ -80,6 +80,8 @@ enum {
 };
 
 extern volatile sig_atomic_t g_shutdown_pending;
+extern volatile sig_atomic_t g_restart_pending;
+extern volatile sig_atomic_t g_reload_pending;
 
 // Main server state
 typedef struct server {

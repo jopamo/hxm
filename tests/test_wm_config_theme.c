@@ -8,7 +8,6 @@
 #include "theme.h"
 
 // Stub required globals
-volatile sig_atomic_t g_reload_pending = 0;
 
 void test_theme_parser() {
     theme_t theme;

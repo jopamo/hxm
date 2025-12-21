@@ -9,8 +9,6 @@
 #include "event.h"
 #include "wm.h"
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 // Externs from xcb_stubs.c
 extern int stub_map_window_count;
 extern int stub_unmap_window_count;

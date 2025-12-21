@@ -10,8 +10,6 @@
 #include "wm.h"
 #include "xcb_utils.h"
 
-volatile sig_atomic_t g_reload_pending = 0;
-
 static xcb_get_property_reply_t* make_string_reply(xcb_atom_t type, const char* value, int len) {
     size_t total = sizeof(xcb_get_property_reply_t) + (size_t)len;
     xcb_get_property_reply_t* rep = calloc(1, total);
@@ -78,6 +76,7 @@ void test_net_wm_name_fallback() {
 
     printf("test_net_wm_name_fallback passed\n");
 
+    cookie_jar_destroy(&s.cookie_jar);
     arena_destroy(&cold->string_arena);
     slotmap_destroy(&s.clients);
     free(s.conn);
