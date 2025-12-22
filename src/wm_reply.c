@@ -139,7 +139,7 @@ static bool client_apply_decoration_hints(client_hot_t* hot) {
     }
 
     if (was_undecorated != now_undecorated) {
-        hot->dirty |= DIRTY_GEOM;
+        hot->dirty |= DIRTY_GEOM | DIRTY_FRAME_STYLE;
         return true;
     }
 
