@@ -450,6 +450,15 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             } else if (atom == atoms._GTK_FRAME_EXTENTS) {
                 bool has_extents =
                     (r && r->format == 32 && xcb_get_property_value_length(r) >= (int)(4 * sizeof(uint32_t)));
+
+                uint32_t old_left = 0, old_right = 0, old_top = 0, old_bottom = 0;
+                if (hot->gtk_frame_extents_set) {
+                    old_left = hot->gtk_extents.left;
+                    old_right = hot->gtk_extents.right;
+                    old_top = hot->gtk_extents.top;
+                    old_bottom = hot->gtk_extents.bottom;
+                }
+
                 hot->gtk_frame_extents_set = has_extents;
                 if (has_extents) {
                     uint32_t* extents = (uint32_t*)xcb_get_property_value(r);
@@ -457,18 +466,34 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     hot->gtk_extents.right = extents[1];
                     hot->gtk_extents.top = extents[2];
                     hot->gtk_extents.bottom = extents[3];
-
-                    if (hot->manage_phase != MANAGE_DONE) {
-                        hot->desired.x += (int16_t)extents[0];
-                        hot->desired.y += (int16_t)extents[2];
-                        uint32_t h_ext = extents[0] + extents[1];
-                        uint32_t v_ext = extents[2] + extents[3];
-                        hot->desired.w = (hot->desired.w > h_ext) ? (hot->desired.w - (uint16_t)h_ext) : 1;
-                        hot->desired.h = (hot->desired.h > v_ext) ? (hot->desired.h - (uint16_t)v_ext) : 1;
-                    }
                 } else {
                     memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
                 }
+
+                if (hot->manage_phase == MANAGE_DONE) {
+                    int32_t d_left = (int32_t)hot->gtk_extents.left - (int32_t)old_left;
+                    int32_t d_top = (int32_t)hot->gtk_extents.top - (int32_t)old_top;
+                    int32_t d_right = (int32_t)hot->gtk_extents.right - (int32_t)old_right;
+                    int32_t d_bottom = (int32_t)hot->gtk_extents.bottom - (int32_t)old_bottom;
+
+                    if (d_left != 0 || d_top != 0 || d_right != 0 || d_bottom != 0) {
+                        hot->desired.x += (int16_t)d_left;
+                        hot->desired.y += (int16_t)d_top;
+                        int32_t new_w = (int32_t)hot->desired.w - (d_left + d_right);
+                        int32_t new_h = (int32_t)hot->desired.h - (d_top + d_bottom);
+                        hot->desired.w = (uint16_t)(new_w > 1 ? new_w : 1);
+                        hot->desired.h = (uint16_t)(new_h > 1 ? new_h : 1);
+                        hot->dirty |= DIRTY_GEOM;
+                    }
+                } else if (has_extents) {
+                    hot->desired.x += (int16_t)hot->gtk_extents.left;
+                    hot->desired.y += (int16_t)hot->gtk_extents.top;
+                    uint32_t h_ext = hot->gtk_extents.left + hot->gtk_extents.right;
+                    uint32_t v_ext = hot->gtk_extents.top + hot->gtk_extents.bottom;
+                    hot->desired.w = (hot->desired.w > h_ext) ? (hot->desired.w - (uint16_t)h_ext) : 1;
+                    hot->desired.h = (hot->desired.h > v_ext) ? (hot->desired.h - (uint16_t)v_ext) : 1;
+                }
+
                 if (client_apply_decoration_hints(hot)) changed = true;
 
             } else if (atom == atoms._NET_WM_STATE) {
