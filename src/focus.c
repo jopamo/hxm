@@ -58,7 +58,8 @@ void wm_install_client_colormap(server_t* s, client_hot_t* hot) {
 
 void wm_set_focus(server_t* s, handle_t h) {
     TRACE_LOG("set_focus from=%lx to=%lx", s->focused_client, h);
-    if (s->focused_client == h) return;
+    bool same_focus = (s->focused_client == h);
+    if (same_focus && h == HANDLE_INVALID) return;
 
     client_hot_t* c = NULL;
     client_cold_t* cold = NULL;
@@ -69,32 +70,34 @@ void wm_set_focus(server_t* s, handle_t h) {
         if (!c || c->state != STATE_MAPPED) return;
     }
 
-    // Unfocus old
-    if (s->focused_client != HANDLE_INVALID) {
-        client_hot_t* old = server_chot(s, s->focused_client);
-        if (old) {
-            old->flags &= ~CLIENT_FLAG_FOCUSED;
-            old->dirty |= DIRTY_FRAME_STYLE | DIRTY_STATE;
+    if (!same_focus) {
+        // Unfocus old
+        if (s->focused_client != HANDLE_INVALID) {
+            client_hot_t* old = server_chot(s, s->focused_client);
+            if (old) {
+                old->flags &= ~CLIENT_FLAG_FOCUSED;
+                old->dirty |= DIRTY_FRAME_STYLE | DIRTY_STATE;
+            }
         }
-    }
 
-    s->focused_client = h;
+        s->focused_client = h;
+    }
 
     if (c) {
         c->flags |= CLIENT_FLAG_FOCUSED;
         c->dirty |= DIRTY_FRAME_STYLE | DIRTY_STATE;
 
-        // install_client_colormap(s, c);
-
-        // Move to MRU head
-        if (c->focus_node.next && c->focus_node.next != &c->focus_node) {
-            TRACE_LOG("set_focus remove focus_node h=%lx node=%p prev=%p next=%p", h, (void*)&c->focus_node,
-                      (void*)c->focus_node.prev, (void*)c->focus_node.next);
-            list_remove(&c->focus_node);
+        if (!same_focus) {
+            // Move to MRU head
+            if (c->focus_node.next && c->focus_node.next != &c->focus_node) {
+                TRACE_LOG("set_focus remove focus_node h=%lx node=%p prev=%p next=%p", h, (void*)&c->focus_node,
+                          (void*)c->focus_node.prev, (void*)c->focus_node.next);
+                list_remove(&c->focus_node);
+            }
+            TRACE_ONLY(debug_dump_focus_history(s, "before focus insert"));
+            list_insert(&c->focus_node, &s->focus_history, s->focus_history.next);
+            TRACE_ONLY(debug_dump_focus_history(s, "after focus insert"));
         }
-        TRACE_ONLY(debug_dump_focus_history(s, "before focus insert"));
-        list_insert(&c->focus_node, &s->focus_history, s->focus_history.next);
-        TRACE_ONLY(debug_dump_focus_history(s, "after focus insert"));
 
         wm_install_client_colormap(s, c);
 

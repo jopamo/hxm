@@ -103,6 +103,7 @@ static void cleanup_server(server_t* s) {
     hash_map_destroy(&s->buckets.damage_regions);
 
     arena_destroy(&s->tick_arena);
+    config_destroy(&s->config);
     free(s->conn);
 }
 
@@ -307,13 +308,15 @@ static void test_map_unmap_property_race(void) {
 
     hash_map_insert(&s.window_to_client, hot->xid, handle_to_ptr(h));
 
-    xcb_unmap_notify_event_t* unmap = calloc(1, sizeof(*unmap));
+    xcb_unmap_notify_event_t* unmap = arena_alloc(&s.tick_arena, sizeof(*unmap));
+    memset(unmap, 0, sizeof(*unmap));
     unmap->response_type = XCB_UNMAP_NOTIFY;
     unmap->event = s.root;
     unmap->window = hot->xid;
     small_vec_push(&s.buckets.unmap_notifies, unmap);
 
-    xcb_property_notify_event_t* prop = calloc(1, sizeof(*prop));
+    xcb_property_notify_event_t* prop = arena_alloc(&s.tick_arena, sizeof(*prop));
+    memset(prop, 0, sizeof(*prop));
     prop->response_type = XCB_PROPERTY_NOTIFY;
     prop->window = hot->xid;
     prop->atom = atoms.WM_NAME;

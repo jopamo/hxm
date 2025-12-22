@@ -627,7 +627,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 if (prop_is_empty(r)) {
                     memset(&hot->hints, 0, sizeof(hot->hints));
                     hot->hints_flags = 0;
-                } else if (xcb_icccm_get_wm_size_hints_from_reply(&hints, r)) {
+                } else if (xcb_get_property_value_length(r) >= (int)sizeof(xcb_size_hints_t) &&
+                           xcb_icccm_get_wm_size_hints_from_reply(&hints, r)) {
                     memset(&hot->hints, 0, sizeof(hot->hints));
                     hot->hints_flags = hints.flags;
 
@@ -814,6 +815,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 hot->sync_enabled = false;
                 int num_protocols = 0;
                 xcb_atom_t* protocols = (xcb_atom_t*)prop_get_u32_array(r, 1, &num_protocols);
+                if (!protocols && r && r->format == 32 && r->value_len > 0) {
+                    protocols = (xcb_atom_t*)xcb_get_property_value(r);
+                    num_protocols = (int)r->value_len;
+                }
                 if (protocols) {
                     for (int i = 0; i < num_protocols; i++) {
                         if (protocols[i] == atoms.WM_DELETE_WINDOW) {

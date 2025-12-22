@@ -36,24 +36,24 @@ static void cleanup_server(server_t* s) {
     xcb_disconnect(s->conn);
 }
 
-static handle_t add_client(server_t* s, int16_t x, int16_t y, uint16_t w, uint16_t h) {
+static handle_t add_client(server_t* s, int16_t x, int16_t y, uint16_t w, uint16_t height) {
     void *hot_ptr = NULL, *cold_ptr = NULL;
-    handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
+    handle_t handle = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     client_cold_t* cold = (client_cold_t*)cold_ptr;
     memset(hot, 0, sizeof(*hot));
     memset(cold, 0, sizeof(*cold));
     render_init(&hot->render_ctx);
     arena_init(&cold->string_arena, 128);
-    hot->self = h;
+    hot->self = handle;
     hot->type = WINDOW_TYPE_NORMAL;
     hot->placement = PLACEMENT_DEFAULT;
-    hot->desired = (rect_t){x, y, w, h};
+    hot->desired = (rect_t){x, y, w, height};
     hot->server = hot->desired;
     list_init(&hot->focus_node);
     list_init(&hot->transients_head);
     list_init(&hot->transient_sibling);
-    return h;
+    return handle;
 }
 
 static void test_us_position_preserved(void) {
