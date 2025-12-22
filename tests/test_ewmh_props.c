@@ -428,6 +428,15 @@ static void test_urgency_hint_maps_to_ewmh_state(void) {
     assert(state != NULL);
     assert(atom_in_state_list((xcb_atom_t*)state->data, state->len, atoms._NET_WM_STATE_DEMANDS_ATTENTION));
 
+    // Clear urgency
+    reply.data[0] = 0;
+    wm_handle_reply(&s, &slot, &reply.r, NULL);
+    wm_flush_dirty(&s);
+
+    state = find_prop_call(hot->xid, atoms._NET_WM_STATE, false);
+    assert(state != NULL);
+    assert(!atom_in_state_list((xcb_atom_t*)state->data, state->len, atoms._NET_WM_STATE_DEMANDS_ATTENTION));
+
     printf("test_urgency_hint_maps_to_ewmh_state passed\n");
     cleanup_server(&s);
 }

@@ -165,6 +165,13 @@ test_wm_name_fallback = executable('test_wm_name_fallback',
 )
 test('wm_name_fallback', test_wm_name_fallback)
 
+test_icccm_props_extra = executable('test_icccm_props_extra',
+  ['tests/test_icccm_props_extra.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('icccm_props_extra', test_icccm_props_extra)
+
 test_wm_icon_invalid = executable('test_wm_icon_invalid',
   ['tests/test_wm_icon_invalid.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,

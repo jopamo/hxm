@@ -44,7 +44,19 @@ void test_size_hints() {
     assert(w == 110);
     assert(h == 120);
 
-    // 4. Aspect ratio (1:1)
+    // 4. Base size with increments
+    memset(&s, 0, sizeof(s));
+    s.base_w = 80;
+    s.base_h = 60;
+    s.inc_w = 8;
+    s.inc_h = 5;
+    w = 103;
+    h = 78;
+    client_constrain_size(&s, XCB_ICCCM_SIZE_HINT_P_RESIZE_INC | XCB_ICCCM_SIZE_HINT_BASE_SIZE, &w, &h);
+    assert(w == 96);
+    assert(h == 75);
+
+    // 5. Aspect ratio (1:1 max)
     memset(&s, 0, sizeof(s));
     s.min_aspect_num = 1;
     s.min_aspect_den = 1;
@@ -61,6 +73,16 @@ void test_size_hints() {
     // Max aspect logic: h = w * max_den / max_num = 100 * 1 / 1 = 100.
     assert(w == 100);
     assert(h == 100);
+
+    // 6. Aspect ratio (min 4:3)
+    memset(&s, 0, sizeof(s));
+    s.min_aspect_num = 4;
+    s.min_aspect_den = 3;
+    w = 90;
+    h = 90;
+    client_constrain_size(&s, XCB_ICCCM_SIZE_HINT_P_ASPECT, &w, &h);
+    assert(w == 120);
+    assert(h == 90);
 
     printf("test_size_hints passed\n");
 }
