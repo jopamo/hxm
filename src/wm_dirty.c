@@ -304,45 +304,41 @@ void wm_flush_dirty(server_t* s) {
     }
 
     if (s->root_dirty & (ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING)) {
-        uint32_t count = slotmap_count(&s->clients);
+        size_t cap = 0;
+        for (int l = 0; l < LAYER_COUNT; l++) cap += s->layers[l].length;
 
-        xcb_window_t* wins = count ? malloc(count * sizeof(xcb_window_t)) : NULL;
-        if (wins || count == 0) {
-            if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST) {
-                if (count) {
-                    uint32_t idx = 0;
-                    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-                        if (!slotmap_is_used_idx(&s->clients, i)) continue;
-                        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-                        wins[idx++] = hot->xid;
-                    }
-                    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST,
-                                        XCB_ATOM_WINDOW, 32, idx, wins);
-                } else {
-                    xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST);
+        xcb_window_t* wins = cap ? (xcb_window_t*)arena_alloc(&s->tick_arena, cap * sizeof(xcb_window_t)) : NULL;
+
+        uint32_t idx = 0;
+        if (wins) {
+            for (int l = 0; l < LAYER_COUNT; l++) {
+                small_vec_t* v = &s->layers[l];
+                for (size_t i = 0; i < v->length; i++) {
+                    handle_t h = (handle_t)(uintptr_t)v->items[i];
+                    client_hot_t* hot = server_chot(s, h);
+                    if (!hot) continue;
+                    if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
+                    wins[idx++] = hot->xid;
                 }
             }
+        }
 
-            if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST_STACKING) {
-                if (count) {
-                    uint32_t idx = 0;
-                    for (int l = 0; l < LAYER_COUNT; l++) {
-                        small_vec_t* v = &s->layers[l];
-                        for (size_t i = 0; i < v->length; i++) {
-                            handle_t h = (handle_t)(uintptr_t)v->items[i];
-                            client_hot_t* hot = server_chot(s, h);
-                            if (!hot) continue;
-                            wins[idx++] = hot->xid;
-                        }
-                    }
-                    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST_STACKING,
-                                        XCB_ATOM_WINDOW, 32, idx, wins);
-                } else {
-                    xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST_STACKING);
-                }
+        if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST) {
+            if (idx) {
+                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST, XCB_ATOM_WINDOW,
+                                    32, idx, wins);
+            } else {
+                xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST);
             }
+        }
 
-            free(wins);
+        if (s->root_dirty & ROOT_DIRTY_CLIENT_LIST_STACKING) {
+            if (idx) {
+                xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_CLIENT_LIST_STACKING,
+                                    XCB_ATOM_WINDOW, 32, idx, wins);
+            } else {
+                xcb_delete_property(s->conn, s->root, atoms._NET_CLIENT_LIST_STACKING);
+            }
         }
 
         s->root_dirty &= ~(ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING);
