@@ -592,8 +592,6 @@ void wm_client_apply_state_set(server_t* s, handle_t h, const client_state_set_t
 // Helpers
 
 static int wm_get_resize_dir(server_t* s, client_hot_t* hot, int16_t x, int16_t y) {
-    if (hot->flags & CLIENT_FLAG_UNDECORATED) return RESIZE_NONE;
-
     uint16_t bw = s->config.theme.border_width;
     uint16_t th = s->config.theme.title_height;
 
@@ -754,10 +752,6 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
             resize_dir = RESIZE_BOTTOM | RESIZE_RIGHT;  // Default to BR for Alt-Resize
         }
     } else if (is_frame && ev->detail == 1) {
-        if (hot->flags & CLIENT_FLAG_UNDECORATED) {
-            xcb_allow_events(s->conn, XCB_ALLOW_REPLAY_POINTER, ev->time);
-            return;
-        }
         // Click on frame: check for buttons first
         frame_button_t btn = frame_get_button_at(s, h, ev->event_x, ev->event_y);
         if (btn != FRAME_BUTTON_NONE) {
