@@ -12,11 +12,21 @@
 #include "xcb_utils.h"
 
 extern void xcb_stubs_reset(void);
+extern bool xcb_stubs_enqueue_queued_event(xcb_generic_event_t* ev);
 
 #define HINT_WORDS ((sizeof(xcb_size_hints_t) + 3) / 4)
 #define HINT_EXTRA_WORDS 4
 
 static const size_t MAX_TITLE_BYTES = 4096;
+
+static xcb_generic_event_t* make_reparent_event(xcb_window_t win, xcb_window_t parent, uint8_t override_redirect) {
+    xcb_reparent_notify_event_t* ev = calloc(1, sizeof(*ev));
+    ev->response_type = XCB_REPARENT_NOTIFY;
+    ev->window = win;
+    ev->parent = parent;
+    ev->override_redirect = override_redirect;
+    return (xcb_generic_event_t*)ev;
+}
 
 static void setup_server(server_t* s) {
     memset(s, 0, sizeof(*s));
@@ -173,7 +183,7 @@ static void test_wm_normal_hints_malformed_long(void) {
     memset(&reply, 0, sizeof(reply));
     reply.r.format = 32;
     reply.r.type = XCB_ATOM_WM_SIZE_HINTS;
-    reply.r.value_len = HINT_WORDS + HINT_EXTRA_WORDS;
+    reply.r.value_len = (uint32_t)(HINT_WORDS + HINT_EXTRA_WORDS);
     memcpy(reply.data, &hints, sizeof(hints));
 
     cookie_slot_t slot = {0};
@@ -318,11 +328,43 @@ static void test_map_unmap_property_race(void) {
     cleanup_server(&s);
 }
 
+static void test_reparent_notify_self_ignored(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
+    memset(hot, 0, sizeof(*hot));
+    memset(cold, 0, sizeof(*cold));
+    hot->self = h;
+    hot->xid = 4006;
+    hot->state = STATE_MAPPED;
+    list_init(&hot->focus_node);
+    list_init(&hot->transient_sibling);
+    list_init(&hot->transients_head);
+    arena_init(&cold->string_arena, 128);
+
+    hash_map_insert(&s.window_to_client, hot->xid, handle_to_ptr(h));
+
+    assert(xcb_stubs_enqueue_queued_event(make_reparent_event(hot->xid, hot->xid, 1)));
+    event_ingest(&s, false);
+    event_process(&s);
+
+    assert(server_get_client_by_window(&s, hot->xid) == h);
+
+    printf("test_reparent_notify_self_ignored passed\n");
+    cleanup_server(&s);
+}
+
 int main(void) {
     test_wm_normal_hints_malformed_short();
     test_wm_normal_hints_malformed_long();
     test_wm_name_huge_bounded();
     test_override_redirect_midstream_aborts_manage();
     test_map_unmap_property_race();
+    test_reparent_notify_self_ignored();
     return 0;
 }
