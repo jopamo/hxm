@@ -580,6 +580,18 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         hot->hints.max_aspect_num = hints.max_aspect_num;
                         hot->hints.max_aspect_den = hints.max_aspect_den;
                     }
+
+                    if (hot->state == STATE_NEW && hot->manage_phase != MANAGE_DONE) {
+                        if (hints.flags & (XCB_ICCCM_SIZE_HINT_US_SIZE | XCB_ICCCM_SIZE_HINT_P_SIZE)) {
+                            if (hints.width > 0) hot->desired.w = (uint16_t)hints.width;
+                            if (hints.height > 0) hot->desired.h = (uint16_t)hints.height;
+                        }
+                        if (hints.flags & (XCB_ICCCM_SIZE_HINT_US_POSITION | XCB_ICCCM_SIZE_HINT_P_POSITION)) {
+                            hot->desired.x = (int16_t)hints.x;
+                            hot->desired.y = (int16_t)hints.y;
+                        }
+                        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+                    }
                 }
 
             } else if (atom == atoms.WM_TRANSIENT_FOR) {

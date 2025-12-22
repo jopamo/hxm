@@ -513,6 +513,19 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
             break;
         }
 
+        case XCB_MAP_NOTIFY: {
+            xcb_map_notify_event_t* e = (xcb_map_notify_event_t*)ev;
+            TRACE_LOG("ingest map_notify win=%u event=%u override=%u", e->window, e->event, e->override_redirect);
+            break;
+        }
+
+        case XCB_REPARENT_NOTIFY: {
+            xcb_reparent_notify_event_t* e = (xcb_reparent_notify_event_t*)ev;
+            TRACE_LOG("ingest reparent_notify win=%u parent=%u x=%d y=%d override=%u", e->window, e->parent, e->x, e->y,
+                      e->override_redirect);
+            break;
+        }
+
         case XCB_UNMAP_NOTIFY: {
             xcb_unmap_notify_event_t* e = (xcb_unmap_notify_event_t*)ev;
             TRACE_LOG("ingest unmap_notify win=%u event=%u from_configure=%u", e->window, e->event, e->from_configure);
@@ -747,8 +760,10 @@ void event_process(server_t* s) {
                 uint32_t mask = ev->mask;
                 uint32_t values[7];
                 int j = 0;
-                if (mask & XCB_CONFIG_WINDOW_X) values[j++] = (uint32_t)ev->x;
-                if (mask & XCB_CONFIG_WINDOW_Y) values[j++] = (uint32_t)ev->y;
+                int32_t x = ev->x;
+                int32_t y = ev->y;
+                if (mask & XCB_CONFIG_WINDOW_X) values[j++] = (uint32_t)x;
+                if (mask & XCB_CONFIG_WINDOW_Y) values[j++] = (uint32_t)y;
                 if (mask & XCB_CONFIG_WINDOW_WIDTH) values[j++] = (uint32_t)ev->width;
                 if (mask & XCB_CONFIG_WINDOW_HEIGHT) values[j++] = (uint32_t)ev->height;
                 if (mask & XCB_CONFIG_WINDOW_BORDER_WIDTH) values[j++] = (uint32_t)ev->border_width;
