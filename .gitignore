@@ -1,4 +1,4 @@
-build/
+build*
 AGENTS.md
 CLAUDE.md
 GEMINI.md
