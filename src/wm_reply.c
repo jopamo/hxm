@@ -626,6 +626,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
             } else if (atom == atoms._NET_WM_WINDOW_TYPE) {
                 if (xcb_get_property_value_length(r) > 0) {
+                    uint8_t prev_type = hot->type;
                     xcb_atom_t* types = (xcb_atom_t*)xcb_get_property_value(r);
                     int num_types = xcb_get_property_value_length(r) / (int)sizeof(xcb_atom_t);
 
@@ -720,6 +721,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         if (hot->layer != prev_layer) {
                             hot->dirty |= DIRTY_STATE | DIRTY_STACK;
                         }
+                    }
+
+                    if (hot->type != prev_type) {
+                        s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING;
                     }
                 }
 

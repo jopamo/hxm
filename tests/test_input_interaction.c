@@ -9,8 +9,8 @@
 #include "client.h"
 #include "config.h"
 #include "event.h"
+#include "src/wm_internal.h"
 #include "wm.h"
-#include "wm_internal.h"
 #include "xcb_utils.h"
 
 extern void xcb_stubs_reset(void);
@@ -62,7 +62,18 @@ static void cleanup_server(server_t* s) {
     slotmap_destroy(&s->clients);
     hash_map_destroy(&s->window_to_client);
     hash_map_destroy(&s->frame_to_client);
+    for (int i = 0; i < LAYER_COUNT; i++) small_vec_destroy(&s->layers[i]);
     xcb_disconnect(s->conn);
+}
+
+static void reset_keybindings(config_t* config) {
+    for (size_t i = 0; i < config->key_bindings.length; i++) {
+        key_binding_t* b = config->key_bindings.items[i];
+        if (b->exec_cmd) free(b->exec_cmd);
+        free(b);
+    }
+    small_vec_destroy(&config->key_bindings);
+    small_vec_init(&config->key_bindings);
 }
 
 static handle_t add_mapped_client(server_t* s, xcb_window_t win, xcb_window_t frame) {
@@ -234,7 +245,7 @@ static void test_keybinding_clean_mods(void) {
     b->keysym = XK_Escape;
     b->modifiers = XCB_MOD_MASK_1;
     b->action = ACTION_RESTART;
-    small_vec_init(&s.config.key_bindings);
+    reset_keybindings(&s.config);
     small_vec_push(&s.config.key_bindings, b);
 
     g_restart_pending = 0;
@@ -268,7 +279,7 @@ static void test_keybinding_conflict_deterministic(void) {
     second->modifiers = 0;
     second->action = ACTION_WORKSPACE_NEXT;
 
-    small_vec_init(&s.config.key_bindings);
+    reset_keybindings(&s.config);
     small_vec_push(&s.config.key_bindings, first);
     small_vec_push(&s.config.key_bindings, second);
 
@@ -299,7 +310,7 @@ static void test_key_grabs_from_config(void) {
     b->keysym = XK_Escape;
     b->modifiers = XCB_MOD_MASK_1;
     b->action = ACTION_RESTART;
-    small_vec_init(&s.config.key_bindings);
+    reset_keybindings(&s.config);
     small_vec_push(&s.config.key_bindings, b);
 
     wm_setup_keys(&s);
@@ -310,6 +321,10 @@ static void test_key_grabs_from_config(void) {
     assert(stub_last_grab_keycode != 0);
 
     printf("test_key_grabs_from_config passed\n");
+    if (s.keysyms) {
+        xcb_key_symbols_free(s.keysyms);
+        s.keysyms = NULL;
+    }
     cleanup_server(&s);
 }
 

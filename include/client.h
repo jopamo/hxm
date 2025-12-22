@@ -135,6 +135,8 @@ typedef struct client_hot {
     bool type_from_net;
     int32_t desktop;  // -1 for ALL_DESKTOPS
     bool sticky;
+    bool skip_taskbar;
+    bool skip_pager;
     bool maximized_horz;
     bool maximized_vert;
     int8_t focus_override;  // -1: default, 0: no, 1: yes
