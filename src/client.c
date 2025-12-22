@@ -126,6 +126,9 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     hot->visual_type = NULL;
     hot->visual_id = s->root_visual;
     hot->depth = 0;
+    hot->colormap = XCB_NONE;
+    hot->frame_colormap = XCB_NONE;
+    hot->frame_colormap_owned = false;
 
     hot->damage = XCB_NONE;
     dirty_region_reset(&hot->damage_region);
@@ -384,6 +387,8 @@ void client_finish_manage(server_t* s, handle_t h) {
         xcb_colormap_t cmap = xcb_generate_id(s->conn);
         xcb_create_colormap(s->conn, XCB_COLORMAP_ALLOC_NONE, cmap, s->root, hot->visual_id);
         values[2] = cmap;
+        hot->frame_colormap = cmap;
+        hot->frame_colormap_owned = true;
     }
 
     hot->frame = xcb_generate_id(s->conn);
@@ -663,6 +668,12 @@ void client_unmanage(server_t* s, handle_t h) {
     if (hot->frame != XCB_NONE) {
         TRACE_LOG("unmanage destroy frame=%u", hot->frame);
         xcb_destroy_window(s->conn, hot->frame);
+    }
+
+    if (hot->frame_colormap_owned && hot->frame_colormap != XCB_NONE) {
+        xcb_free_colormap(s->conn, hot->frame_colormap);
+        hot->frame_colormap = XCB_NONE;
+        hot->frame_colormap_owned = false;
     }
 
     // Cleanup maps and properties

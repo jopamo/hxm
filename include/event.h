@@ -90,6 +90,7 @@ typedef struct server {
     xcb_visualid_t root_visual;
     xcb_visualtype_t* root_visual_type;
     uint8_t root_depth;
+    xcb_colormap_t default_colormap;
     xcb_window_t supporting_wm_check;
     int xcb_fd;
     int epoll_fd;

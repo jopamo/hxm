@@ -539,6 +539,8 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
         hot->dirty |= DIRTY_HINTS | DIRTY_FRAME_STYLE;
     } else if (ev->atom == atoms._GTK_FRAME_EXTENTS) {
         hot->dirty |= DIRTY_HINTS | DIRTY_FRAME_STYLE;
+    } else if (ev->atom == atoms._NET_WM_BYPASS_COMPOSITOR) {
+        LOG_INFO("Client %lx changed _NET_WM_BYPASS_COMPOSITOR", h);
     }
 }
 

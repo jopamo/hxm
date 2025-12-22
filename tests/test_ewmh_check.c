@@ -77,7 +77,48 @@ static void test_supporting_wm_check_mapped(void) {
     xcb_disconnect(s.conn);
 }
 
+// From tests/xcb_stubs.c
+extern xcb_atom_t stub_last_prop_atom;
+extern uint32_t stub_last_prop_len;
+extern uint8_t stub_last_prop_data[4096];
+
+static void test_net_client_list_published(void) {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+
+    s.conn = xcb_connect(NULL, NULL);
+    s.root = 1;
+    atoms_init(s.conn);
+    slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
+    s.desktop_count = 1;
+    xcb_stubs_reset();
+
+    // Add a client
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    (void)h;
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    hot->xid = 12345;
+    hot->state = STATE_MAPPED;
+
+    // Trigger update
+    s.root_dirty = ROOT_DIRTY_CLIENT_LIST;
+    wm_flush_dirty(&s);
+
+    assert(stub_last_prop_atom == atoms._NET_CLIENT_LIST);
+    assert(stub_last_prop_len == 1);
+    uint32_t* wins = (uint32_t*)stub_last_prop_data;
+    assert(wins[0] == 12345);
+
+    printf("PASS: _NET_CLIENT_LIST published\n");
+
+    arena_destroy(&s.tick_arena);
+    slotmap_destroy(&s.clients);
+    xcb_disconnect(s.conn);
+}
+
 int main(void) {
     test_supporting_wm_check_mapped();
+    test_net_client_list_published();
     return 0;
 }

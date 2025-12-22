@@ -66,6 +66,7 @@ void server_init(server_t* s) {
     s->root_visual = screen->root_visual;
     s->root_visual_type = xcb_get_visualtype(s->conn, s->root_visual);
     s->root_depth = screen->root_depth;
+    s->default_colormap = screen->default_colormap;
 
     s->xcb_fd = xcb_get_file_descriptor(s->conn);
     int flags = fcntl(s->xcb_fd, F_GETFL, 0);
@@ -141,6 +142,7 @@ void server_init(server_t* s) {
 
     // Become WM (WM_S0 selection + supporting WM check + _NET_SUPPORTED baseline)
     wm_become(s);
+    xcb_install_colormap(s->conn, s->default_colormap);
 
     // Adopt existing windows (must happen after we are the WM)
     wm_adopt_children(s);
