@@ -20,6 +20,8 @@ extern int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request
 extern int stub_mapped_windows_len;
 extern xcb_window_t stub_mapped_windows[256];
 extern bool xcb_stubs_enqueue_event(xcb_generic_event_t* ev);
+extern int stub_destroy_window_count;
+extern xcb_window_t stub_last_destroyed_window;
 
 static void setup_server(server_t* s) {
     memset(s, 0, sizeof(*s));
@@ -277,6 +279,53 @@ static void test_unmap_destroy_unmanages(void) {
     cleanup_server(&s);
 }
 
+static void test_destroy_notify_unmanages_and_destroys_frame(void) {
+    server_t s;
+    setup_server(&s);
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
+    memset(hot, 0, sizeof(*hot));
+    memset(cold, 0, sizeof(*cold));
+
+    render_init(&hot->render_ctx);
+    arena_init(&cold->string_arena, 512);
+
+    hot->self = h;
+    hot->xid = 5001;
+    hot->frame = 5002;
+    hot->state = STATE_MAPPED;
+    hot->layer = LAYER_NORMAL;
+    hot->base_layer = LAYER_NORMAL;
+    list_init(&hot->focus_node);
+    list_init(&hot->transients_head);
+    list_init(&hot->transient_sibling);
+
+    hash_map_insert(&s.window_to_client, hot->xid, handle_to_ptr(h));
+    hash_map_insert(&s.frame_to_client, hot->frame, handle_to_ptr(h));
+
+    wm_set_focus(&s, h);
+    assert(s.focused_client == h);
+
+    stub_destroy_window_count = 0;
+
+    xcb_destroy_notify_event_t destroy;
+    memset(&destroy, 0, sizeof(destroy));
+    destroy.window = hot->xid;
+    destroy.event = s.root;
+    wm_handle_destroy_notify(&s, &destroy);
+
+    assert(server_get_client_by_window(&s, hot->xid) == HANDLE_INVALID);
+    assert(stub_destroy_window_count == 1);
+    assert(stub_last_destroyed_window == hot->frame);
+    assert(s.focused_client == HANDLE_INVALID);
+
+    printf("test_destroy_notify_unmanages_and_destroys_frame passed\n");
+    cleanup_server(&s);
+}
+
 static void test_iconify_ignores_unmap_notify_send_event(void) {
     server_t s;
     setup_server(&s);
@@ -354,6 +403,7 @@ int main(void) {
     test_map_request_starts_manage_once();
     test_finish_manage_maps_client_then_frame();
     test_unmap_destroy_unmanages();
+    test_destroy_notify_unmanages_and_destroys_frame();
     test_iconify_ignores_unmap_notify_send_event();
     test_reparent_notify_ignored();
     return 0;

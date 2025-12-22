@@ -186,6 +186,13 @@ test_colormap = executable('test_colormap',
 )
 test('colormap', test_colormap)
 
+test_save_set = executable('test_save_set',
+  ['tests/test_save_set.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('save_set', test_save_set)
+
 test_workarea_compute = executable('test_workarea_compute',
   ['tests/test_workarea_compute.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,

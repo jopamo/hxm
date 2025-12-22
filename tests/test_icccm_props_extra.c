@@ -337,6 +337,125 @@ static void test_wm_hints_icon_safe(void) {
     cleanup_server(&s);
 }
 
+static void test_property_deletions_reset_defaults(void) {
+    server_t s;
+    memset(&s, 0, sizeof(s));
+    s.is_test = true;
+    s.root_depth = 24;
+    s.root_visual_type = xcb_get_visualtype(NULL, 0);
+    s.conn = (xcb_connection_t*)malloc(1);
+    atoms.WM_HINTS = 8;
+    atoms.WM_NORMAL_HINTS = 9;
+    atoms.WM_PROTOCOLS = 10;
+    atoms.WM_DELETE_WINDOW = 11;
+    atoms.WM_TAKE_FOCUS = 12;
+    atoms.WM_TRANSIENT_FOR = 13;
+    atoms.WM_NAME = 14;
+
+    if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return;
+    hash_map_init(&s.window_to_client);
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
+    memset(hot, 0, sizeof(*hot));
+    memset(cold, 0, sizeof(*cold));
+    render_init(&hot->render_ctx);
+    arena_init(&cold->string_arena, 512);
+    hot->xid = 900;
+    hot->self = h;
+    hot->state = STATE_MAPPED;
+    list_init(&hot->transients_head);
+    list_init(&hot->transient_sibling);
+    hash_map_insert(&s.window_to_client, hot->xid, handle_to_ptr(h));
+
+    cookie_slot_t slot = {0};
+    slot.type = COOKIE_GET_PROPERTY;
+    slot.client = h;
+
+    struct {
+        xcb_get_property_reply_t r;
+        uint32_t data[9];
+    } hints_reply;
+    memset(&hints_reply, 0, sizeof(hints_reply));
+    hints_reply.r.format = 32;
+    hints_reply.r.value_len = 9;
+    hints_reply.r.type = XCB_ATOM_WM_HINTS;
+    hints_reply.data[0] = XCB_ICCCM_WM_HINT_INPUT | XCB_ICCCM_WM_HINT_X_URGENCY;
+    hints_reply.data[1] = 0;
+    slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_HINTS;
+    wm_handle_reply(&s, &slot, &hints_reply.r, NULL);
+    assert(cold->can_focus == false);
+    assert(hot->flags & CLIENT_FLAG_URGENT);
+
+    hints_reply.r.value_len = 0;
+    wm_handle_reply(&s, &slot, &hints_reply.r, NULL);
+    assert(cold->can_focus == true);
+    assert((hot->flags & CLIENT_FLAG_URGENT) == 0);
+
+    struct {
+        xcb_get_property_reply_t r;
+    } empty_reply;
+    memset(&empty_reply, 0, sizeof(empty_reply));
+    empty_reply.r.format = 8;
+    empty_reply.r.value_len = 0;
+
+    hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
+    hot->hints.min_w = 10;
+    slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_NORMAL_HINTS;
+    wm_handle_reply(&s, &slot, &empty_reply.r, NULL);
+    assert(hot->hints_flags == 0);
+    assert(hot->hints.min_w == 0);
+
+    struct {
+        xcb_get_property_reply_t r;
+        xcb_atom_t atoms_list[2];
+    } proto_reply;
+    memset(&proto_reply, 0, sizeof(proto_reply));
+    proto_reply.r.format = 32;
+    proto_reply.r.type = XCB_ATOM_ATOM;
+    proto_reply.r.value_len = 2;
+    proto_reply.atoms_list[0] = atoms.WM_DELETE_WINDOW;
+    proto_reply.atoms_list[1] = atoms.WM_TAKE_FOCUS;
+    slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_PROTOCOLS;
+    wm_handle_reply(&s, &slot, &proto_reply.r, NULL);
+    assert(cold->protocols & PROTOCOL_DELETE_WINDOW);
+
+    proto_reply.r.value_len = 0;
+    wm_handle_reply(&s, &slot, &proto_reply.r, NULL);
+    assert(cold->protocols == 0);
+
+    struct {
+        xcb_get_property_reply_t r;
+        xcb_window_t win;
+    } transient_reply;
+    memset(&transient_reply, 0, sizeof(transient_reply));
+    transient_reply.r.format = 32;
+    transient_reply.r.type = XCB_ATOM_WINDOW;
+    transient_reply.r.value_len = 1;
+    transient_reply.win = 12345;
+    slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_TRANSIENT_FOR;
+    wm_handle_reply(&s, &slot, &transient_reply.r, NULL);
+    assert(cold->transient_for_xid == 12345);
+
+    transient_reply.r.value_len = 0;
+    wm_handle_reply(&s, &slot, &transient_reply.r, NULL);
+    assert(cold->transient_for_xid == XCB_NONE);
+    assert(hot->transient_for == HANDLE_INVALID);
+
+    cold->has_net_wm_name = false;
+    cold->base_title = arena_strndup(&cold->string_arena, "title", 5);
+    slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_NAME;
+    wm_handle_reply(&s, &slot, &empty_reply.r, NULL);
+    assert(cold->base_title != NULL);
+    assert(strcmp(cold->base_title, "") == 0);
+
+    printf("test_property_deletions_reset_defaults passed\n");
+    hash_map_destroy(&s.window_to_client);
+    cleanup_server(&s);
+}
+
 int main(void) {
     test_wm_icon_name_fallback();
     test_wm_class_invalid_no_nul();
@@ -344,5 +463,6 @@ int main(void) {
     test_wm_command_first_token();
     test_wm_hints_input_affects_focus();
     test_wm_hints_icon_safe();
+    test_property_deletions_reset_defaults();
     return 0;
 }
