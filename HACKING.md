@@ -1,313 +1,401 @@
 # Hacking Guide
 
+This document describes how to build, test, and modify hxm without violating its
+core architectural invariants. Read `DESIGN.md` and `FLOW.md` first.
+
+---
+
 ## Development Setup
 
-Dependencies:
+### Required dependencies
 
 - C11 compiler (clang or gcc)
 - Meson and Ninja
-- X11 and XCB libraries (libxcb, xcb-randr, xcb-xkb, and related extensions)
-- cairo, pango, fontconfig, and librsvg
+- X11 and XCB libraries:
+  - libxcb
+  - xcb-randr
+  - xcb-xkb
+  - related XCB extensions
+- cairo, pango, fontconfig, librsvg
 
-Optional tools for scripts and tests:
+### Optional tools
 
-- Xephyr (for `./scripts/run-xephyr.sh`)
-- Xvfb (for `./tests/ewmh/run_in_xvfb.sh`)
+- Xephyr (used by `./scripts/run-xephyr.sh`)
+- Xvfb (used by `./tests/ewmh/run_in_xvfb.sh`)
 
-For architecture and runtime flow, see `DESIGN.md` and `FLOW.md`.
+---
 
 ## Project Structure
 
-- `src/` contains the window manager implementation (event loop, focus,
-  stacking, rendering).
-- `include/` holds public and internal headers used across modules.
-- `tests/` contains unit and integration-style C tests; `tests/ewmh/` hosts EWMH
-  shell tests and helpers.
-- `scripts/` provides developer utilities (Xephyr runner, headless and
-  integration test drivers).
-- `data/` includes default configuration and desktop entry files (example:
-  `data/hxm.conf`).
+- `src/`  
+  Core window manager implementation: event loop, focus, stacking, rendering.
+- `include/`  
+  Public and internal headers shared across modules.
+- `tests/`  
+  Unit and integration-style C tests.
+- `tests/ewmh/`  
+  EWMH shell tests and helpers.
+- `scripts/`  
+  Developer utilities: Xephyr runner, headless and integration test drivers.
+- `data/`  
+  Default configuration and desktop entry files (for example `data/hxm.conf`).
+
+---
 
 ## Build and Test
 
-Build with Meson/Ninja:
+### Build
 
-```bash
+```sh
 meson setup build
 meson compile -C build
-```
+````
 
-Run locally (on an X11 session):
+### Run locally (existing X11 session)
 
-```bash
+```sh
 ./build/hxm
 ```
 
-Run unit tests registered in Meson:
+### Run tests
 
-```bash
+```sh
 meson test -C build
 ```
 
-Useful scripts:
+### Useful scripts
 
-```bash
-./scripts/run-xephyr.sh          # run hxm in a nested Xephyr session
-./scripts/test-headless.sh       # headless smoke + stress test
-./scripts/test-integration.sh    # integration client checks
+```sh
+./scripts/run-xephyr.sh           # run hxm in a nested Xephyr session
+./scripts/test-headless.sh        # headless smoke + stress test
+./scripts/test-integration.sh     # integration client checks
 ./tests/ewmh/run_in_xvfb.sh       # EWMH tests under Xvfb
 ```
 
+---
+
 ## Coding Standards
 
-- Language: C11; headers live in `include/`, sources in `src/`.
-- Indentation: 4 spaces; brace style is K&R (opening brace on the same line).
-- Naming: `snake_case` for functions and variables, `UPPER_CASE` for constants
-  and macros.
-- No formatter is configured; follow existing patterns in nearby files.
+* Language: C11
+* Headers live in `include/`, sources in `src/`
+* Indentation: 4 spaces
+* Brace style: K&R
+* Naming:
+
+  * `snake_case` for functions and variables
+  * `UPPER_CASE` for constants and macros
+* No auto-formatter is enforced; follow nearby code
+
+---
 
 ## Contribution Flow
 
-- Recent history uses Conventional Commits style: `type(scope): summary`
-  (examples: `feat(menu): ...`, `refactor(stack): ...`).
-- PRs should describe the behavioral change, mention tests run (or why not),
-  and link any relevant issues or repro steps.
+* Commit messages follow Conventional Commits:
+
+  * `type(scope): summary`
+  * examples: `feat(menu): …`, `refactor(stack): …`
+* Pull requests should:
+
+  * describe behavioral changes
+  * mention tests run (or explain why none)
+  * link relevant issues or repro steps
+
+---
 
 ## XCB Performance and Correctness Guide
 
-Here is a high-level guide to getting the most out of XCB when building an X11
-WM: lowest latency, minimal X server load, maximum correctness under weird
-client behavior.
+This section documents **non-negotiable engineering rules** for working with XCB
+in hxm. Violating these rules will introduce latency, jank, or correctness bugs.
 
 ### Core mindset
 
-- Never block in the hot path.
-- Batch requests, drain replies opportunistically.
-- Treat X as an async message bus.
-- Make state transitions explicit and auditable.
+* Never block in hot paths
+* Batch requests, drain replies opportunistically
+* Treat X as an asynchronous message bus
+* Make state transitions explicit and auditable
 
-### Build a proper event loop around the X fd
+---
 
-#### One loop, many fds
+## Event Loop Design
 
-Use one loop (epoll/poll) that waits on:
+### One loop, many fds
 
-- XCB connection fd
-- timerfd (tick/coalesce)
-- signalfd (SIGCHLD/SIGUSR1/etc)
-- IPC fd (optional)
+Use a single event loop (epoll or equivalent) that waits on:
 
-#### Do not spin
+* XCB connection fd
+* timerfd (tick / coalescing)
+* signalfd (SIGCHLD, SIGUSR1, etc)
+* optional IPC fd
 
-- Block until readable.
-- When readable, drain X events fully.
-- Then drain cookie replies (if you keep a cookie jar).
-- Then flush once.
+### Do not spin
 
-Invariant: "No wakeup without doing useful work".
+* Block until at least one fd is readable
+* When readable:
 
-### Drain X events correctly
+  1. Drain X events
+  2. Drain cookie replies
+  3. Process model updates
+  4. Flush once
 
-#### Drain-all pattern
+Invariant: **no wakeup without useful work**.
 
-- Call `xcb_poll_for_event()` in a loop until it returns NULL.
-- Handle batches of events per wakeup (bounded if you want fairness).
+---
 
-#### Coalesce aggressively
+## Draining and Coalescing X Events
 
-You will see storms of:
+### Drain-all pattern
 
-- `MotionNotify`
-- `ConfigureNotify`
-- `PropertyNotify`
-- RandR bursts
+* Call `xcb_poll_for_event()` until it returns NULL
+* Bound work per tick if fairness is required
 
-Coalesce by key:
+### Coalesce aggressively
 
-- `(window, event_type)` last-wins for geometry/property updates.
-- Apply in a stable order: lifecycle -> property -> input -> layout -> restack ->
-  flush.
+Expect storms of:
 
-This is where "feels smooth" comes from.
+* `MotionNotify`
+* `ConfigureNotify`
+* `PropertyNotify`
+* RandR events
 
-### Eliminate synchronous round-trips
+Coalesce rules:
 
-#### Never use blocking reply waits in your hot loop
+* `(window, event_type)` → last wins
+* Geometry and property updates → last wins
+* Apply in stable order:
 
-Avoid:
+  * lifecycle
+  * property
+  * input
+  * layout
+  * restack
+  * commit
 
-- `xcb_wait_for_reply`
-- `xcb_get_*_reply` in-line during event processing
+This is where perceived smoothness comes from.
 
-Instead:
+---
 
-- issue request
-- store cookie + context
-- later, when X fd is readable, poll replies and resolve them
+## Eliminate Synchronous Round-Trips
 
-If you must force a reply, do it only in:
+### Forbidden in hot paths
 
-- startup probes
-- rare debug paths
-- slow path with explicit "sync boundary" comments
+* `xcb_wait_for_reply`
+* inline `xcb_get_*_reply` during event handling
 
-### Use a cookie jar (reply dispatcher)
+### Required pattern
 
-A good cookie jar gives you:
+* Issue request
+* Store cookie + context
+* Drain replies later when X fd is readable
 
-- no stalls
-- out-of-order reply handling
-- bounded memory
-- predictable CPU use
+Blocking is permitted **only** in:
 
-Store per request:
+* startup probes
+* rare debug paths
+* explicitly documented slow paths
 
-- `sequence` (`cookie.sequence`)
-- "type" enum (what reply you expect)
-- target window/client handle
-- callback or small "apply" function
-- deadline/timeout policy (optional)
+---
 
-Drain replies only when X fd is readable:
+## Cookie Jar (Reply Dispatcher)
 
-- `xcb_poll_for_reply(conn, seq, &reply, &error)`
-- apply, free, recycle slot
+A correct cookie jar provides:
 
-Key win: you can pipeline "get attributes -> get properties -> manage window"
-without ever blocking.
+* zero stalls
+* out-of-order reply handling
+* bounded memory
+* predictable CPU usage
 
-### Make manage/unmanage fully asynchronous
+Per request, store:
 
-For managing a new window, do not do a chain of blocking queries. Pipeline:
+* `sequence` (`cookie.sequence`)
+* request type enum
+* target window or client handle
+* callback or apply function
+* optional timeout policy
 
-- `GetWindowAttributes`
-- `GetGeometry`
-- `GetProperty` (WM_CLASS, WM_HINTS, WM_NORMAL_HINTS, WM_PROTOCOLS, _NET_*)
-- optional: `QueryTree` (rare)
-- Create frame / reparent / select events
-- Map frame + client
+Drain replies using:
 
-All async, with a small per-window "adoption state machine" that progresses as
-replies arrive.
+```c
+xcb_poll_for_reply(conn, seq, &reply, &error)
+```
 
-Goal: a new window never causes a hitch.
+Never block waiting for replies.
 
-### Use "subscribe once" event masks and avoid over-subscribing
+---
 
-Be deliberate about what you select:
+## Asynchronous Client Management
 
-- Root: `SubstructureRedirect`, `SubstructureNotify`, `PropertyChange`,
-  `FocusChange`, RandR, etc
-- Client: minimal needed set
-- Frame: decoration input events, expose, etc
+Client adoption must be fully pipelined.
 
-Too many masks = more traffic and more work.
+Do **not** perform blocking query chains.
 
-### Minimize Configure churn
+Pipeline example:
 
-Churn is the fastest way to create jank.
+* `GetWindowAttributes`
+* `GetGeometry`
+* `GetProperty` (WM_CLASS, WM_HINTS, WM_NORMAL_HINTS, WM_PROTOCOLS, `_NET_*`)
+* Create frame
+* Reparent
+* Map frame + client
+
+Progress via a small per-client state machine as replies arrive.
+
+Invariant: **managing a new window must never hitch the WM**.
+
+---
+
+## Event Mask Discipline
+
+Select only what you need:
+
+* Root:
+
+  * `SubstructureRedirect`
+  * `SubstructureNotify`
+  * `PropertyChange`
+  * `FocusChange`
+  * RandR events
+* Client:
+
+  * minimal required set
+* Frame:
+
+  * decoration input
+  * expose
+
+Oversubscribing masks increases load and latency.
+
+---
+
+## Minimize Configure Churn
 
 Rules:
 
-- Only call `xcb_configure_window` when geometry actually changes.
-- Combine flags into one configure per window per tick.
-- Prefer layout pass that computes final rects, then applies diffs.
-- After applying, send required synthetic `ConfigureNotify` once.
+* Call `xcb_configure_window` only when geometry actually changes
+* Combine flags into one configure per window per tick
+* Compute final layout first, then apply diffs
+* Send synthetic `ConfigureNotify` once after commit
 
-Keep a `dirty` bitset per client:
+Maintain per-client dirty flags:
 
-- position dirty
-- size dirty
-- stack dirty
-- property dirty
+* position
+* size
+* stack
+* properties
 
-Then flush in a deterministic pass.
+Flush in a single deterministic pass.
 
-### Treat stacking and focus as first-class state machines
+---
 
-Make these explicit:
+## Stacking and Focus as State Machines
 
-- stacking layer (desktop, below, normal, above, dock)
-- stacking index inside layer
-- focus history stack
-- activation rules (EWMH _NET_ACTIVE_WINDOW vs click-to-focus)
+Treat these as explicit systems:
 
-Then you can:
+* stacking layer (desktop, below, normal, above, dock)
+* stacking index within layer
+* MRU focus history
+* activation policy (EWMH vs click-to-focus)
 
-- update `_NET_CLIENT_LIST_STACKING` from your own truth
-- produce predictable restacks (one pass)
-- avoid "raise storms" that fight clients/panels
+Derive:
 
-### Be strict about properties parsing and memory safety
+* `_NET_CLIENT_LIST_STACKING`
+* predictable restacks
+* minimal raise/lower churn
 
-X properties are untrusted input.
+---
+
+## Property Parsing and Memory Safety
+
+All X properties are untrusted input.
 
 For every `GetProperty` reply:
 
-- validate type/format/length
-- clamp sizes
-- handle deletion (`PropertyNotify` with delete)
-- never assume NUL termination (WM_CLASS, text)
-- guard against overflow when parsing `_NET_WM_ICON`
+* validate type, format, and length
+* clamp sizes
+* handle deletion events
+* never assume NUL termination
+* guard against overflow (`_NET_WM_ICON`)
 
-This is how you become "best WM ever" in practice: you do not crash on weird
-apps.
+Robust parsing is a competitive advantage.
 
-### Make RandR a pipeline, not an interrupt
+---
 
-RandR events can be noisy. Strategy:
+## RandR Handling
 
-- coalesce RandR notify bursts
-- on "settled" tick, query monitors once
-- recompute:
-  - monitor geometry
-  - workareas/struts
-  - fullscreen placements
-  - per-desktop viewport (if any)
-- Then apply a single layout pass.
+RandR is noisy. Treat it as a pipeline:
 
-### Keep X server load low
+* coalesce notify bursts
+* query monitors once when settled
+* recompute:
 
-- Avoid frequent `QueryTree`.
-- Avoid grabbing server (`xcb_grab_server`) except for rare atomic operations.
-- Batch property publishes:
-  - `_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`, `_NET_WORKAREA` updated once per
-    tick
-- Avoid repeated `GetProperty` polling; subscribe and react to
-  `PropertyNotify` instead.
+  * monitor geometry
+  * workareas and struts
+  * fullscreen placement
+* apply layout in a single pass
 
-### Instrument everything like a kernel subsystem
+---
 
-To build something elite, you need visibility:
+## Keep X Server Load Low
 
-- per-tick counters: events drained, replies drained, requests queued, flush
-  count
-- histogram of tick time
-- log "sync boundaries" explicitly
-- optional tracing ring buffer enabled by SIGUSR1
+* Avoid `QueryTree`
+* Avoid `xcb_grab_server` except for rare atomic operations
+* Batch root property updates:
 
-You will find 90% of "jank" this way.
+  * `_NET_CLIENT_LIST`
+  * `_NET_ACTIVE_WINDOW`
+  * `_NET_WORKAREA`
+* Subscribe to `PropertyNotify` instead of polling
 
-### Do not fight toolkits; implement the handful of behaviors they assume
+---
 
-The "best WM" is not the one with the most features; it is the one that never
-breaks apps.
+## Instrument Like a Kernel Subsystem
 
-Prioritize:
+Visibility is mandatory.
 
-- ICCCM basics (WM_STATE, WM_PROTOCOLS, size hints)
-- EWMH essentials:
-  - `_NET_SUPPORTING_WM_CHECK`
-  - `_NET_CLIENT_LIST` / `_NET_CLIENT_LIST_STACKING`
-  - `_NET_ACTIVE_WINDOW`
-  - `_NET_WM_STATE` (fullscreen, above/below, hidden)
-- `_NET_FRAME_EXTENTS`
-- `_NET_WM_DESKTOP` + desktops/workarea if you do them
+Maintain:
 
-### Have a clear "sync boundary" policy
+* per-tick counters
+* reply and request counts
+* tick time histogram
+* explicit sync-boundary logs
+* optional tracing ring buffer (signal-triggered)
 
-You will occasionally need to force correctness over latency (rare). Define:
+Most jank is found via instrumentation, not guesswork.
 
-- which actions may block (startup only)
-- which must never block (event ingestion, input handling)
-- how you test it (CI asserts no blocking calls in hot loop)
+---
+
+## Toolkit Compatibility Rules
+
+Do not fight toolkits.
+
+Minimum required behaviors:
+
+* ICCCM:
+
+  * `WM_STATE`
+  * `WM_PROTOCOLS`
+  * size hints
+* EWMH:
+
+  * `_NET_SUPPORTING_WM_CHECK`
+  * `_NET_CLIENT_LIST`
+  * `_NET_CLIENT_LIST_STACKING`
+  * `_NET_ACTIVE_WINDOW`
+  * `_NET_WM_STATE`
+  * `_NET_FRAME_EXTENTS`
+  * desktops/workarea if implemented
+
+Correctness beats features.
+
+---
+
+## Sync Boundary Policy
+
+Blocking is sometimes necessary, but rare.
+
+Define clearly:
+
+* what may block (startup only)
+* what must never block (event ingestion, input handling)
+* how this is enforced (debug asserts, CI checks)
+
+If a change crosses a sync boundary, it must be documented.
