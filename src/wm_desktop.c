@@ -147,9 +147,27 @@ void wm_publish_desktop_props(server_t* s) {
 void wm_compute_workarea(server_t* s, rect_t* out) {
     if (!s || !out) return;
 
-    xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
-    int32_t l = 0, r = (int32_t)screen->width_in_pixels, t = 0, b = (int32_t)screen->height_in_pixels;
+    uint32_t m_count = s->monitor_count;
+    monitor_t default_mon;
+    monitor_t* mons = s->monitors;
 
+    if (m_count == 0) {
+        m_count = 1;
+        xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+        default_mon.geom.x = 0;
+        default_mon.geom.y = 0;
+        default_mon.geom.w = screen->width_in_pixels;
+        default_mon.geom.h = screen->height_in_pixels;
+        default_mon.workarea = default_mon.geom;
+        mons = &default_mon;
+    } else {
+        // 1. Initialize monitor workareas
+        for (uint32_t m = 0; m < m_count; m++) {
+            s->monitors[m].workarea = s->monitors[m].geom;
+        }
+    }
+
+    // 2. Iterate clients and subtract struts
     for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
         if (!slotmap_is_used_idx(&s->clients, i)) continue;
 
@@ -159,35 +177,81 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
         bool has_strut = cold->strut_partial_active || cold->strut_full_active;
         if (c->state != STATE_MAPPED && !has_strut) continue;
 
-        bool partial = cold->strut_partial_active;
-        int32_t screen_w = (int32_t)screen->width_in_pixels;
-        int32_t screen_h = (int32_t)screen->height_in_pixels;
+        // Apply strut to intersecting monitors
+        for (uint32_t m = 0; m < m_count; m++) {
+            monitor_t* mon = &mons[m];
+            int32_t ml = mon->geom.x;
+            int32_t mt = mon->geom.y;
+            int32_t mr = mon->geom.x + mon->geom.w;
+            int32_t mb = mon->geom.y + mon->geom.h;
 
-        bool left_full =
-            !partial || ((cold->strut.left_start_y == 0 && cold->strut.left_end_y == 0) ||
-                         (cold->strut.left_start_y == 0 && cold->strut.left_end_y >= (uint32_t)(screen_h - 1)));
-        bool right_full =
-            !partial || ((cold->strut.right_start_y == 0 && cold->strut.right_end_y == 0) ||
-                         (cold->strut.right_start_y == 0 && cold->strut.right_end_y >= (uint32_t)(screen_h - 1)));
-        bool top_full =
-            !partial || ((cold->strut.top_start_x == 0 && cold->strut.top_end_x == 0) ||
-                         (cold->strut.top_start_x == 0 && cold->strut.top_end_x >= (uint32_t)(screen_w - 1)));
-        bool bottom_full =
-            !partial || ((cold->strut.bottom_start_x == 0 && cold->strut.bottom_end_x == 0) ||
-                         (cold->strut.bottom_start_x == 0 && cold->strut.bottom_end_x >= (uint32_t)(screen_w - 1)));
-
-        if (left_full && (int32_t)cold->strut.left > l) l = (int32_t)cold->strut.left;
-        if (right_full && (int32_t)(screen_w - (int32_t)cold->strut.right) < r)
-            r = (int32_t)screen_w - (int32_t)cold->strut.right;
-        if (top_full && (int32_t)cold->strut.top > t) t = (int32_t)cold->strut.top;
-        if (bottom_full && (int32_t)(screen_h - (int32_t)cold->strut.bottom) < b)
-            b = (int32_t)screen_h - (int32_t)cold->strut.bottom;
+            if (cold->strut.left > 0 && (int32_t)cold->strut.left > ml && (int32_t)cold->strut.left < mr) {
+                // Check if strut vertical range overlaps monitor
+                bool overlap = true;
+                if (cold->strut_partial_active) {
+                    overlap = (cold->strut.left_start_y < (uint32_t)mb && cold->strut.left_end_y > (uint32_t)mt);
+                }
+                if (overlap) {
+                    int32_t new_l = (int32_t)cold->strut.left;
+                    if (new_l > mon->workarea.x) {
+                        mon->workarea.w -= (uint16_t)(new_l - mon->workarea.x);
+                        mon->workarea.x = (int16_t)new_l;
+                    }
+                }
+            }
+            if (cold->strut.right > 0) {
+                xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+                int32_t r_edge = (int32_t)screen->width_in_pixels - (int32_t)cold->strut.right;
+                if (r_edge < mr && r_edge > ml) {
+                    bool overlap = true;
+                    if (cold->strut_partial_active) {
+                        overlap = (cold->strut.right_start_y < (uint32_t)mb && cold->strut.right_end_y > (uint32_t)mt);
+                    }
+                    if (overlap) {
+                        if (r_edge < (int32_t)(mon->workarea.x + mon->workarea.w)) {
+                            mon->workarea.w = (uint16_t)(r_edge - mon->workarea.x);
+                        }
+                    }
+                }
+            }
+            if (cold->strut.top > 0 && (int32_t)cold->strut.top > mt && (int32_t)cold->strut.top < mb) {
+                bool overlap = true;
+                if (cold->strut_partial_active) {
+                    overlap = (cold->strut.top_start_x < (uint32_t)mr && cold->strut.top_end_x > (uint32_t)ml);
+                }
+                if (overlap) {
+                    int32_t new_t = (int32_t)cold->strut.top;
+                    if (new_t > mon->workarea.y) {
+                        mon->workarea.h -= (uint16_t)(new_t - mon->workarea.y);
+                        mon->workarea.y = (int16_t)new_t;
+                    }
+                }
+            }
+            if (cold->strut.bottom > 0) {
+                xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+                int32_t b_edge = (int32_t)screen->height_in_pixels - (int32_t)cold->strut.bottom;
+                if (b_edge < mb && b_edge > mt) {
+                    bool overlap = true;
+                    if (cold->strut_partial_active) {
+                        overlap =
+                            (cold->strut.bottom_start_x < (uint32_t)mr && cold->strut.bottom_end_x > (uint32_t)ml);
+                    }
+                    if (overlap) {
+                        if (b_edge < (int32_t)(mon->workarea.y + mon->workarea.h)) {
+                            mon->workarea.h = (uint16_t)(b_edge - mon->workarea.y);
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    out->x = (int16_t)l;
-    out->y = (int16_t)t;
-    out->w = (uint16_t)((r > l) ? (r - l) : 0);
-    out->h = (uint16_t)((b > t) ? (b - t) : 0);
+    // 3. Set output workarea to the primary monitor's workarea (first monitor)
+    if (s->monitor_count > 0) {
+        *out = s->monitors[0].workarea;
+    } else {
+        *out = default_mon.workarea;
+    }
 }
 
 void wm_switch_workspace(server_t* s, uint32_t new_desktop) {
@@ -269,11 +333,7 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
         }
     }
 
-    uint32_t prop_val = desktop;
-    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
-                        &prop_val);
-
-    c->dirty |= DIRTY_STATE;
+    c->dirty |= DIRTY_STATE | DIRTY_DESKTOP;
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING | ROOT_DIRTY_ACTIVE_WINDOW;
 }
 
@@ -286,23 +346,9 @@ void wm_client_toggle_sticky(server_t* s, handle_t h) {
     LOG_INFO("Client %u sticky toggled to %d", c->xid, c->sticky);
 
     if (c->state == STATE_MAPPED) {
-        bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
-        if (visible) {
-            TRACE_LOG("toggle_sticky map h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
-            xcb_map_window(s->conn, c->frame);
-            uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
-                                state_vals);
-            c->dirty |= DIRTY_STATE;
-        } else {
-            TRACE_LOG("toggle_sticky unmap h=%lx xid=%u desktop=%d sticky=%d", h, c->xid, c->desktop, c->sticky);
-            xcb_unmap_window(s->conn, c->frame);
-            uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_ICONIC, XCB_NONE};
-            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms.WM_STATE, atoms.WM_STATE, 32, 2,
-                                state_vals);
-            c->dirty |= DIRTY_STATE;
-        }
+        s->root_dirty |= ROOT_DIRTY_VISIBILITY;
 
+        bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
         if (!visible && s->focused_client == h) {
             handle_t new_focus = HANDLE_INVALID;
             for (list_node_t* node = s->focus_history.next; node != &s->focus_history; node = node->next) {
@@ -316,9 +362,5 @@ void wm_client_toggle_sticky(server_t* s, handle_t h) {
         }
     }
 
-    uint32_t desktop = c->sticky ? 0xFFFFFFFFu : (uint32_t)c->desktop;
-    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, c->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
-                        &desktop);
-
-    c->dirty |= DIRTY_STATE;
+    c->dirty |= DIRTY_STATE | DIRTY_DESKTOP;
 }

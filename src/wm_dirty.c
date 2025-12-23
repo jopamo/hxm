@@ -146,6 +146,18 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
  * as-is (or omit it) instead of incorrectly reusing stacking order.
  */
 void wm_flush_dirty(server_t* s) {
+    s->in_commit_phase = true;
+
+    // 0. Handle new clients ready to be managed
+    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+        if (!slotmap_is_used_idx(&s->clients, i)) continue;
+        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+        if (hot->state == STATE_READY) {
+            handle_t h = slotmap_handle_at(&s->clients, i);
+            client_finish_manage(s, h);
+        }
+    }
+
     // 1. Visibility (Map/Unmap) - Must happen before focus
     if (s->root_dirty & ROOT_DIRTY_VISIBILITY) {
         for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
@@ -273,11 +285,11 @@ void wm_flush_dirty(server_t* s) {
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_NAME, atoms.UTF8_STRING, 0, 1024).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_NAME,
-                            wm_handle_reply);
+                            s->txn_id, wm_handle_reply);
 
             c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME,
-                            wm_handle_reply);
+                            s->txn_id, wm_handle_reply);
 
             hot->dirty &= ~DIRTY_TITLE;
         }
@@ -286,23 +298,23 @@ void wm_flush_dirty(server_t* s) {
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NORMAL_HINTS, XCB_ATOM_WM_SIZE_HINTS, 0, 32).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                            ((uint64_t)hot->xid << 32) | atoms.WM_NORMAL_HINTS, wm_handle_reply);
+                            ((uint64_t)hot->xid << 32) | atoms.WM_NORMAL_HINTS, s->txn_id, wm_handle_reply);
 
             c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_HINTS, atoms.WM_HINTS, 0, 32).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_HINTS,
-                            wm_handle_reply);
+                            s->txn_id, wm_handle_reply);
 
             c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_COLORMAP_WINDOWS, XCB_ATOM_WINDOW, 0, 64).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                            ((uint64_t)hot->xid << 32) | atoms.WM_COLORMAP_WINDOWS, wm_handle_reply);
+                            ((uint64_t)hot->xid << 32) | atoms.WM_COLORMAP_WINDOWS, s->txn_id, wm_handle_reply);
 
             c = xcb_get_property(s->conn, 0, hot->xid, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                            ((uint64_t)hot->xid << 32) | atoms._MOTIF_WM_HINTS, wm_handle_reply);
+                            ((uint64_t)hot->xid << 32) | atoms._MOTIF_WM_HINTS, s->txn_id, wm_handle_reply);
 
             c = xcb_get_property(s->conn, 0, hot->xid, atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 0, 4).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                            ((uint64_t)hot->xid << 32) | atoms._GTK_FRAME_EXTENTS, wm_handle_reply);
+                            ((uint64_t)hot->xid << 32) | atoms._GTK_FRAME_EXTENTS, s->txn_id, wm_handle_reply);
 
             hot->dirty &= ~DIRTY_HINTS;
         }
@@ -311,11 +323,11 @@ void wm_flush_dirty(server_t* s) {
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                            ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT_PARTIAL, wm_handle_reply);
+                            ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT_PARTIAL, s->txn_id, wm_handle_reply);
 
             c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT,
-                            wm_handle_reply);
+                            s->txn_id, wm_handle_reply);
 
             hot->dirty &= ~DIRTY_STRUT;
         }
@@ -324,15 +336,19 @@ void wm_flush_dirty(server_t* s) {
             uint32_t c =
                 xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 0, 1).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
-                            ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_OPACITY, wm_handle_reply);
+                            ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_OPACITY, s->txn_id, wm_handle_reply);
 
             hot->dirty &= ~DIRTY_OPACITY;
         }
 
-        if (hot->dirty & DIRTY_FRAME_STYLE) {
-            frame_redraw(s, h, FRAME_REDRAW_ALL);
-            hot->dirty &= ~DIRTY_FRAME_STYLE;
+        if (hot->dirty & DIRTY_DESKTOP) {
+            uint32_t desktop = hot->sticky ? 0xFFFFFFFFu : (uint32_t)hot->desktop;
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32,
+                                1, &desktop);
+            hot->dirty &= ~DIRTY_DESKTOP;
         }
+
+        frame_flush(s, h);
 
         if (hot->dirty & DIRTY_STACK) {
             TRACE_LOG("flush_dirty stack h=%lx layer=%d stack_layer=%d", h, hot->layer, hot->stacking_layer);
@@ -535,5 +551,6 @@ void wm_flush_dirty(server_t* s) {
         s->root_dirty &= ~ROOT_DIRTY_SHOWING_DESKTOP;
     }
 
+    s->in_commit_phase = false;
     xcb_flush(s->conn);
 }

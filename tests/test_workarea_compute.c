@@ -34,6 +34,7 @@ void test_workarea_compute(void) {
     rect_t wa;
     wm_compute_workarea(&s, &wa);
 
+    printf("wa: x=%d y=%d w=%u h=%u\n", wa.x, wa.y, wa.w, wa.h);
     assert(wa.x == 50);
     assert(wa.y == 30);
     assert(wa.w == 1870);

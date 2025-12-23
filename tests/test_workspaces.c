@@ -242,6 +242,7 @@ void test_client_toggle_sticky(void) {
     // Toggle sticky (should become visible because sticky)
     printf("Toggling sticky for c1 (on desktop 1, currently at 0)...\n");
     wm_client_toggle_sticky(&s, h1);
+    wm_flush_dirty(&s);
     assert(c1->sticky == true);
     assert(stub_map_window_count == 1);
     assert(stub_last_mapped_window == 1001);
@@ -249,6 +250,7 @@ void test_client_toggle_sticky(void) {
     // Toggle back
     printf("Toggling sticky off for c1...\n");
     wm_client_toggle_sticky(&s, h1);
+    wm_flush_dirty(&s);
     assert(c1->sticky == false);
     assert(stub_unmap_window_count == 1);
     assert(stub_last_unmapped_window == 1001);

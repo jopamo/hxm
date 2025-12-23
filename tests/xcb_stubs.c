@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcb/randr.h>
 #include <xcb/xcb.h>
 #include <xcb/xproto.h>
 
@@ -1105,4 +1106,76 @@ xcb_void_cookie_t xcb_free_colormap(xcb_connection_t* c, xcb_colormap_t cmap) {
 
 xcb_void_cookie_t xcb_free_colormap_checked(xcb_connection_t* c, xcb_colormap_t cmap) {
     return xcb_free_colormap(c, cmap);
+}
+
+// RandR stubs
+xcb_randr_get_screen_resources_current_cookie_t xcb_randr_get_screen_resources_current(xcb_connection_t* c,
+                                                                                       xcb_window_t window) {
+    (void)c;
+    (void)window;
+    return (xcb_randr_get_screen_resources_current_cookie_t){stub_cookie_seq++};
+}
+
+xcb_randr_get_screen_resources_current_reply_t* xcb_randr_get_screen_resources_current_reply(
+    xcb_connection_t* c, xcb_randr_get_screen_resources_current_cookie_t cookie, xcb_generic_error_t** e) {
+    (void)c;
+    (void)cookie;
+    (void)e;
+    xcb_randr_get_screen_resources_current_reply_t* r = calloc(1, sizeof(*r));
+    r->num_crtcs = 0;
+    return r;
+}
+
+xcb_randr_crtc_t* xcb_randr_get_screen_resources_current_crtcs(
+    const xcb_randr_get_screen_resources_current_reply_t* R) {
+    (void)R;
+    return NULL;
+}
+
+int xcb_randr_get_screen_resources_current_crtcs_length(const xcb_randr_get_screen_resources_current_reply_t* R) {
+    return (int)R->num_crtcs;
+}
+
+xcb_randr_get_crtc_info_cookie_t xcb_randr_get_crtc_info(xcb_connection_t* c, xcb_randr_crtc_t crtc,
+                                                         xcb_timestamp_t config_timestamp) {
+    (void)c;
+    (void)crtc;
+    (void)config_timestamp;
+    return (xcb_randr_get_crtc_info_cookie_t){stub_cookie_seq++};
+}
+
+xcb_randr_get_crtc_info_reply_t* xcb_randr_get_crtc_info_reply(xcb_connection_t* c,
+                                                               xcb_randr_get_crtc_info_cookie_t cookie,
+                                                               xcb_generic_error_t** e) {
+    (void)c;
+    (void)cookie;
+    (void)e;
+    return NULL;
+}
+
+xcb_void_cookie_t xcb_randr_select_input(xcb_connection_t* c, xcb_window_t window, uint16_t enable) {
+    (void)c;
+    (void)window;
+    (void)enable;
+    return (xcb_void_cookie_t){0};
+}
+
+xcb_randr_query_version_cookie_t xcb_randr_query_version(xcb_connection_t* c, uint32_t major_version,
+                                                         uint32_t minor_version) {
+    (void)c;
+    (void)major_version;
+    (void)minor_version;
+    return (xcb_randr_query_version_cookie_t){stub_cookie_seq++};
+}
+
+xcb_randr_query_version_reply_t* xcb_randr_query_version_reply(xcb_connection_t* c,
+                                                               xcb_randr_query_version_cookie_t cookie,
+                                                               xcb_generic_error_t** e) {
+    (void)c;
+    (void)cookie;
+    (void)e;
+    xcb_randr_query_version_reply_t* r = calloc(1, sizeof(*r));
+    r->major_version = 1;
+    r->minor_version = 5;
+    return r;
 }

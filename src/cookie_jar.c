@@ -120,28 +120,27 @@ void cookie_jar_destroy(cookie_jar_t* cj) {
 }
 
 bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data,
-                     cookie_handler_fn handler) {
-    // Grow before we hit the load factor
-    if ((cj->live_count + 1) * COOKIE_JAR_MAX_LOAD_DEN >= cj->cap * COOKIE_JAR_MAX_LOAD_NUM) {
-        cookie_jar_grow(cj, cj->cap ? (cj->cap * 2) : 16);
+                     uint64_t txn_id, cookie_handler_fn handler) {
+    if (cj->live_count * COOKIE_JAR_MAX_LOAD_DEN >= cj->cap * COOKIE_JAR_MAX_LOAD_NUM) {
+        cookie_jar_grow(cj, cj->cap * 2);
     }
 
     size_t idx = cookie_jar_probe(cj, sequence);
-    if (cj->slots[idx].live) {
-        LOG_WARN("CookieJar seq collision %u", sequence);
-        return false;
+    cookie_slot_t* slot = &cj->slots[idx];
+
+    if (!slot->live) {
+        cj->live_count++;
     }
 
-    cookie_slot_t* slot = &cj->slots[idx];
     slot->sequence = sequence;
     slot->type = type;
     slot->client = client;
     slot->data = data;
     slot->timestamp_ns = monotonic_time_ns();
+    slot->txn_id = txn_id;
     slot->handler = handler;
     slot->live = true;
 
-    cj->live_count++;
     return true;
 }
 

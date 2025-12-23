@@ -275,7 +275,7 @@ static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, c
             if (hot->manage_phase != MANAGE_DONE) hot->pending_replies++;
             uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME,
-                            wm_handle_reply);
+                            s->txn_id, wm_handle_reply);
             return;
         }
 
@@ -302,7 +302,7 @@ static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, c
             if (hot->manage_phase != MANAGE_DONE) hot->pending_replies++;
             uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_ICON_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
             cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_ICON_NAME,
-                            wm_handle_reply);
+                            s->txn_id, wm_handle_reply);
             return;
         }
 
@@ -432,6 +432,13 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
         LOG_DEBUG("Received reply for stale client handle %lx", slot->client);
         return;
     }
+
+    if (slot->txn_id < hot->last_applied_txn_id) {
+        LOG_DEBUG("Discarding stale reply for client %u (txn_id %lu < last %lu)", hot->xid, slot->txn_id,
+                  hot->last_applied_txn_id);
+        goto done_one;
+    }
+    hot->last_applied_txn_id = slot->txn_id;
 
     if (!reply) {
         LOG_WARN("NULL reply for cookie type %d client %u", slot->type, hot->xid);
@@ -741,7 +748,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     for (int i = 0; i < num_types; i++) {
                         if (types[i] == atoms._NET_WM_WINDOW_TYPE_DOCK) {
                             hot->type = WINDOW_TYPE_DOCK;
-                            hot->base_layer = LAYER_ABOVE;
+                            hot->base_layer = LAYER_DOCK;
                             hot->flags |= CLIENT_FLAG_UNDECORATED;
                             hot->type_from_net = true;
                             break;
@@ -1128,10 +1135,7 @@ done_one:
         return;
     }
 
-    if (hot->manage_phase == MANAGE_PHASE1) {
-        hot->manage_phase = MANAGE_DONE;
-        LOG_INFO("Finishing management for window %u", hot->xid);
-        client_finish_manage(s, slot->client);
-        return;
+    if (hot->pending_replies == 0 && hot->manage_phase == MANAGE_PHASE1) {
+        hot->state = STATE_READY;
     }
 }

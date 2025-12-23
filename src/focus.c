@@ -76,6 +76,7 @@ void wm_set_focus(server_t* s, handle_t h) {
                 old->flags &= ~CLIENT_FLAG_FOCUSED;
                 old->dirty |= DIRTY_FRAME_STYLE | DIRTY_STATE;
             }
+            wm_cancel_interaction(s);
         }
 
         s->focused_client = h;

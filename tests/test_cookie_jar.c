@@ -147,7 +147,7 @@ static void test_push_and_drain(void) {
     stub_poll_for_reply_hook = mock_poll;
 
     uint32_t seq = 123;
-    bool pushed = cookie_jar_push(&cj, seq, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+    bool pushed = cookie_jar_push(&cj, seq, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
     assert(pushed);
     assert(cj.live_count == 1);
 
@@ -178,12 +178,12 @@ static void test_duplicate_push_rejected_or_replaced(void) {
     stub_poll_for_reply_hook = mock_poll;
 
     uint32_t seq = 42;
-    bool p1 = cookie_jar_push(&cj, seq, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+    bool p1 = cookie_jar_push(&cj, seq, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
     assert(p1);
     assert(cj.live_count == 1);
 
     // Depending on implementation, pushing same seq may be rejected or replace
-    bool p2 = cookie_jar_push(&cj, seq, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+    bool p2 = cookie_jar_push(&cj, seq, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
 
     // Allowed outcomes:
     // - rejected -> live_count unchanged
@@ -213,7 +213,7 @@ static void test_drain_budget_respected(void) {
     // push many
     const uint32_t N = 200;
     for (uint32_t i = 1; i <= N; i++) {
-        bool ok = cookie_jar_push(&cj, i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+        bool ok = cookie_jar_push(&cj, i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
         assert(ok);
     }
     assert(cj.live_count == N);
@@ -246,7 +246,7 @@ static void test_growth_and_reachability(void) {
     // push enough to grow
     const uint32_t N = 3000;
     for (uint32_t i = 1; i <= N; i++) {
-        bool pushed = cookie_jar_push(&cj, i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+        bool pushed = cookie_jar_push(&cj, i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
         assert(pushed);
     }
 
@@ -278,8 +278,8 @@ static void test_collisions_linear_probe(void) {
     // it just requires both entries to be drainable.
     stub_poll_for_reply_hook = mock_poll;
 
-    bool p1 = cookie_jar_push(&cj, 1, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
-    bool p2 = cookie_jar_push(&cj, 17, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+    bool p1 = cookie_jar_push(&cj, 1, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+    bool p2 = cookie_jar_push(&cj, 17, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
     assert(p1 && p2);
     assert(cj.live_count == 2);
 
@@ -312,7 +312,7 @@ static void test_remove_breaks_chain_regression(void) {
     const uint32_t count = 64;
 
     for (uint32_t i = 0; i < count; i++) {
-        bool ok = cookie_jar_push(&cj, base + i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+        bool ok = cookie_jar_push(&cj, base + i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
         assert(ok);
     }
     assert(cj.live_count == count);
@@ -353,7 +353,7 @@ static void test_error_path(void) {
     stub_poll_for_reply_hook = mock_poll;
 
     reset_handler_state();
-    bool pushed = cookie_jar_push(&cj, 500, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+    bool pushed = cookie_jar_push(&cj, 500, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
     assert(pushed);
 
     // ready error, no reply
@@ -381,7 +381,7 @@ static void test_reply_and_error_both(void) {
     stub_poll_for_reply_hook = mock_poll;
 
     reset_handler_state();
-    bool pushed = cookie_jar_push(&cj, 501, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+    bool pushed = cookie_jar_push(&cj, 501, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
     assert(pushed);
 
     // ready both
@@ -408,7 +408,7 @@ static void test_timeout(void) {
     g_use_mock_time = true;
     g_mock_time = 1000000000ULL;
 
-    bool pushed = cookie_jar_push(&cj, 999, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+    bool pushed = cookie_jar_push(&cj, 999, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
     assert(pushed);
 
     // not ready, +1s
@@ -443,7 +443,7 @@ static void test_timeout_then_late_reply_ignored(void) {
     g_mock_time = 1000000000ULL;
 
     reset_handler_state();
-    bool pushed = cookie_jar_push(&cj, 1001, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+    bool pushed = cookie_jar_push(&cj, 1001, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
     assert(pushed);
 
     // force timeout
@@ -477,7 +477,7 @@ static void test_cursor_fairness_progress(void) {
     const size_t n = sizeof(keys) / sizeof(keys[0]);
 
     for (size_t i = 0; i < n; i++) {
-        bool ok = cookie_jar_push(&cj, keys[i], COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+        bool ok = cookie_jar_push(&cj, keys[i], COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
         assert(ok);
     }
     assert(cj.live_count == n);
@@ -504,7 +504,7 @@ static void test_performance_smoke(void) {
     const int N = 20000;
 
     for (int i = 0; i < N; i++) {
-        bool ok = cookie_jar_push(&cj, (uint32_t)(i + 1), COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, mock_handler);
+        bool ok = cookie_jar_push(&cj, (uint32_t)(i + 1), COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
         assert(ok);
     }
 

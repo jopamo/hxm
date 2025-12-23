@@ -253,7 +253,7 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
                     if (b->action == ACTION_MOVE) {
                         xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
                         cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, s->focused_client, 0x100,
-                                        wm_handle_reply);
+                                        s->txn_id, wm_handle_reply);
                     } else {
                         // RESIZE: Warp to bottom right
                         root_x = hot->server.x + hot->server.w;

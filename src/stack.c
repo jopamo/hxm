@@ -6,6 +6,7 @@
  *  - Within a layer: index 0 is bottom, last index is top
  *  - We keep the in-memory order authoritative and push minimal X restacks
  */
+#include <assert.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
@@ -352,6 +353,7 @@ static xcb_window_t find_window_above(server_t* s, client_hot_t* c) {
 
 void stack_sync_to_xcb(server_t* s, handle_t h) {
     if (!s) return;
+    assert(s->in_commit_phase);
 
     client_hot_t* c = server_chot(s, h);
     if (!c) return;
