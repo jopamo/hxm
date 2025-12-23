@@ -417,6 +417,25 @@ void wm_become(server_t* s) {
     LOG_INFO("Became WM on root %u, supporting %u", root, s->supporting_wm_check);
 }
 
+void wm_release(server_t* s) {
+    if (!s || !s->conn) return;
+    if (s->supporting_wm_check == XCB_WINDOW_NONE) return;
+
+    xcb_connection_t* conn = s->conn;
+    xcb_window_t root = s->root;
+    xcb_window_t support = s->supporting_wm_check;
+
+    xcb_delete_property(conn, root, atoms._NET_SUPPORTING_WM_CHECK);
+    xcb_delete_property(conn, support, atoms._NET_SUPPORTING_WM_CHECK);
+    xcb_delete_property(conn, support, atoms._NET_WM_NAME);
+
+    xcb_set_selection_owner(conn, XCB_NONE, atoms.WM_S0, XCB_CURRENT_TIME);
+    xcb_destroy_window(conn, support);
+    xcb_flush(conn);
+
+    s->supporting_wm_check = XCB_WINDOW_NONE;
+}
+
 void wm_adopt_children(server_t* s) {
     LOG_INFO("Adopting existing windows...");
     xcb_query_tree_cookie_t cookie = xcb_query_tree(s->conn, s->root);

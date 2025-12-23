@@ -14,6 +14,7 @@ typedef struct server server_t;
 typedef struct pending_config pending_config_t;
 
 void wm_become(server_t* s);
+void wm_release(server_t* s);
 void wm_publish_desktop_props(server_t* s);
 void wm_compute_workarea(server_t* s, rect_t* out);
 
