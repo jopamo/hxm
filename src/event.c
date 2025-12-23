@@ -21,6 +21,7 @@
 #include "frame.h"
 #include "hxm.h"
 #include "wm.h"
+#include "wm_internal.h"
 #include "xcb_utils.h"
 
 /*

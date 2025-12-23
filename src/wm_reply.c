@@ -407,6 +407,27 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 LOG_INFO("Adopting window %u (map_state %d)", win, r->map_state);
                 client_manage_start(s, win);
             }
+        } else if (slot->type == COOKIE_GET_PROPERTY_FRAME_EXTENTS) {
+            xcb_get_property_reply_t* r = (xcb_get_property_reply_t*)reply;
+            xcb_window_t win = (xcb_window_t)slot->data;
+            bool undecorated = false;
+
+            int len = r ? xcb_get_property_value_length(r) : 0;
+            if (r && r->format == 32 && len >= (int)(3 * sizeof(uint32_t))) {
+                const uint32_t* hints = (const uint32_t*)xcb_get_property_value(r);
+                uint32_t flags = hints[0];
+                uint32_t decorations = hints[2];
+                if (flags & MWM_HINTS_DECORATIONS) {
+                    bool want_border = (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_BORDER)
+                                                                     : (decorations & MWM_DECOR_BORDER);
+                    bool want_title = (decorations & MWM_DECOR_ALL) ? !(decorations & MWM_DECOR_TITLE)
+                                                                    : (decorations & MWM_DECOR_TITLE);
+                    undecorated = !(want_border && want_title);
+                }
+            }
+
+            TRACE_LOG("_NET_REQUEST_FRAME_EXTENTS win=%u undecorated=%d (async)", win, undecorated);
+            wm_set_frame_extents_for_window(s, win, undecorated);
         }
         return;
     }

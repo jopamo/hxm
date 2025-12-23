@@ -16,5 +16,6 @@ void wm_publish_workarea(server_t* s, const rect_t* wa);
 void wm_set_showing_desktop(server_t* s, bool show);
 void wm_install_client_colormap(server_t* s, client_hot_t* hot);
 void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom);
+void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecorated);
 
 #endif
