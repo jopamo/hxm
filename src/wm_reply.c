@@ -452,6 +452,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             hot->server.w = r->width;
             hot->server.h = r->height;
             hot->depth = r->depth;
+            hot->original_border_width = r->border_width;
 
             if (r->width == 0 || r->height == 0) {
                 hot->server.w = 800;
