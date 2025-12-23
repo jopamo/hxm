@@ -217,7 +217,7 @@ static void test_resize_corner_top_left(void) {
     handle_t h = add_mapped_client(&s, 4001, 4101);
     client_hot_t* hot = server_chot(&s, h);
 
-    wm_start_interaction(&s, h, hot, false, RESIZE_TOP | RESIZE_LEFT, 100, 100);
+    wm_start_interaction(&s, h, hot, false, RESIZE_TOP | RESIZE_LEFT, 100, 100, XCB_CURRENT_TIME);
     assert(stub_grab_pointer_count == 1);
 
     xcb_motion_notify_event_t motion = {0};

@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcb/sync.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_icccm.h>
 
@@ -19,6 +20,35 @@ static bool wm_client_is_hidden(const server_t* s, const client_hot_t* hot) {
     if (hot->state != STATE_MAPPED) return true;
     if (!hot->sticky && hot->desktop != (int32_t)s->current_desktop) return true;
     return false;
+}
+
+static void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, uint32_t time) {
+    xcb_client_message_event_t ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.response_type = XCB_CLIENT_MESSAGE;
+    ev.format = 32;
+    ev.window = hot->xid;
+    ev.type = atoms.WM_PROTOCOLS;
+    ev.data.data32[0] = atoms._NET_WM_SYNC_REQUEST;
+    if (time == 0) time = hot->user_time ? hot->user_time : XCB_CURRENT_TIME;
+    ev.data.data32[1] = time;
+    ev.data.data32[2] = (uint32_t)(value & 0xFFFFFFFFu);
+    ev.data.data32[3] = (uint32_t)(value >> 32);
+    ev.data.data32[4] = 0;
+    xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
+}
+
+static void wm_sync_await(server_t* s, const client_hot_t* hot, uint64_t value) {
+    xcb_sync_waitcondition_t wc;
+    memset(&wc, 0, sizeof(wc));
+    wc.trigger.counter = (xcb_sync_counter_t)hot->sync_counter;
+    wc.trigger.wait_type = XCB_SYNC_VALUETYPE_ABSOLUTE;
+    wc.trigger.wait_value.hi = (int32_t)(value >> 32);
+    wc.trigger.wait_value.lo = (uint32_t)(value & 0xFFFFFFFFu);
+    wc.trigger.test_type = XCB_SYNC_TESTTYPE_POSITIVE_COMPARISON;
+    wc.event_threshold.hi = 0;
+    wc.event_threshold.lo = 0;
+    xcb_sync_await(s->conn, 1, &wc);
 }
 
 void wm_send_synthetic_configure(server_t* s, handle_t h) {
@@ -147,6 +177,8 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
  */
 void wm_flush_dirty(server_t* s) {
     s->in_commit_phase = true;
+    handle_t sync_wait_client = HANDLE_INVALID;
+    uint64_t sync_wait_value = 0;
 
     // 0. Handle new clients ready to be managed
     for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
@@ -203,6 +235,19 @@ void wm_flush_dirty(server_t* s) {
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED || hot->state == STATE_NEW) continue;
 
         if (hot->dirty & DIRTY_GEOM) {
+            bool interactive_resize =
+                (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame);
+            bool do_sync = interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE;
+            uint64_t sync_value = 0;
+            if (do_sync) {
+                sync_value = ++hot->sync_value;
+                wm_send_sync_request(s, hot, sync_value, s->interaction_time);
+                if (sync_wait_client == HANDLE_INVALID) {
+                    sync_wait_client = h;
+                    sync_wait_value = sync_value;
+                }
+            }
+
             uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
             uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
 
@@ -549,6 +594,13 @@ void wm_flush_dirty(server_t* s) {
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_SHOWING_DESKTOP, XCB_ATOM_CARDINAL, 32,
                             1, &val);
         s->root_dirty &= ~ROOT_DIRTY_SHOWING_DESKTOP;
+    }
+
+    if (sync_wait_client != HANDLE_INVALID) {
+        client_hot_t* wait_hot = server_chot(s, sync_wait_client);
+        if (wait_hot && wait_hot->sync_enabled && wait_hot->sync_counter != XCB_NONE) {
+            wm_sync_await(s, wait_hot, sync_wait_value);
+        }
     }
 
     s->in_commit_phase = false;

@@ -194,6 +194,7 @@ typedef struct client_hot {
     xcb_window_t user_time_window;
     bool sync_enabled;
     uint32_t sync_counter;
+    uint64_t sync_value;
 
     bool icon_geometry_valid;
     rect_t icon_geometry;

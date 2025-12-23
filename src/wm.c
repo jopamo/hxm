@@ -315,6 +315,7 @@ void wm_become(server_t* s) {
         atoms._NET_WM_PID,
         atoms._NET_WM_USER_TIME,
         atoms._NET_WM_USER_TIME_WINDOW,
+        atoms._NET_WM_SYNC_REQUEST,
         atoms._NET_WM_SYNC_REQUEST_COUNTER,
         atoms._NET_WM_ICON_GEOMETRY,
         atoms._NET_WM_WINDOW_OPACITY,
@@ -567,6 +568,15 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
         hot->dirty |= DIRTY_HINTS | DIRTY_STATE;
     } else if (ev->atom == atoms.WM_COLORMAP_WINDOWS) {
         hot->dirty |= DIRTY_HINTS;
+    } else if (ev->atom == atoms.WM_PROTOCOLS) {
+        xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_PROTOCOLS, XCB_ATOM_ATOM, 0, 32);
+        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
+                        ((uint64_t)hot->xid << 32) | atoms.WM_PROTOCOLS, s->txn_id, wm_handle_reply);
+    } else if (ev->atom == atoms._NET_WM_SYNC_REQUEST_COUNTER) {
+        xcb_get_property_cookie_t ck =
+            xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_SYNC_REQUEST_COUNTER, XCB_ATOM_CARDINAL, 0, 1);
+        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
+                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, s->txn_id, wm_handle_reply);
     } else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
         hot->dirty |= DIRTY_STRUT;
         s->root_dirty |= ROOT_DIRTY_WORKAREA;
@@ -708,16 +718,19 @@ void wm_cancel_interaction(server_t* s) {
     if (s->interaction_mode == INTERACTION_NONE) return;
     s->interaction_mode = INTERACTION_NONE;
     s->interaction_resize_dir = RESIZE_NONE;
+    s->interaction_window = XCB_NONE;
+    s->interaction_time = 0;
     xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
     LOG_INFO("Ended interaction");
 }
 
 void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir, int16_t root_x,
-                          int16_t root_y) {
+                          int16_t root_y, uint32_t time) {
     assert(s->interaction_mode == INTERACTION_NONE);
     s->interaction_mode = start_move ? INTERACTION_MOVE : INTERACTION_RESIZE;
     s->interaction_resize_dir = resize_dir;
     s->interaction_window = hot->frame;
+    s->interaction_time = time;
 
     s->interaction_start_x = hot->server.x;
     s->interaction_start_y = hot->server.y;
@@ -852,7 +865,7 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
         return;
     }
 
-    wm_start_interaction(s, h, hot, start_move, resize_dir, ev->root_x, ev->root_y);
+    wm_start_interaction(s, h, hot, start_move, resize_dir, ev->root_x, ev->root_y, ev->time);
 
     xcb_allow_events(s->conn, XCB_ALLOW_ASYNC_POINTER, ev->time);
 }
@@ -1537,7 +1550,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
             xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
             cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, s->txn_id, wm_handle_reply);
         } else {
-            wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y);
+            wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y, 0);
         }
         return;
     }

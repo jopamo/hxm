@@ -262,7 +262,7 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
                         xcb_warp_pointer(s->conn, XCB_NONE, s->root, 0, 0, 0, 0, root_x, root_y);
 
                         wm_start_interaction(s, s->focused_client, hot, false, RESIZE_BOTTOM | RESIZE_RIGHT, root_x,
-                                             root_y);
+                                             root_y, XCB_CURRENT_TIME);
                     }
                 }
                 break;

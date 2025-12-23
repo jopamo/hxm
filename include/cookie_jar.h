@@ -16,6 +16,7 @@ typedef enum cookie_type {
     COOKIE_GET_PROPERTY_FRAME_EXTENTS,
     COOKIE_QUERY_TREE,
     COOKIE_QUERY_POINTER,
+    COOKIE_SYNC_QUERY_COUNTER,
 } cookie_type_t;
 
 struct server;
