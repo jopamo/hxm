@@ -388,6 +388,13 @@ test_ewmh_props = executable('test_ewmh_props',
 )
 test('ewmh_props', test_ewmh_props)
 
+test_ewmh_negative = executable('test_ewmh_negative',
+  ['tests/test_ewmh_negative.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('ewmh_negative', test_ewmh_negative)
+
 test_configure_geometry = executable('test_configure_geometry',
   ['tests/test_configure_geometry.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,

@@ -490,6 +490,16 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
         wm_compute_workarea(s, &wa);
         wm_publish_workarea(s, &wa);
 
+        if (!s->config.fullscreen_use_workarea) {
+            for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+                if (!slotmap_is_used_idx(&s->clients, i)) continue;
+                client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+                if (hot->layer != LAYER_FULLSCREEN) continue;
+                wm_get_monitor_geometry(s, hot, &hot->desired);
+                hot->dirty |= DIRTY_GEOM;
+            }
+        }
+
         free(ev);
         return;
     }

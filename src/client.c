@@ -491,13 +491,15 @@ void client_finish_manage(server_t* s, handle_t h) {
 
     // Set _NET_FRAME_EXTENTS (before mapping)
     // if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
-    if ((hot->flags & CLIENT_FLAG_UNDECORATED)) {
-        xcb_delete_property(s->conn, hot->xid, atoms._NET_FRAME_EXTENTS);
-    } else {
-        uint32_t extents[4] = {bw, bw, th + bw, bw};
-        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32,
-                            4, extents);
+    uint32_t extents[4] = {bw, bw, th + bw, bw};
+    if (hot->flags & CLIENT_FLAG_UNDECORATED) {
+        extents[0] = 0;
+        extents[1] = 0;
+        extents[2] = 0;
+        extents[3] = 0;
     }
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4,
+                        extents);
 
     if (hot->window_opacity_valid) {
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL,
