@@ -201,7 +201,16 @@ int main(int argc, char** argv) {
                 vals[i] = parse_u32(argv[4 + i]);
             }
         }
-        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, win, atom, XCB_ATOM_CARDINAL, 32, count, vals);
+        xcb_void_cookie_t ck =
+            xcb_change_property_checked(conn, XCB_PROP_MODE_REPLACE, win, atom, XCB_ATOM_CARDINAL, 32, count, vals);
+        xcb_generic_error_t* err = xcb_request_check(conn, ck);
+        if (err) {
+            fprintf(stderr, "x_test_client: change_property failed (cardinals) err=%d\n", err->error_code);
+            free(err);
+            free(vals);
+            xcb_disconnect(conn);
+            return 1;
+        }
         free(vals);
         xcb_flush(conn);
         xcb_disconnect(conn);
@@ -218,7 +227,16 @@ int main(int argc, char** argv) {
         for (int i = 0; i < count; i++) {
             vals[i] = get_atom(conn, argv[4 + i]);
         }
-        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, win, atom, XCB_ATOM_ATOM, 32, count, vals);
+        xcb_void_cookie_t ck =
+            xcb_change_property_checked(conn, XCB_PROP_MODE_REPLACE, win, atom, XCB_ATOM_ATOM, 32, count, vals);
+        xcb_generic_error_t* err = xcb_request_check(conn, ck);
+        if (err) {
+            fprintf(stderr, "x_test_client: change_property failed (atoms) err=%d\n", err->error_code);
+            free(err);
+            free(vals);
+            xcb_disconnect(conn);
+            return 1;
+        }
         free(vals);
         xcb_flush(conn);
         xcb_disconnect(conn);
@@ -232,7 +250,14 @@ int main(int argc, char** argv) {
         xcb_atom_t type = get_atom(conn, argv[4]);
         const char* value = argv[5];
         uint32_t len = (uint32_t)strlen(value);
-        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, win, atom, type, 8, len, value);
+        xcb_void_cookie_t ck = xcb_change_property_checked(conn, XCB_PROP_MODE_REPLACE, win, atom, type, 8, len, value);
+        xcb_generic_error_t* err = xcb_request_check(conn, ck);
+        if (err) {
+            fprintf(stderr, "x_test_client: change_property failed (string) err=%d\n", err->error_code);
+            free(err);
+            xcb_disconnect(conn);
+            return 1;
+        }
         xcb_flush(conn);
         xcb_disconnect(conn);
         return 0;
@@ -253,7 +278,14 @@ int main(int argc, char** argv) {
         if (argc != 4) usage();
         xcb_window_t win = (xcb_window_t)parse_u32(argv[2]);
         xcb_atom_t atom = get_atom(conn, argv[3]);
-        xcb_delete_property(conn, win, atom);
+        xcb_void_cookie_t ck = xcb_delete_property_checked(conn, win, atom);
+        xcb_generic_error_t* err = xcb_request_check(conn, ck);
+        if (err) {
+            fprintf(stderr, "x_test_client: delete_property failed err=%d\n", err->error_code);
+            free(err);
+            xcb_disconnect(conn);
+            return 1;
+        }
         xcb_flush(conn);
         xcb_disconnect(conn);
         return 0;

@@ -175,6 +175,9 @@ void client_manage_start(server_t* s, xcb_window_t win) {
     // Strut, StrutPartial, Icon, PID, UserTime, UserTimeWindow,
     // SyncCounter, IconGeometry, MotifHints, GtkFrameExtents, WindowOpacity
     hot->pending_replies = 28;
+    hot->late_probe_ticks = 0;
+    hot->late_probe_attempts = 0;
+    hot->late_probe_deadline_ns = 0;
 
     cold->can_focus = true;
     cold->strut_partial_active = false;
@@ -391,6 +394,12 @@ void client_finish_manage(server_t* s, handle_t h) {
     if (!hot) return;
     TRACE_LOG("finish_manage h=%lx xid=%u desktop=%d sticky=%d initial_state=%u", h, hot->xid, hot->desktop,
               hot->sticky, hot->initial_state);
+
+    hot->late_probe_ticks = 0;
+    hot->late_probe_attempts = 0;
+    hot->late_probe_deadline_ns = 0;
+    if (s->force_poll_ticks < 200) s->force_poll_ticks = 200;
+    TRACE_LOG("force_poll schedule xid=%u ticks=%u", hot->xid, s->force_poll_ticks);
 
     client_apply_rules(s, h);
 
@@ -640,6 +649,19 @@ void client_finish_manage(server_t* s, handle_t h) {
 
     // Mark root properties dirty
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_WORKAREA;
+
+    xcb_get_window_attributes_cookie_t attr_ck = xcb_get_window_attributes(s->conn, hot->xid);
+    xcb_get_window_attributes_reply_t* attr = xcb_get_window_attributes_reply(s->conn, attr_ck, NULL);
+    if (attr) {
+        TRACE_ONLY({
+            bool has_prop = (attr->your_event_mask & XCB_EVENT_MASK_PROPERTY_CHANGE) != 0;
+            TRACE_LOG("finish_manage event_mask xid=%u mask=0x%x property_change=%d", hot->xid, attr->your_event_mask,
+                      has_prop);
+        });
+        free(attr);
+    } else {
+        TRACE_LOG("finish_manage event_mask xid=%u failed", hot->xid);
+    }
 
     LOG_INFO("Managed window %u as client %lx (frame %u)", hot->xid, h, hot->frame);
 }

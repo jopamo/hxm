@@ -176,6 +176,7 @@ typedef struct server {
     bool restarting;
     int exit_code;
     bool x_poll_immediate;
+    uint8_t force_poll_ticks;
 
     // Config
     config_t config;

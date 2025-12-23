@@ -460,7 +460,6 @@ void event_ingest(server_t* s, bool x_ready) {
 
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
     uint8_t type = ev->response_type & ~0x80;
-    fprintf(stderr, "DEBUG: Ingested event type %u\n", type);
     counters.events_seen[type]++;
 
     if (s->damage_supported && type == (uint8_t)(s->damage_event_base + XCB_DAMAGE_NOTIFY)) {
@@ -920,6 +919,37 @@ void event_drain_cookies(server_t* s) {
     }
 }
 
+static void event_force_poll_sweep(server_t* s) {
+    if (!s || s->force_poll_ticks == 0) return;
+
+    uint32_t swept = 0;
+    for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
+        if (!slotmap_is_used_idx(&s->clients, i)) continue;
+
+        client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
+        if (!hot) continue;
+        if (hot->state == STATE_UNMANAGED || hot->state == STATE_DESTROYED || hot->state == STATE_UNMANAGING) continue;
+
+        handle_t h = handle_make(i, s->clients.hdr[i].gen);
+        uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_WINDOW_TYPE, XCB_ATOM_ATOM, 0, 16).sequence;
+        cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
+                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE, wm_handle_reply);
+
+        c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12).sequence;
+        cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
+                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT_PARTIAL, wm_handle_reply);
+
+        c = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
+        cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT,
+                        wm_handle_reply);
+        swept++;
+    }
+
+    if (swept > 0) {
+        TRACE_LOG("force_poll sweep clients=%u", swept);
+    }
+}
+
 static void apply_reload(server_t* s) {
     LOG_INFO("Reloading configuration");
 
@@ -1022,8 +1052,10 @@ static bool server_wait_for_events(server_t* s) {
     }
 
     struct epoll_event ev;
+    int timeout_ms = -1;
+    if (s->force_poll_ticks > 0) timeout_ms = 1;
     for (;;) {
-        int n = epoll_wait(s->epoll_fd, &ev, 1, -1);
+        int n = epoll_wait(s->epoll_fd, &ev, 1, timeout_ms);
         if (n > 0) {
             if (ev.events & (EPOLLERR | EPOLLHUP)) {
                 g_shutdown_pending = 1;
@@ -1085,6 +1117,7 @@ void server_run(server_t* s) {
         event_ingest(s, x_ready);
         event_drain_cookies(s);
         event_process(s);
+        event_force_poll_sweep(s);
 
         xcb_flush(s->conn);
         counters.x_flush_count++;
@@ -1101,5 +1134,7 @@ void server_run(server_t* s) {
         }
         counters.tick_duration_sum += duration;
         counters.tick_count++;
+
+        if (s->force_poll_ticks > 0) s->force_poll_ticks--;
     }
 }
