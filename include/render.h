@@ -49,6 +49,10 @@ typedef struct render_context {
 
     int width;
     int height;
+
+    /* Caching to avoid re-layout churn */
+    char* last_title;
+    int last_title_width;
 } render_context_t;
 
 /* Simple color struct for interfaces and theme conversions */

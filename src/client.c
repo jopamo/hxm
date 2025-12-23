@@ -27,6 +27,7 @@
 #include "hxm_diag.h"
 #include "slotmap.h"
 #include "wm.h"
+#include "wm_internal.h"
 #include "xcb_utils.h"
 
 #ifndef ARRAY_LEN
@@ -507,6 +508,11 @@ void client_finish_manage(server_t* s, handle_t h) {
     TRACE_LOG("finish_manage visibility h=%lx visible=%d current_desktop=%u", h, visible, s->current_desktop);
 
     if (visible) {
+        if (hot->sync_enabled && hot->sync_counter != XCB_NONE) {
+            uint64_t sync_value = ++hot->sync_value;
+            wm_send_sync_request(s, hot, sync_value, XCB_CURRENT_TIME);
+        }
+
         xcb_map_window(s->conn, hot->xid);
         xcb_map_window(s->conn, hot->frame);
         hot->state = STATE_MAPPED;

@@ -39,7 +39,7 @@ static bool wm_client_is_hidden(const server_t* s, const client_hot_t* hot) {
     return false;
 }
 
-static void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, uint32_t time) {
+void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, uint32_t time) {
     xcb_client_message_event_t ev;
     memset(&ev, 0, sizeof(ev));
     ev.response_type = XCB_CLIENT_MESSAGE;
@@ -442,6 +442,13 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
                                  hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h);
 
             if (geom_changed) {
+                if (!interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE) {
+                    if (hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h) {
+                        uint64_t sync_value = ++hot->sync_value;
+                        wm_send_sync_request(s, hot, sync_value, XCB_CURRENT_TIME);
+                    }
+                }
+
                 uint32_t frame_values[4];
                 frame_values[0] = (uint32_t)frame_x;
                 frame_values[1] = (uint32_t)frame_y;
