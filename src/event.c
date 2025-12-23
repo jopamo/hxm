@@ -273,16 +273,31 @@ void server_cleanup(server_t* s) {
     // Unmanage all clients (reparent back to root)
     slotmap_for_each_used(&s->clients, cleanup_client_visitor, s);
 
-    if (s->keysyms) xcb_key_symbols_free(s->keysyms);
+    if (s->keysyms) {
+        xcb_key_symbols_free(s->keysyms);
+        s->keysyms = NULL;
+    }
 
     frame_cleanup_resources(s);
     menu_destroy(s);
     config_destroy(&s->config);
 
-    if (s->signal_fd > 0) close(s->signal_fd);
-    if (s->timer_fd > 0) close(s->timer_fd);
-    if (s->epoll_fd > 0) close(s->epoll_fd);
-    if (s->conn) xcb_disconnect(s->conn);
+    if (s->signal_fd > 0) {
+        close(s->signal_fd);
+        s->signal_fd = -1;
+    }
+    if (s->timer_fd > 0) {
+        close(s->timer_fd);
+        s->timer_fd = -1;
+    }
+    if (s->epoll_fd > 0) {
+        close(s->epoll_fd);
+        s->epoll_fd = -1;
+    }
+    if (s->conn) {
+        xcb_disconnect(s->conn);
+        s->conn = NULL;
+    }
     cookie_jar_destroy(&s->cookie_jar);
 
     arena_destroy(&s->tick_arena);

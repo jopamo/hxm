@@ -93,10 +93,10 @@ void test_gtk_extents_toggle_decorations(void) {
     assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
     assert(stub_last_prop_len == 4);
     uint32_t* extents_check = (uint32_t*)stub_last_prop_data;
-    assert(extents_check[0] == 5);
-    assert(extents_check[1] == 5);
-    assert(extents_check[2] == 25);
-    assert(extents_check[3] == 5);
+    assert(extents_check[0] == 0);
+    assert(extents_check[1] == 0);
+    assert(extents_check[2] == 0);
+    assert(extents_check[3] == 0);
 
     hot->dirty = DIRTY_NONE;
 
@@ -154,9 +154,9 @@ void test_gtk_configure_request_extents(void) {
 
     wm_handle_configure_request(&s, h, &ev);
 
-    // Standard behavior: no GTK adjustment
-    assert(hot->desired.x == 200);
-    assert(hot->desired.y == 100);
+    // Standard behavior: GTK adjustment (shadow offset -> visible pos)
+    assert(hot->desired.x == 208);
+    assert(hot->desired.y == 124);
     assert(hot->desired.w == 300);
     assert(hot->desired.h == 200);
     assert(hot->dirty & DIRTY_GEOM);

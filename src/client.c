@@ -448,12 +448,12 @@ void client_finish_manage(server_t* s, handle_t h) {
     // 3. Reparent
     int16_t rx = bw;
     int16_t ry = th;
-    /*
+
     if (hot->gtk_frame_extents_set) {
         rx = 0;
         ry = 0;
     }
-    */
+
     xcb_reparent_window(s->conn, hot->xid, hot->frame, rx, ry);
     if (hot->original_border_width != 0) {
         uint32_t bw_values[] = {0};
@@ -471,12 +471,9 @@ void client_finish_manage(server_t* s, handle_t h) {
     uint32_t client_w = geom.w;
     uint32_t client_h = geom.h;
 
-    /*
     if (hot->gtk_frame_extents_set) {
         frame_x -= (int32_t)hot->gtk_extents.left;
         frame_y -= (int32_t)hot->gtk_extents.top;
-        frame_w += hot->gtk_extents.left + hot->gtk_extents.right;
-        frame_h += hot->gtk_extents.top + hot->gtk_extents.bottom;
 
         client_x = 0;
         client_y = 0;
@@ -486,9 +483,6 @@ void client_finish_manage(server_t* s, handle_t h) {
         frame_w += 2 * bw;
         frame_h += th + bw;
     }
-    */
-    frame_w += 2 * bw;
-    frame_h += th + bw;
 
     uint32_t frame_values[4];
     frame_values[0] = (uint32_t)frame_x;
@@ -565,7 +559,6 @@ void client_finish_manage(server_t* s, handle_t h) {
     if (visible) {
         xcb_map_window(s->conn, hot->xid);
         xcb_map_window(s->conn, hot->frame);
-        xcb_flush(s->conn);
         hot->state = STATE_MAPPED;
 
         uint32_t state_vals[] = {XCB_ICCCM_WM_STATE_NORMAL, XCB_NONE};
@@ -666,6 +659,13 @@ void client_unmanage(server_t* s, handle_t h) {
     TRACE_ONLY(debug_dump_focus_history(s, "before unmanage"));
     TRACE_ONLY(debug_dump_transients(hot, "before unmanage"));
 
+    if (s->interaction_window != XCB_NONE && s->interaction_window == hot->frame) {
+        LOG_INFO("Interaction window %u destroyed during interaction, canceling", hot->frame);
+        s->interaction_mode = INTERACTION_NONE;
+        s->interaction_window = XCB_NONE;
+        xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
+    }
+
     // Remove from stacking
     TRACE_LOG("unmanage stack_remove h=%lx layer=%d", h, hot->layer);
     stack_remove(s, h);
@@ -748,7 +748,6 @@ void client_unmanage(server_t* s, handle_t h) {
         int16_t root_x = hot->server.x;
         int16_t root_y = hot->server.y;
 
-        /*
         if (hot->gtk_frame_extents_set) {
             root_x += (int16_t)hot->gtk_extents.left;
             root_y += (int16_t)hot->gtk_extents.top;
@@ -758,11 +757,6 @@ void client_unmanage(server_t* s, handle_t h) {
             root_x += (int16_t)bw;
             root_y += (int16_t)th;
         }
-        */
-        uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
-        uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
-        root_x += (int16_t)bw;
-        root_y += (int16_t)th;
 
         TRACE_LOG("unmanage reparent xid=%u -> root (%d,%d)", hot->xid, root_x, root_y);
         xcb_reparent_window(s->conn, hot->xid, s->root, root_x, root_y);

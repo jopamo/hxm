@@ -44,6 +44,7 @@ void frame_init_resources(server_t* s) {
 }
 
 void frame_cleanup_resources(server_t* s) {
+    if (!s->conn) return;
     xcb_free_cursor(s->conn, s->cursor_left_ptr);
     xcb_free_cursor(s->conn, s->cursor_move);
     xcb_free_cursor(s->conn, s->cursor_resize_top);

@@ -119,7 +119,7 @@ void menu_init(server_t* s) {
 }
 
 void menu_destroy(server_t* s) {
-    xcb_destroy_window(s->conn, s->menu.window);
+    if (s->conn) xcb_destroy_window(s->conn, s->menu.window);
     render_free(&s->menu.render_ctx);
 
     menu_clear_items(s);
