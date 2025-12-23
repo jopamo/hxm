@@ -91,9 +91,7 @@ void wm_publish_desktop_props(server_t* s) {
     }
 
     if (publish_names) {
-        uint32_t name_count = (s->config.desktop_names && s->config.desktop_names_count > 0)
-                                  ? s->config.desktop_names_count
-                                  : s->desktop_count;
+        uint32_t name_count = s->desktop_count;
         size_t name_bytes = 0;
         for (uint32_t i = 0; i < name_count; i++) {
             const char* name = NULL;
