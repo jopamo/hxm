@@ -35,9 +35,9 @@ typedef struct {
     uint32_t status;
 } motif_wm_hints_t;
 
-static void client_apply_motif_hints(server_t* s, handle_t h, const xcb_get_property_reply_t* r) {
+static bool client_apply_motif_hints(server_t* s, handle_t h, const xcb_get_property_reply_t* r) {
     client_hot_t* hot = server_chot(s, h);
-    if (!hot) return;
+    if (!hot) return false;
 
     bool decorations_set = false;
     bool undecorated = false;
@@ -55,27 +55,48 @@ static void client_apply_motif_hints(server_t* s, handle_t h, const xcb_get_prop
         }
     }
 
+    bool changed = (hot->motif_decorations_set != decorations_set || hot->motif_undecorated != undecorated);
     hot->motif_decorations_set = decorations_set;
     hot->motif_undecorated = undecorated;
+    return changed;
 }
 
-static void client_apply_gtk_frame_extents(server_t* s, handle_t h, const xcb_get_property_reply_t* r) {
+static bool client_apply_gtk_frame_extents(server_t* s, handle_t h, const xcb_get_property_reply_t* r) {
     client_hot_t* hot = server_chot(s, h);
-    if (!hot) return;
+    if (!hot) return false;
 
     int len = r ? xcb_get_property_value_length(r) : 0;
     bool has_extents = (r && r->format == 32 && len >= (int)(4 * sizeof(uint32_t)));
 
+    bool changed = (hot->gtk_frame_extents_set != has_extents);
     hot->gtk_frame_extents_set = has_extents;
+
     if (has_extents) {
         const uint32_t* v = (const uint32_t*)xcb_get_property_value(r);
-        hot->gtk_extents.left = (uint16_t)v[0];
-        hot->gtk_extents.right = (uint16_t)v[1];
-        hot->gtk_extents.top = (uint16_t)v[2];
-        hot->gtk_extents.bottom = (uint16_t)v[3];
+        if (hot->gtk_extents.left != (uint16_t)v[0]) {
+            hot->gtk_extents.left = (uint16_t)v[0];
+            changed = true;
+        }
+        if (hot->gtk_extents.right != (uint16_t)v[1]) {
+            hot->gtk_extents.right = (uint16_t)v[1];
+            changed = true;
+        }
+        if (hot->gtk_extents.top != (uint16_t)v[2]) {
+            hot->gtk_extents.top = (uint16_t)v[2];
+            changed = true;
+        }
+        if (hot->gtk_extents.bottom != (uint16_t)v[3]) {
+            hot->gtk_extents.bottom = (uint16_t)v[3];
+            changed = true;
+        }
     } else {
-        memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
+        if (hot->gtk_extents.left != 0 || hot->gtk_extents.right != 0 || hot->gtk_extents.top != 0 ||
+            hot->gtk_extents.bottom != 0) {
+            memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
+            changed = true;
+        }
     }
+    return changed;
 }
 
 static bool is_valid_utf8(const char* str, size_t len) {
@@ -629,41 +650,18 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 }
 
             } else if (atom == atoms._MOTIF_WM_HINTS) {
-                client_apply_motif_hints(s, slot->client, r);
-                if (client_apply_decoration_hints(hot)) changed = true;
-
-            } else if (atom == atoms._GTK_FRAME_EXTENTS) {
-                client_apply_gtk_frame_extents(s, slot->client, r);
-
-                // Existing logic for geometry updates if not in manage phase
-                if (hot->manage_phase == MANAGE_DONE) {
-                    // We need to handle geometry updates here if this property changes at
-                    // runtime But for now, relying on the helper to set the extents is
-                    // enough for the initial map. The helper doesn't calculate diffs, so if
-                    // we want to support dynamic updates, we might need to keep some of the
-                    // old logic or improve the helper. Given the prompt "minimal,
-                    // mechanical fix", using the helper is the priority. Let's assume the
-                    // user wants the helper to handle the parsing. The user's helper sets
-                    // the extents. If we need to resize the window, we should trigger a
-                    // dirty geom.
-                    hot->dirty |= DIRTY_GEOM;
-                } else {
-                    // Initial map: Apply extents to desired geometry
-                    /*
-                    uint32_t h_ext = hot->gtk_extents.left + hot->gtk_extents.right;
-                    uint32_t v_ext = hot->gtk_extents.top + hot->gtk_extents.bottom;
-                    hot->desired.w = (hot->desired.w > h_ext) ? (hot->desired.w -
-                    (uint16_t)h_ext) : 1; hot->desired.h = (hot->desired.h > v_ext) ?
-                    (hot->desired.h - (uint16_t)v_ext) : 1;
-
-                    // Also adjust position if needed?
-                    // The old code did: hot->desired.x += hot->gtk_extents.left;
-                    hot->desired.x += (int16_t)hot->gtk_extents.left;
-                    hot->desired.y += (int16_t)hot->gtk_extents.top;
-                    */
+                if (client_apply_motif_hints(s, slot->client, r)) {
+                    if (client_apply_decoration_hints(hot)) changed = true;
                 }
 
-                if (client_apply_decoration_hints(hot)) changed = true;
+            } else if (atom == atoms._GTK_FRAME_EXTENTS) {
+                if (client_apply_gtk_frame_extents(s, slot->client, r)) {
+                    // Existing logic for geometry updates if not in manage phase
+                    if (hot->manage_phase == MANAGE_DONE) {
+                        hot->dirty |= DIRTY_GEOM;
+                    }
+                    if (client_apply_decoration_hints(hot)) changed = true;
+                }
 
             } else if (atom == atoms._NET_WM_STATE) {
                 if (prop_is_empty(r)) {
@@ -706,81 +704,77 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
             } else if (atom == atoms.WM_NORMAL_HINTS) {
                 xcb_size_hints_t hints;
-                if (prop_is_empty(r)) {
-                    memset(&hot->hints, 0, sizeof(hot->hints));
-                    hot->hints_flags = 0;
-                } else if (xcb_get_property_value_length(r) >= (int)sizeof(xcb_size_hints_t) &&
-                           xcb_icccm_get_wm_size_hints_from_reply(&hints, r)) {
-                    memset(&hot->hints, 0, sizeof(hot->hints));
-                    hot->hints_flags = hints.flags;
+                size_hints_t next_hints = {0};
+                uint32_t next_flags = 0;
+
+                if (!prop_is_empty(r) && xcb_get_property_value_length(r) >= (int)sizeof(xcb_size_hints_t) &&
+                    xcb_icccm_get_wm_size_hints_from_reply(&hints, r)) {
+                    next_flags = hints.flags;
 
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
-                        hot->hints.min_w = hints.min_width;
-                        hot->hints.min_h = hints.min_height;
+                        next_hints.min_w = hints.min_width;
+                        next_hints.min_h = hints.min_height;
                     }
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) {
-                        hot->hints.max_w = hints.max_width;
-                        hot->hints.max_h = hints.max_height;
+                        next_hints.max_w = hints.max_width;
+                        next_hints.max_h = hints.max_height;
                     }
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_RESIZE_INC) {
-                        hot->hints.inc_w = hints.width_inc;
-                        hot->hints.inc_h = hints.height_inc;
+                        next_hints.inc_w = hints.width_inc;
+                        next_hints.inc_h = hints.height_inc;
                     }
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE) {
-                        hot->hints.base_w = hints.base_width;
-                        hot->hints.base_h = hints.base_height;
+                        next_hints.base_w = hints.base_width;
+                        next_hints.base_h = hints.base_height;
                     }
                     if (hints.flags & XCB_ICCCM_SIZE_HINT_P_ASPECT) {
-                        hot->hints.min_aspect_num = hints.min_aspect_num;
-                        hot->hints.min_aspect_den = hints.min_aspect_den;
-                        hot->hints.max_aspect_num = hints.max_aspect_num;
-                        hot->hints.max_aspect_den = hints.max_aspect_den;
+                        next_hints.min_aspect_num = hints.min_aspect_num;
+                        next_hints.min_aspect_den = hints.min_aspect_den;
+                        next_hints.max_aspect_num = hints.max_aspect_num;
+                        next_hints.max_aspect_den = hints.max_aspect_den;
                     }
+                }
+
+                bool hints_changed =
+                    (hot->hints_flags != next_flags || memcmp(&hot->hints, &next_hints, sizeof(size_hints_t)) != 0);
+
+                if (hints_changed) {
+                    hot->hints = next_hints;
+                    hot->hints_flags = next_flags;
+                    hot->dirty |= DIRTY_STATE;  // Allowed actions might change
 
                     if (hot->state == STATE_NEW && hot->manage_phase != MANAGE_DONE) {
-                        if (hints.flags &
-
-                            (XCB_ICCCM_SIZE_HINT_US_SIZE | XCB_ICCCM_SIZE_HINT_P_SIZE)) {
-                            // If ConfigureRequest happened, it takes precedence.
-
-                            // Only use hints if no configure request, or if desired is still 0.
-
+                        if (next_flags & (XCB_ICCCM_SIZE_HINT_US_SIZE | XCB_ICCCM_SIZE_HINT_P_SIZE)) {
                             if (!hot->geometry_from_configure) {
                                 if (hints.width > 0) hot->desired.w = (uint16_t)hints.width;
-
                                 if (hints.height > 0) hot->desired.h = (uint16_t)hints.height;
-
                             } else {
-                                // Safety: if configure request happened but set 0 size (unlikely), fallback to hints?
-
                                 if (hot->desired.w == 0 && hints.width > 0) hot->desired.w = (uint16_t)hints.width;
-
                                 if (hot->desired.h == 0 && hints.height > 0) hot->desired.h = (uint16_t)hints.height;
                             }
                         }
 
-                        if (hints.flags & (XCB_ICCCM_SIZE_HINT_US_POSITION |
-
-                                           XCB_ICCCM_SIZE_HINT_P_POSITION)) {
-                            // Do not overwrite ConfigureRequest position with hints.
-
+                        if (next_flags & (XCB_ICCCM_SIZE_HINT_US_POSITION | XCB_ICCCM_SIZE_HINT_P_POSITION)) {
                             if (!hot->geometry_from_configure) {
                                 hot->desired.x = (int16_t)hints.x;
-
                                 hot->desired.y = (int16_t)hints.y;
                             }
                         }
 
-                        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w,
-
-                                              &hot->desired.h);
+                        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
                     } else if (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame) {
-                        // Fix for resize ping-pong:
-                        // If we are currently resizing this window, re-apply the new constraints immediately.
-                        // This ensures we don't wait for the next MotionNotify to respect the new hints,
-                        // preventing the WM from forcing the old size back on the client.
                         client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
                         hot->dirty |= DIRTY_GEOM;
+                    } else {
+                        // Even if not resizing, if hints changed, we might need to re-constrain
+                        uint16_t w = hot->desired.w;
+                        uint16_t h_val = hot->desired.h;
+                        client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
+                        if (w != hot->desired.w || h_val != hot->desired.h) {
+                            hot->desired.w = w;
+                            hot->desired.h = h_val;
+                            hot->dirty |= DIRTY_GEOM;
+                        }
                     }
                 }
 
@@ -986,6 +980,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 strut_t* target = is_partial ? &cold->strut_partial : &cold->strut_full;
                 bool* active = is_partial ? &cold->strut_partial_active : &cold->strut_full_active;
 
+                strut_t prev_effective = cold->strut;
+
                 if (r && r->type == XCB_ATOM_CARDINAL && r->format == 32 && len >= 16) {
                     uint32_t* val = (uint32_t*)xcb_get_property_value(r);
                     memset(target, 0, sizeof(*target));
@@ -1023,44 +1019,55 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 }
 
                 client_update_effective_strut(cold);
-                static rl_t rl_strut = {0};
-                if (rl_allow(&rl_strut, monotonic_time_ns(), 1000000000)) {
-                    TRACE_LOG("strut_reply xid=%u atom=%s len=%d active=%d top=%u", hot->xid,
-                              is_partial ? "_NET_WM_STRUT_PARTIAL" : "_NET_WM_STRUT", len, *active, cold->strut.top);
+
+                if (memcmp(&prev_effective, &cold->strut, sizeof(strut_t)) != 0) {
+                    static rl_t rl_strut = {0};
+                    if (rl_allow(&rl_strut, monotonic_time_ns(), 1000000000)) {
+                        TRACE_LOG("strut_reply xid=%u atom=%s changed active=%d top=%u", hot->xid,
+                                  is_partial ? "_NET_WM_STRUT_PARTIAL" : "_NET_WM_STRUT", *active, cold->strut.top);
+                    }
+                    s->workarea_dirty = true;
+                    s->root_dirty |= ROOT_DIRTY_WORKAREA;
                 }
-                s->workarea_dirty = true;
-                s->root_dirty |= ROOT_DIRTY_WORKAREA;
 
             } else if (atom == atoms.WM_HINTS) {
                 if (prop_is_empty(r)) {
+                    bool changed_any = (cold->can_focus != true || hot->initial_state != XCB_ICCCM_WM_STATE_NORMAL);
                     cold->can_focus = true;
                     hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
                     if (hot->flags & CLIENT_FLAG_URGENT) {
                         hot->flags &= ~CLIENT_FLAG_URGENT;
                         hot->dirty |= DIRTY_STATE;
                         changed = true;
+                    } else if (changed_any) {
+                        hot->dirty |= DIRTY_STATE;
+                        changed = true;
                     }
                 } else {
                     xcb_icccm_wm_hints_t hints;
                     if (xcb_icccm_get_wm_hints_from_reply(&hints, r)) {
+                        bool next_can_focus = true;
                         if (hints.flags & XCB_ICCCM_WM_HINT_INPUT) {
-                            cold->can_focus = (bool)(hints.input);
-                        } else {
-                            cold->can_focus = true;
+                            next_can_focus = (bool)(hints.input);
                         }
 
+                        uint8_t next_initial_state = hot->initial_state;
                         if (hints.flags & XCB_ICCCM_WM_HINT_STATE) {
-                            hot->initial_state = (uint8_t)hints.initial_state;
+                            next_initial_state = (uint8_t)hints.initial_state;
                         }
 
-                        bool urgent = (hints.flags & XCB_ICCCM_WM_HINT_X_URGENCY) != 0;
+                        bool next_urgent = (hints.flags & XCB_ICCCM_WM_HINT_X_URGENCY) != 0;
                         bool was_urgent = (hot->flags & CLIENT_FLAG_URGENT) != 0;
-                        if (urgent) {
-                            hot->flags |= CLIENT_FLAG_URGENT;
-                        } else {
-                            hot->flags &= ~CLIENT_FLAG_URGENT;
-                        }
-                        if (urgent != was_urgent) {
+
+                        if (cold->can_focus != next_can_focus || hot->initial_state != next_initial_state ||
+                            was_urgent != next_urgent) {
+                            cold->can_focus = next_can_focus;
+                            hot->initial_state = next_initial_state;
+                            if (next_urgent) {
+                                hot->flags |= CLIENT_FLAG_URGENT;
+                            } else {
+                                hot->flags &= ~CLIENT_FLAG_URGENT;
+                            }
                             hot->dirty |= DIRTY_STATE;
                             changed = true;
                         }
@@ -1192,27 +1199,31 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             } else if (atom == atoms._NET_WM_WINDOW_OPACITY) {
                 if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
                     uint32_t val = *(uint32_t*)xcb_get_property_value(r);
-                    hot->window_opacity = val;
-                    hot->window_opacity_valid = true;
-                    if (hot->frame != XCB_NONE) {
-                        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame, atoms._NET_WM_WINDOW_OPACITY,
-                                            XCB_ATOM_CARDINAL, 32, 1, &val);
+                    if (!hot->window_opacity_valid || hot->window_opacity != val) {
+                        hot->window_opacity = val;
+                        hot->window_opacity_valid = true;
+                        if (hot->frame != XCB_NONE) {
+                            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame,
+                                                atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 32, 1, &val);
+                        }
                     }
                 } else {
-                    hot->window_opacity_valid = false;
-                    if (hot->frame != XCB_NONE) {
-                        xcb_delete_property(s->conn, hot->frame, atoms._NET_WM_WINDOW_OPACITY);
+                    if (hot->window_opacity_valid) {
+                        hot->window_opacity_valid = false;
+                        if (hot->frame != XCB_NONE) {
+                            xcb_delete_property(s->conn, hot->frame, atoms._NET_WM_WINDOW_OPACITY);
+                        }
                     }
                 }
 
             } else if (atom == atoms._NET_WM_ICON_GEOMETRY) {
                 if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 16) {
                     uint32_t* val = (uint32_t*)xcb_get_property_value(r);
-                    hot->icon_geometry.x = (int16_t)val[0];
-                    hot->icon_geometry.y = (int16_t)val[1];
-                    hot->icon_geometry.w = (uint16_t)val[2];
-                    hot->icon_geometry.h = (uint16_t)val[3];
-                    hot->icon_geometry_valid = true;
+                    rect_t next_geom = {(int16_t)val[0], (int16_t)val[1], (uint16_t)val[2], (uint16_t)val[3]};
+                    if (!hot->icon_geometry_valid || memcmp(&hot->icon_geometry, &next_geom, sizeof(rect_t)) != 0) {
+                        hot->icon_geometry = next_geom;
+                        hot->icon_geometry_valid = true;
+                    }
                 } else {
                     hot->icon_geometry_valid = false;
                 }
