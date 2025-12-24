@@ -126,6 +126,11 @@ void test_debug_dump_focus_history_guard(void) {
     }
     assert(count == CLIENT_COUNT);
 
+    // Refocus the first client (which is now at the tail) to cover list_remove
+    // This moves it to the head
+    wm_set_focus(&s, handles[0]);
+    assert(s.focus_history.next == &server_chot(&s, handles[0])->focus_node);
+
     printf("test_debug_dump_focus_history_guard passed (check logs for WARN if needed)\n");
     teardown_server(&s);
 }
