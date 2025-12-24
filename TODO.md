@@ -273,11 +273,9 @@ You want this unit-tested because it’s fork/exec logic with multiple search pa
 
 ## 6) `event_process` (several loops are not executed in tests)
 
-Your coverage shows several loops never run in your unit tests (key presses, buttons, menu expose path, motion-notify path, configure_request unknown-window path, RandR process path).
-
 ### 6.1 key press dispatch
 
-**Covers**: loop lines ~840–843 (✗)
+**Covers**: loop lines ~840–843 (✓)
 
 * Put one fake `xcb_key_press_event_t` into `s->buckets.key_presses`
 * Wrap `wm_handle_key_press` to count calls
@@ -286,7 +284,7 @@ Your coverage shows several loops never run in your unit tests (key presses, but
 
 ### 6.2 button press and release dispatch
 
-**Covers**: loop lines ~846–853 (✗)
+**Covers**: loop lines ~846–853 (✓)
 
 * Add one button press event and one button release event to `button_events`
 * Wrap `wm_handle_button_press` and `_release`
@@ -294,7 +292,7 @@ Your coverage shows several loops never run in your unit tests (key presses, but
 
 ### 6.3 menu expose region goes to menu handler
 
-**Covers**: branch `if (win == s->menu.window)` (✗)
+**Covers**: branch `if (win == s->menu.window)` (✓)
 
 * Set `s->menu.window = 0xabc`
 * Insert expose region entry for key=0xabc with valid region
@@ -303,7 +301,7 @@ Your coverage shows several loops never run in your unit tests (key presses, but
 
 ### 6.4 motion notify dispatch
 
-**Covers**: loop around ~893–900 (✗)
+**Covers**: loop around ~893–900 (✓)
 
 * Insert a motion notify into `buckets.motion_notifies`
 * Wrap `wm_handle_motion_notify`
@@ -311,7 +309,7 @@ Your coverage shows several loops never run in your unit tests (key presses, but
 
 ### 6.5 configure_request for unknown window calls xcb_configure_window
 
-**Covers**: branch lines ~911–926 (✗)
+**Covers**: branch lines ~911–926 (✓)
 
 * Insert a `pending_config_t` in `buckets.configure_requests`
 * Wrap `server_get_client_by_window` to return `HANDLE_INVALID`
@@ -320,7 +318,7 @@ Your coverage shows several loops never run in your unit tests (key presses, but
 
 ### 6.6 RandR dirty processing path
 
-**Covers**: block lines ~989–1009 (✗)
+**Covers**: block lines ~989–1009 (✓)
 
 * Set `s->buckets.randr_dirty=true` with width/height set
 * Wrap:

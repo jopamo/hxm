@@ -442,6 +442,24 @@ test_ewmh_negative = executable('test_ewmh_negative',
 )
 test('ewmh_negative', test_ewmh_negative)
 
+test_event_process = executable('test_event_process',
+  ['tests/test_event_process.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+  link_args: [
+    '-Wl,--wrap=wm_handle_key_press',
+    '-Wl,--wrap=wm_handle_button_press',
+    '-Wl,--wrap=wm_handle_button_release',
+    '-Wl,--wrap=menu_handle_expose_region',
+    '-Wl,--wrap=frame_redraw_region',
+    '-Wl,--wrap=wm_handle_motion_notify',
+    '-Wl,--wrap=wm_update_monitors',
+    '-Wl,--wrap=wm_compute_workarea',
+    '-Wl,--wrap=wm_publish_workarea',
+  ]
+)
+test('event_process', test_event_process)
+
 test_configure_geometry = executable('test_configure_geometry',
   ['tests/test_configure_geometry.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,

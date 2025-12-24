@@ -1,12 +1,12 @@
 # LLM Context Report
 
-Generated at: 2025-12-24T10:16:33.555212Z
+Generated at: 2025-12-24T10:19:29.854950Z
 
 ## 1. Project Overview
 
 - **Root**: `/home/me/projects/bbox`
 - **Total Symbols**: 2056
-- **Total Coverage**: 84%
+- **Total Coverage**: 85%
 - **Clang-Tidy Issues**: 60
 
 ## 2. Code Coverage
@@ -24,9 +24,9 @@ Generated at: 2025-12-24T10:16:33.555212Z
 | `src/wm_reply.c` | 71% | 47,52-54,90-101,106-110,113,116-117,119,127,135... |
 | `src/wm_desktop.c` | 72% | 18-20,23-27,29,31-40,42,44-52,203-208,211-212,2... |
 | `tests/test_txn_serialization.c` | 75% | 17-23 |
-| `src/event.c` | 77% | 65-66,79-81,88-89,104-105,119-120,154-155,189-1... |
 | `tests/xcb_stubs.c` | 79% | 244-246,269-270,301-302,304-305,307,362,402,417... |
 | `src/config.c` | 82% | 156,158,160,163-170,181-183,201,203,207,213,251... |
+| `src/event.c` | 82% | 65-66,79-81,88-89,104-105,119-120,154-155,189-1... |
 | `src/stack.c` | 82% | 170,200-202,206,229-230,240-243,258-259,261-263... |
 | `tests/test_menu.c` | 86% | 72-76,113-117 |
 | `src/client.c` | 87% | 31-32,49-50,58-59,68,360-361,369-370,448-449,47... |
@@ -49,7 +49,7 @@ Generated at: 2025-12-24T10:16:33.555212Z
 | `tests/test_ewmh_ext.c` | 99% | 111-112 |
 | `tests/test_wm_focus_policy.c` | 99% | 705-709 |
 
-*43 files with 100% coverage are hidden*
+*44 files with 100% coverage are hidden*
 
 ## 3. Clang-Tidy Diagnostics
 
