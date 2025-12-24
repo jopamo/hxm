@@ -56,6 +56,7 @@ static void test_supporting_wm_check_mapped(void) {
     xcb_stubs_reset();
 
     wm_become(&s);
+    wm_flush_dirty(&s);
 
     if (s.supporting_wm_check == XCB_WINDOW_NONE) {
         fprintf(stderr, "FAIL: supporting_wm_check not set\n");
@@ -123,12 +124,14 @@ static void test_net_client_list_published(void) {
     s.root = 1;
     atoms_init(s.conn);
     slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
+    small_vec_init(&s.active_clients);
     s.desktop_count = 1;
     xcb_stubs_reset();
 
     // Add a client
     void *hot_ptr = NULL, *cold_ptr = NULL;
     handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    small_vec_push(&s.active_clients, handle_to_ptr(h));
     (void)h;
     client_hot_t* hot = (client_hot_t*)hot_ptr;
     hot->xid = 12345;
@@ -174,6 +177,7 @@ static void test_refuse_when_substructure_redirect_fails(void) {
     stub_poll_for_reply_hook = poll_badaccess_once;
 
     wm_become(&s);
+    wm_flush_dirty(&s);
 
     assert(s.supporting_wm_check == XCB_WINDOW_NONE);
     assert(stub_map_window_count == 0);
@@ -198,6 +202,7 @@ static void test_existing_wm_keeps_selection_owner(void) {
 
     xcb_stubs_reset();
     wm_become(&s1);
+    wm_flush_dirty(&s1);
 
     xcb_window_t owner = xcb_stubs_get_selection_owner();
     assert(owner == s1.supporting_wm_check);
@@ -216,6 +221,7 @@ static void test_existing_wm_keeps_selection_owner(void) {
     s2.desktop_count = 1;
 
     wm_become(&s2);
+    wm_flush_dirty(&s2);
 
     assert(s2.supporting_wm_check == XCB_WINDOW_NONE);
     assert(xcb_stubs_get_selection_owner() == owner);
@@ -241,6 +247,7 @@ static void test_wm_s0_selection_and_supporting_check(void) {
     xcb_stubs_reset();
 
     wm_become(&s);
+    wm_flush_dirty(&s);
 
     assert(xcb_stubs_get_selection_owner() == s.supporting_wm_check);
 
@@ -278,6 +285,7 @@ static void test_refuse_when_selection_owned(void) {
     xcb_stubs_set_selection_owner(999);
 
     wm_become(&s);
+    wm_flush_dirty(&s);
 
     assert(s.supporting_wm_check == XCB_WINDOW_NONE);
     assert(stub_map_window_count == 0);

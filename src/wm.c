@@ -1346,10 +1346,10 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
             s->desktop_count = requested;
             if (s->current_desktop >= s->desktop_count) s->current_desktop = 0;
 
-            for (uint32_t i = 1; i < slotmap_capacity(&s->clients); i++) {
-                if (!slotmap_is_used_idx(&s->clients, i)) continue;
-                client_hot_t* hot = (client_hot_t*)slotmap_hot_at(&s->clients, i);
-                if (hot->sticky) continue;
+            for (size_t i = 0; i < s->active_clients.length; i++) {
+                handle_t h = ptr_to_handle(s->active_clients.items[i]);
+                client_hot_t* hot = server_chot(s, h);
+                if (!hot || hot->sticky) continue;
                 if (hot->desktop >= (int32_t)s->desktop_count) {
                     hot->desktop = (int32_t)s->current_desktop;
                     uint32_t prop_val = (uint32_t)hot->desktop;

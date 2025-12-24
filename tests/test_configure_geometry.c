@@ -56,6 +56,7 @@ static void setup_server(server_t* s) {
     for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s->layers[i]);
 
     slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t));
+    small_vec_init(&s->active_clients);
     arena_init(&s->tick_arena, 4096);
 }
 
@@ -72,6 +73,7 @@ static void cleanup_server(server_t* s) {
         }
     }
     slotmap_destroy(&s->clients);
+    small_vec_destroy(&s->active_clients);
     hash_map_destroy(&s->window_to_client);
     hash_map_destroy(&s->frame_to_client);
     for (int i = 0; i < LAYER_COUNT; i++) small_vec_destroy(&s->layers[i]);
@@ -108,6 +110,7 @@ static handle_t add_client(server_t* s, xcb_window_t win, xcb_window_t frame) {
 
     hash_map_insert(&s->window_to_client, win, handle_to_ptr(h));
     hash_map_insert(&s->frame_to_client, frame, handle_to_ptr(h));
+    small_vec_push(&s->active_clients, handle_to_ptr(h));
 
     return h;
 }

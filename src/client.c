@@ -194,6 +194,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
 
     // Register mapping so we can find it
     hash_map_insert(&s->window_to_client, win, handle_to_ptr(h));
+    small_vec_push(&s->active_clients, handle_to_ptr(h));
     TRACE_LOG("manage_start window_to_client[%u]=%lx", win, h);
 
     uint32_t early_events = XCB_EVENT_MASK_PROPERTY_CHANGE;
@@ -836,6 +837,7 @@ void client_unmanage(server_t* s, handle_t h) {
 
     // Free slot
     slotmap_free(&s->clients, h);
+    small_vec_remove_swap(&s->active_clients, handle_to_ptr(h));
 
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST;
     s->workarea_dirty = true;

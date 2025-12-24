@@ -197,6 +197,15 @@ void small_vec_destroy(small_vec_t* v) {
     v->capacity = SMALL_VEC_INLINE_CAP;
 }
 
+void small_vec_remove_swap(small_vec_t* v, void* item) {
+    for (size_t i = 0; i < v->length; i++) {
+        if (v->items[i] == item) {
+            v->items[i] = v->items[--v->length];
+            return;
+        }
+    }
+}
+
 /* -----------------------------
  * Hash map
  * ----------------------------- */

@@ -46,6 +46,7 @@ void* small_vec_pop(small_vec_t* v);
 void* small_vec_get(const small_vec_t* v, size_t idx);
 void small_vec_clear(small_vec_t* v);
 void small_vec_destroy(small_vec_t* v);
+void small_vec_remove_swap(small_vec_t* v, void* item);
 
 // Hash map: uint64_t -> void*
 // INVARIANT: key=0 is reserved to indicate an empty slot and MUST NOT be used as a valid key.

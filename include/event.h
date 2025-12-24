@@ -183,6 +183,7 @@ typedef struct server {
 
     // Client storage (hot/cold)
     slotmap_t clients;
+    small_vec_t active_clients;
 
     // Global maps: xid/frame -> handle
     hash_map_t window_to_client;          // xcb_window_t -> handle_t (stored via uintptr_t)
