@@ -36,6 +36,7 @@ void counters_tick_record(uint64_t dt_ns) {
     counters.tick_duration_max = u64_max(counters.tick_duration_max, dt_ns);
 }
 
+#ifdef HXM_ENABLE_DEBUG_LOGGING
 static void print_tick_stats(void) {
     printf("Tick count: %" PRIu64 "\n", counters.tick_count);
 
@@ -82,6 +83,7 @@ void counters_dump(void) {
 
     print_event_stats();
 }
+#endif
 
 __attribute__((weak)) uint64_t monotonic_time_ns(void) {
     struct timespec ts;

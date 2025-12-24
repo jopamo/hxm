@@ -19,6 +19,8 @@
 
 #include "hxm.h"
 
+#ifdef HXM_ENABLE_DEBUG_LOGGING
+
 static bool use_utc = false;
 static bool use_monotonic = false;
 
@@ -87,7 +89,6 @@ void hxm_log(enum log_level level, const char* fmt, ...) {
     vfprintf(out, fmt, ap);
     va_end(ap);
     fputc('\n', out);
-    fflush(out);
 #else
     // In production, only log ERRORs to stderr.
     if (level == LOG_ERROR) {
@@ -100,3 +101,4 @@ void hxm_log(enum log_level level, const char* fmt, ...) {
     }
 #endif
 }
+#endif

@@ -1182,7 +1182,9 @@ static void event_handle_signals(server_t* s) {
             g_shutdown_pending = 1;
             break;
         case SIGUSR1:
+#ifdef HXM_ENABLE_DEBUG_LOGGING
             counters_dump();
+#endif
             break;
         case SIGUSR2:
             LOG_INFO("Restart requested (signalfd)");

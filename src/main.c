@@ -20,7 +20,9 @@ static void print_help(const char* prog) {
     printf("  --exit          Exit the running hxm instance\n");
     printf("  --restart       Restart the running hxm instance\n");
     printf("  --reconfigure   Reload the configuration of the running hxm instance\n");
+#ifdef HXM_ENABLE_DEBUG_LOGGING
     printf("  --dump-stats    Print performance counters and exit\n");
+#endif
     printf("  --help          Print this help and exit\n");
 }
 
@@ -70,10 +72,13 @@ int main(int argc, char** argv) {
     counters_init();
 
     for (int i = 1; i < argc; i++) {
+#ifdef HXM_ENABLE_DEBUG_LOGGING
         if (strcmp(argv[i], "--dump-stats") == 0) {
             counters_dump();
             return 0;
-        } else if (strcmp(argv[i], "--help") == 0) {
+        } else
+#endif
+            if (strcmp(argv[i], "--help") == 0) {
             print_help(argv[0]);
             return 0;
         } else if (strcmp(argv[i], "--exit") == 0) {
