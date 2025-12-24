@@ -104,6 +104,11 @@ static inline void dirty_region_union(dirty_region_t* dst, const dirty_region_t*
     int32_t nw = nx2 - nx1;
     int32_t nh = ny2 - ny1;
 
+    if (nw <= 0 || nh <= 0) {
+        dirty_region_reset(dst);
+        return;
+    }
+
     dst->x = (int16_t)nx1;
     dst->y = (int16_t)ny1;
     dst->w = (uint16_t)nw;
