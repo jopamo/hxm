@@ -310,6 +310,10 @@ void wm_flush_dirty(server_t* s) {
             if (hot->desired.w < MIN_FRAME_SIZE) hot->desired.w = (uint16_t)MIN_FRAME_SIZE;
             if (hot->desired.h < MIN_FRAME_SIZE) hot->desired.h = (uint16_t)MIN_FRAME_SIZE;
 
+            // Apply size hints (increments, aspect ratio, min/max) to ensure we send a valid
+            // geometry that the client won't immediately reject.
+            client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+
             int32_t frame_x = hot->desired.x;
             int32_t frame_y = hot->desired.y;
             uint32_t frame_w = hot->desired.w;
@@ -689,5 +693,5 @@ void wm_flush_dirty(server_t* s) {
     }
 
     s->in_commit_phase = false;
-    xcb_flush(s->conn);
+    // xcb_flush(s->conn);
 }

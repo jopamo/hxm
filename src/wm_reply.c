@@ -528,8 +528,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             hot->depth = r->depth;
             hot->original_border_width = r->border_width;
 
-            // Treat 1x1 as uninitialized/invalid to avoid breaking clients/rendering
-            if (r->width <= 1 || r->height <= 1) {
+            // Treat 0x0 as uninitialized/invalid
+            if (r->width == 0 || r->height == 0) {
                 hot->server.w = 800;
                 hot->server.h = 600;
                 xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
