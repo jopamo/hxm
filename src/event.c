@@ -1067,6 +1067,11 @@ void event_drain_cookies(server_t* s) {
 
         bool flushed = false;
         if (need_flush) {
+            // flushed = true;
+            // Note: We deliberately do NOT call wm_flush_dirty(s) here.
+            // We rely on the main loop to flush once per tick (Flush Coalescing).
+            // Setting flushed=true here would just satisfy the loop condition to stop draining if we are busy,
+            // but for now we let it run.
             flushed = true;
         }
 
