@@ -128,6 +128,24 @@ test_workspaces = executable('test_workspaces',
 )
 test('workspaces', test_workspaces)
 
+test_server_init_failures = executable('test_server_init_failures',
+  ['tests/test_server_init_failures.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+  link_args: [
+    '-Wl,--wrap=xcb_connect_cached',
+    '-Wl,--wrap=exit',
+    '-Wl,--wrap=fcntl',
+    '-Wl,--wrap=xcb_key_symbols_alloc',
+    '-Wl,--wrap=sigprocmask',
+    '-Wl,--wrap=signalfd',
+    '-Wl,--wrap=timerfd_create',
+    '-Wl,--wrap=epoll_create1',
+    '-Wl,--wrap=epoll_ctl',
+  ]
+)
+test('server_init_failures', test_server_init_failures)
+
 test_ds = executable('test_ds',
   ['tests/test_ds.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
