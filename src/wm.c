@@ -539,6 +539,8 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     if (ev->mask & XCB_CONFIG_WINDOW_WIDTH) hot->desired.w = ev->width;
     if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT) hot->desired.h = ev->height;
 
+    hot->geometry_from_configure = true;
+
     // Reworked GTK handling: treat as standard windows for now
     if (hot->gtk_frame_extents_set) {
         if (ev->mask & XCB_CONFIG_WINDOW_X) hot->desired.x += (int16_t)hot->gtk_extents.left;
