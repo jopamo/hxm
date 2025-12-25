@@ -197,7 +197,7 @@ void test_wm_take_focus_on_focus(void) {
 
     stub_send_event_count = 0;
     wm_set_focus(&s, h);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(stub_send_event_count == 1);
     assert(stub_last_send_event_destination == hot->xid);
     xcb_client_message_event_t* ev = (xcb_client_message_event_t*)stub_last_event;
@@ -207,10 +207,10 @@ void test_wm_take_focus_on_focus(void) {
 
     hot->user_time = 424242;
     wm_set_focus(&s, HANDLE_INVALID);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     stub_send_event_count = 0;
     wm_set_focus(&s, h);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(stub_send_event_count == 1);
     ev = (xcb_client_message_event_t*)stub_last_event;
     assert(ev->data.data32[0] == atoms.WM_TAKE_FOCUS);

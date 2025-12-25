@@ -222,7 +222,7 @@ static void test_strut_partial_invalid_ranges_ignored(void) {
     reply.data[5] = 40;
 
     wm_handle_reply(&s, &slot, &reply.r, NULL);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     const struct stub_prop_call* wa = find_prop_call(s.root, atoms._NET_WORKAREA, false);
     assert(wa != NULL);

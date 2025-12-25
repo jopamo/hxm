@@ -8,6 +8,7 @@
 #include "client.h"
 #include "config.h"
 #include "cookie_jar.h"
+#include "hxm.h"
 #include "xcb_utils.h"
 
 typedef struct server server_t;
@@ -79,7 +80,7 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev);
 void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_event_t* ev);
 void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_event_t* ev);
 void wm_handle_colormap_notify(server_t* s, xcb_colormap_notify_event_t* ev);
-bool wm_flush_dirty(server_t* s);
+bool wm_flush_dirty(server_t* s, uint64_t now);
 void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err);
 void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t prop);
 void wm_send_synthetic_configure(server_t* s, handle_t h);

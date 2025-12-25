@@ -83,7 +83,7 @@ void test_workspace_switch_basics(void) {
     // Switch to desktop 1
     printf("Switching to desktop 1...\n");
     wm_switch_workspace(&s, 1);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     // Expectations:
     // c1 (Desk 0): Should be unmapped
@@ -176,7 +176,7 @@ void test_client_move_to_workspace(void) {
     // Move c1 to desktop 1 (currently on desktop 0)
     printf("Moving c1 to desktop 1 (no follow)...\n");
     wm_client_move_to_workspace(&s, h1, 1, false);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(c1->desktop == 1);
     assert(c1->sticky == false);
@@ -188,7 +188,7 @@ void test_client_move_to_workspace(void) {
     // Move it back to 0
     printf("Moving c1 back to desktop 0 while focused (no follow)...\n");
     wm_client_move_to_workspace(&s, h1, 0, false);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(c1->desktop == 0);
     assert(stub_map_window_count == 1);
     assert(stub_last_mapped_window == 1001);
@@ -197,21 +197,21 @@ void test_client_move_to_workspace(void) {
     // Move it to 2
     printf("Moving c1 to desktop 2 while focused (no follow)...\n");
     wm_client_move_to_workspace(&s, h1, 2, false);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(c1->desktop == 2);
     assert(s.focused_client == HANDLE_INVALID);  // Should lose focus
 
     // Test follow
     printf("Moving c1 back to desktop 0 (follow)...\n");
     wm_client_move_to_workspace(&s, h1, 0, true);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(c1->desktop == 0);
     assert(s.current_desktop == 0);
     assert(s.focused_client == h1);
 
     printf("Moving c1 to desktop 1 (follow)...\n");
     wm_client_move_to_workspace(&s, h1, 1, true);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(c1->desktop == 1);
     assert(s.current_desktop == 1);
     assert(s.focused_client == h1);
@@ -251,7 +251,7 @@ void test_client_toggle_sticky(void) {
     // Toggle sticky (should become visible because sticky)
     printf("Toggling sticky for c1 (on desktop 1, currently at 0)...\n");
     wm_client_toggle_sticky(&s, h1);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(c1->sticky == true);
     assert(stub_map_window_count == 1);
     assert(stub_last_mapped_window == 1001);
@@ -259,7 +259,7 @@ void test_client_toggle_sticky(void) {
     // Toggle back
     printf("Toggling sticky off for c1...\n");
     wm_client_toggle_sticky(&s, h1);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(c1->sticky == false);
     assert(stub_unmap_window_count == 1);
     assert(stub_last_unmapped_window == 1001);

@@ -88,7 +88,7 @@ void test_stack_restack_single_and_sibling(void) {
 
     stub_configure_window_count = 0;
     stack_raise(&s, ha);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_configure_window_count == 1);
     assert(stub_last_config_window == a->frame);
@@ -100,7 +100,7 @@ void test_stack_restack_single_and_sibling(void) {
     handle_t hb = add_client(&s, 20, 120, LAYER_NORMAL);
     client_hot_t* b = server_chot(&s, hb);
     stack_raise(&s, hb);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     {
         handle_t order[] = {ha, hb};
@@ -112,7 +112,7 @@ void test_stack_restack_single_and_sibling(void) {
     assert(stub_last_config_stack_mode == XCB_STACK_MODE_ABOVE);
 
     stack_lower(&s, hb);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     {
         handle_t order[] = {hb, ha};
@@ -141,7 +141,7 @@ void test_stack_cross_layer_sibling(void) {
     client_hot_t* c = server_chot(&s, h3);
     client_hot_t* top = server_chot(&s, h2);
     stack_raise(&s, h3);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_last_config_window == c->frame);
     assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
@@ -172,7 +172,7 @@ void test_stack_raise_transients_restack_count(void) {
 
     stub_configure_window_count = 0;
     stack_raise(&s, hp);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_configure_window_count == 3);
     {
@@ -204,7 +204,7 @@ void test_root_stacking_property_order(void) {
 
     s.root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
     stub_last_prop_atom = 0;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_last_prop_atom == atoms._NET_CLIENT_LIST_STACKING);
     assert(stub_last_prop_len == 4);
@@ -231,7 +231,7 @@ void test_focus_raise_on_focus(void) {
     stack_raise(&s, h2);
 
     wm_set_focus(&s, h1);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     handle_t order[] = {h2, h1};
     assert_layer_order(&s, LAYER_NORMAL, order, 2);

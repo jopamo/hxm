@@ -91,7 +91,7 @@ void test_gtk_extents_toggle_decorations(void) {
     assert(hot->dirty & DIRTY_GEOM);
 
     stub_last_prop_atom = 0;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
     assert(stub_last_prop_len == 4);
@@ -117,7 +117,7 @@ void test_gtk_extents_toggle_decorations(void) {
     assert(hot->dirty & DIRTY_GEOM);
 
     stub_last_prop_atom = 0;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
     uint32_t* extents = (uint32_t*)stub_last_prop_data;

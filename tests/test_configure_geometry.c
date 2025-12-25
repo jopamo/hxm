@@ -142,7 +142,7 @@ static void test_configure_request_applies_and_extents(void) {
 
     stub_config_calls_len = 0;
     stub_last_prop_atom = 0;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_config_calls_len >= 2);
     const stub_config_call_t* frame_call = stub_config_call_at(0);
@@ -207,7 +207,7 @@ static void test_synthetic_configure_notify_sent(void) {
 
     stub_send_event_count = 0;
     hot->dirty |= DIRTY_GEOM;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_send_event_count == 1);
     xcb_configure_notify_event_t* ev = (xcb_configure_notify_event_t*)stub_last_event;
@@ -246,7 +246,7 @@ static void test_configure_request_ignores_border_and_stack_fields(void) {
     assert(hot->dirty & DIRTY_GEOM);
 
     stub_send_event_count = 0;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
     assert(stub_send_event_count == 1);
 
     printf("test_configure_request_ignores_border_and_stack_fields passed\n");

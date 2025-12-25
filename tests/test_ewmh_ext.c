@@ -88,7 +88,7 @@ void test_frame_extents(void) {
     // Clear last prop
     stub_last_prop_atom = 0;
 
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     // Now check if _NET_FRAME_EXTENTS was set
     // It is set inside the DIRTY_GEOM block.
@@ -164,7 +164,7 @@ void test_allowed_actions(void) {
     // ALLOWED_ACTIONS is set LAST in the block.
 
     stub_last_prop_atom = 0;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_last_prop_atom == atoms._NET_WM_ALLOWED_ACTIONS);
     assert(stub_last_prop_window == 123);
@@ -189,7 +189,7 @@ void test_allowed_actions(void) {
     hot->dirty = DIRTY_STATE;
 
     stub_last_prop_atom = 0;
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(stub_last_prop_atom == atoms._NET_WM_ALLOWED_ACTIONS);
 
@@ -251,7 +251,7 @@ void test_desktop_clamp_single(void) {
 
     stub_last_prop_atom = 0;
     wm_client_move_to_workspace(&s, h, 2, false);
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     // We need to see if _NET_WM_DESKTOP was set.
     // Since wm_flush_dirty sets multiple props, we check the history if available,
@@ -326,7 +326,7 @@ void test_dirty_stack_relayer(void) {
     hot->layer = LAYER_ABOVE;
     hot->dirty = DIRTY_STACK;
 
-    wm_flush_dirty(&s);
+    wm_flush_dirty(&s, monotonic_time_ns());
 
     assert(s.layers[LAYER_NORMAL].length == 0);
     assert(s.layers[LAYER_ABOVE].length == 1);

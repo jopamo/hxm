@@ -57,14 +57,14 @@ void test_rapid_lifecycle(void) {
         }
 
         // Flush (frames windows)
-        wm_flush_dirty(&s);
+        wm_flush_dirty(&s, monotonic_time_ns());
 
         // Unmanage half
         for (int j = 0; j < WINDOWS_PER_ITER / 2; j++) {
             client_unmanage(&s, handles[j]);
         }
 
-        wm_flush_dirty(&s);
+        wm_flush_dirty(&s, monotonic_time_ns());
     }
 
     printf("test_rapid_lifecycle passed\n");
