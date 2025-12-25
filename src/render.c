@@ -306,11 +306,24 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
         title_x_offset += (int)draw_w + 6;
     }
 
+    // Button dimensions (used for title text clipping)
+    int btn_size = 16;
+    int btn_pad = 4;
+    int total_button_width = 3 * btn_size + 4 * btn_pad;
+    int leftmost_button_x = w - border_w - total_button_width;
+    // Ensure leftmost button stays within frame
+    if (leftmost_button_x < border_w) {
+        leftmost_button_x = border_w;
+    }
+    // Available width for title text: from title_x_offset to leftmost_button_x minus padding
+    int title_text_width = leftmost_button_x - title_x_offset - btn_pad;
+    if (title_text_width < 0) title_text_width = 0;
+
     // 3. Draw Title Text
     if (title && title[0] != '\0') {
         cairo_set_source_rgba(cr, text.r, text.g, text.b, text.a);
         pango_layout_set_text(ctx->layout, title, -1);
-        pango_layout_set_width(ctx->layout, (w - title_x_offset - 80) * PANGO_SCALE);
+        pango_layout_set_width(ctx->layout, title_text_width * PANGO_SCALE);
         pango_layout_set_ellipsize(ctx->layout, PANGO_ELLIPSIZE_END);
         int text_h;
         pango_layout_get_pixel_size(ctx->layout, NULL, &text_h);
@@ -340,10 +353,19 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
     cairo_stroke(cr);
 
     // 6. Draw Buttons
-    int btn_size = 16;
-    int btn_pad = 4;
+    // btn_size and btn_pad already defined above
     int btn_y = (title_h - btn_size) / 2;
     int btn_x = w - border_w - btn_pad - btn_size;
+    // Ensure buttons stay within frame
+    if (btn_x < border_w) {
+        btn_x = border_w;
+    }
+    // Ensure leftmost button doesn't go beyond left border
+    int leftmost_x = btn_x - 2 * (btn_size + btn_pad);
+    if (leftmost_x < border_w) {
+        btn_x += border_w - leftmost_x;
+        leftmost_x = border_w;
+    }
     draw_button(cr, btn_x, btn_y, btn_size, btn_size, "close", text);
     btn_x -= (btn_size + btn_pad);
     draw_button(cr, btn_x, btn_y, btn_size, btn_size, "max", text);
