@@ -1402,12 +1402,21 @@ void server_run(server_t* s) {
             ssize_t len = readlink("/proc/self/exe", path, sizeof(path) - 1);
             if (len != -1) {
                 path[len] = '\0';
+                // If the binary was replaced, readlink might append " (deleted)"
+                char* deleted_suffix = strstr(path, " (deleted)");
+                if (deleted_suffix) *deleted_suffix = '\0';
+
                 char* args[] = {path, NULL};
 
                 server_cleanup(s);
+                xcb_flush(s->conn);  // Should be a no-op if conn is NULL, but server_cleanup disconnects
                 execv(path, args);
             }
             LOG_ERROR("Failed to restart: %s", strerror(errno));
+            g_restart_pending = 0;
+            s->restarting = false;
+            // Break loop to exit via main's cleanup.
+            // Note: server_cleanup was already called above, so main's call must be idempotent.
             break;
         }
 
