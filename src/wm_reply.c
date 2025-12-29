@@ -1208,7 +1208,22 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         for (int y = 0; y < (int)best_h; y++) {
                             uint32_t* row = (uint32_t*)(dest + y * stride);
                             for (int x = 0; x < (int)best_w; x++) {
-                                row[x] = best_data[y * (int)best_w + x];
+                                uint32_t pixel = best_data[y * (int)best_w + x];
+                                uint8_t a = (uint8_t)(pixel >> 24);
+                                uint8_t r = (uint8_t)(pixel >> 16);
+                                uint8_t g = (uint8_t)(pixel >> 8);
+                                uint8_t b = (uint8_t)pixel;
+                                if (a == 0) {
+                                    r = 0;
+                                    g = 0;
+                                    b = 0;
+                                } else if (a < 255) {
+                                    // Cairo expects premultiplied ARGB32.
+                                    r = (uint8_t)((r * a + 127) / 255);
+                                    g = (uint8_t)((g * a + 127) / 255);
+                                    b = (uint8_t)((b * a + 127) / 255);
+                                }
+                                row[x] = ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
                             }
                         }
 
