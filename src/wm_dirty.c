@@ -276,12 +276,14 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
             continue;
         }
 
+#if HXM_DIAG
         bool dirty_changed = (hot->dirty != hot->last_log_dirty);
         bool dirty_interesting = (hot->dirty & (DIRTY_GEOM | DIRTY_STACK | DIRTY_STATE));
         if (dirty_changed || dirty_interesting) {
             TRACE_LOG("flush_dirty h=%lx xid=%u dirty=0x%x state=%d", h, hot->xid, hot->dirty, hot->state);
             hot->last_log_dirty = hot->dirty;
         }
+#endif
 
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED || hot->state == STATE_NEW) {
             if (i < s->active_clients.length && s->active_clients.items[i] == ptr) i++;

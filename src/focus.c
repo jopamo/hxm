@@ -13,28 +13,9 @@
 #include "client.h"
 #include "event.h"
 #include "hxm.h"
+#include "hxm_diag.h"
 #include "wm.h"
 #include "xcb_utils.h"
-
-#ifdef HXM_ENABLE_DEBUG_LOGGING
-static void debug_dump_focus_history(const server_t* s, const char* tag) {
-    if (!s) return;
-    const list_node_t* head = &s->focus_history;
-    LOG_DEBUG("focus_history %s head=%p next=%p prev=%p", tag, (void*)head, (void*)head->next, (void*)head->prev);
-    const list_node_t* node = head->next;
-    int guard = 0;
-    while (node != head && guard < 64) {
-        const client_hot_t* c = (const client_hot_t*)((const char*)node - offsetof(client_hot_t, focus_node));
-        LOG_DEBUG("  [%d] node=%p prev=%p next=%p h=%lx xid=%u state=%d", guard, (void*)node, (void*)node->prev,
-                  (void*)node->next, c->self, c->xid, c->state);
-        node = node->next;
-        guard++;
-    }
-    if (node != head) {
-        LOG_WARN("focus_history %s: guard hit at %d, possible loop", tag, guard);
-    }
-}
-#endif
 
 void wm_install_client_colormap(server_t* s, client_hot_t* hot) {
     if (!s || !hot) return;
@@ -111,9 +92,9 @@ void wm_set_focus(server_t* s, handle_t h) {
                           (void*)c->focus_node.prev, (void*)c->focus_node.next);
                 list_remove(&c->focus_node);
             }
-            TRACE_ONLY(debug_dump_focus_history(s, "before focus insert"));
+            TRACE_ONLY(diag_dump_focus_history(s, "before focus insert"));
             list_insert(&c->focus_node, &s->focus_history, s->focus_history.next);
-            TRACE_ONLY(debug_dump_focus_history(s, "after focus insert"));
+            TRACE_ONLY(diag_dump_focus_history(s, "after focus insert"));
         }
 
         if (s->config.focus_raise && !same_focus) {

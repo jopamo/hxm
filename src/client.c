@@ -22,64 +22,10 @@
 #include "event.h"
 #include "frame.h"
 #include "hxm.h"
+#include "hxm_diag.h"
 #include "slotmap.h"
 #include "wm.h"
 #include "xcb_utils.h"
-
-#ifdef HXM_ENABLE_DEBUG_LOGGING
-static void debug_dump_focus_history(const server_t* s, const char* tag) {
-    if (!s) return;
-    const list_node_t* head = &s->focus_history;
-    if (!head->next || !head->prev) {
-        LOG_WARN("focus_history %s: list not initialized", tag);
-        return;
-    }
-    LOG_DEBUG("focus_history %s head=%p next=%p prev=%p", tag, (void*)head, (void*)head->next, (void*)head->prev);
-    const list_node_t* node = head->next;
-    int guard = 0;
-    while (node != head && guard < 128) {
-        if (!node->next || !node->prev) {
-            LOG_WARN("focus_history %s: null link at node=%p", tag, (void*)node);
-            break;
-        }
-        const client_hot_t* c = (const client_hot_t*)((const char*)node - offsetof(client_hot_t, focus_node));
-        LOG_DEBUG("  [%d] node=%p prev=%p next=%p h=%lx xid=%u state=%d", guard, (void*)node, (void*)node->prev,
-                  (void*)node->next, c->self, c->xid, c->state);
-        node = node->next;
-        guard++;
-    }
-    if (node != head) {
-        LOG_WARN("focus_history %s: guard hit at %d, possible loop", tag, guard);
-    }
-}
-
-static void debug_dump_transients(const client_hot_t* hot, const char* tag) {
-    if (!hot) return;
-    const list_node_t* head = &hot->transients_head;
-    if (!head->next || !head->prev) {
-        LOG_WARN("transients %s h=%lx: list not initialized", tag, hot->self);
-        return;
-    }
-    LOG_DEBUG("transients %s h=%lx head=%p next=%p prev=%p", tag, hot->self, (void*)head, (void*)head->next,
-              (void*)head->prev);
-    const list_node_t* node = head->next;
-    int guard = 0;
-    while (node != head && guard < 64) {
-        if (!node->next || !node->prev) {
-            LOG_WARN("transients %s: null link at node=%p", tag, (void*)node);
-            break;
-        }
-        const client_hot_t* c = (const client_hot_t*)((const char*)node - offsetof(client_hot_t, transient_sibling));
-        LOG_DEBUG("  [%d] node=%p prev=%p next=%p h=%lx xid=%u state=%d", guard, (void*)node, (void*)node->prev,
-                  (void*)node->next, c->self, c->xid, c->state);
-        node = node->next;
-        guard++;
-    }
-    if (node != head) {
-        LOG_WARN("transients %s: guard hit at %d, possible loop", tag, guard);
-    }
-}
-#endif
 
 bool should_focus_on_map(const client_hot_t* hot) {
     if (hot->focus_override != -1) return (bool)hot->focus_override;
@@ -365,7 +311,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
                     s->txn_id, wm_handle_reply);
 
     LOG_DEBUG("Started management for window %u (handle %lx)", win, h);
-    TRACE_ONLY(debug_dump_focus_history(s, "after manage_start"));
+    TRACE_ONLY(diag_dump_focus_history(s, "after manage_start"));
 }
 
 static void client_apply_rules(server_t* s, handle_t h) {
@@ -674,12 +620,12 @@ void client_finish_manage(server_t* s, handle_t h) {
     }
 
     // Add to focus history
-    TRACE_ONLY(debug_dump_focus_history(s, "before manage insert"));
+    TRACE_ONLY(diag_dump_focus_history(s, "before manage insert"));
     if (hot->focus_node.next && hot->focus_node.next != &hot->focus_node) {
         list_remove(&hot->focus_node);
     }
     list_insert(&hot->focus_node, &s->focus_history, s->focus_history.next);
-    TRACE_ONLY(debug_dump_focus_history(s, "after manage insert"));
+    TRACE_ONLY(diag_dump_focus_history(s, "after manage insert"));
 
     // Publish initial desktop
     uint32_t desk_prop = (uint32_t)hot->desktop;
@@ -743,8 +689,8 @@ void client_unmanage(server_t* s, handle_t h) {
 
     LOG_INFO("Unmanaging client %lx (window %u, destroyed=%d)", h, hot->xid, destroyed);
     TRACE_LOG("unmanage h=%lx frame=%u state=%d ignore_unmap=%u", h, hot->frame, hot->state, hot->ignore_unmap);
-    TRACE_ONLY(debug_dump_focus_history(s, "before unmanage"));
-    TRACE_ONLY(debug_dump_transients(hot, "before unmanage"));
+    TRACE_ONLY(diag_dump_focus_history(s, "before unmanage"));
+    TRACE_ONLY(diag_dump_transients(hot, "before unmanage"));
 
     if (s->interaction_mode != INTERACTION_NONE && s->interaction_handle == h) {
         LOG_INFO("Interaction client %lx destroyed/unmanaged during interaction, canceling", h);
@@ -782,7 +728,7 @@ void client_unmanage(server_t* s, handle_t h) {
         list_remove(&hot->focus_node);
         list_init(&hot->focus_node);
     }
-    TRACE_ONLY(debug_dump_focus_history(s, "after focus removal"));
+    TRACE_ONLY(diag_dump_focus_history(s, "after focus removal"));
 
     // If focused, pick next
     if (s->focused_client == h) {
@@ -895,7 +841,7 @@ void client_unmanage(server_t* s, handle_t h) {
 
     s->root_dirty |= ROOT_DIRTY_CLIENT_LIST;
     s->workarea_dirty = true;
-    TRACE_ONLY(debug_dump_focus_history(s, "after unmanage"));
+    TRACE_ONLY(diag_dump_focus_history(s, "after unmanage"));
 }
 
 void client_close(server_t* s, handle_t h) {

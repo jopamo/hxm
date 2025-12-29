@@ -43,7 +43,7 @@ add_project_arguments('-D_GNU_SOURCE', language: 'c')
 add_project_arguments('-Wpedantic', language: 'c')
 
 if get_option('debug')
-  add_project_arguments('-DHXM_ENABLE_DEBUG_LOGGING', language: 'c')
+  add_project_arguments('-DHXM_DIAG=1', language: 'c')
 endif
 
 deps = [
@@ -91,6 +91,10 @@ src = files(
   'src/config.c',
 )
 
+if get_option('debug')
+  src += files('src/diag.c')
+endif
+
 # Create executable
 hxm = executable('hxm', src,
   include_directories: incdir,
@@ -120,6 +124,8 @@ test_src = [
   'src/render.c',
   'src/config.c',
 ]
+
+test_src += ['src/diag.c']
 
 test_workspaces = executable('test_workspaces',
   ['tests/test_workspaces.c', 'tests/xcb_stubs.c'] + test_src,
