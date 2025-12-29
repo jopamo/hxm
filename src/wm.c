@@ -1808,8 +1808,7 @@ void wm_place_window(server_t* s, handle_t h) {
     }
 
     // Honor user/program position if specified (only if no rule applied)
-    if (hot->placement == PLACEMENT_DEFAULT &&
-        (hot->hints_flags & (XCB_ICCCM_SIZE_HINT_US_POSITION | XCB_ICCCM_SIZE_HINT_P_POSITION))) {
+    if (hot->placement == PLACEMENT_DEFAULT && (hot->hints_flags & XCB_ICCCM_SIZE_HINT_US_POSITION)) {
         return;
     }
 
