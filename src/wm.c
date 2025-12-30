@@ -31,6 +31,7 @@
 #include "event.h"
 #include "frame.h"
 #include "hxm.h"
+#include "snap.h"
 #include "wm_internal.h"
 
 // Small helpers
@@ -805,6 +806,11 @@ void wm_cancel_interaction(server_t* s) {
     if (s->interaction_mode == INTERACTION_NONE) return;
     xcb_window_t frame = s->interaction_window;
     handle_t h = s->interaction_handle;
+    client_hot_t* hot_clear = server_chot(s, h);
+    if (hot_clear) {
+        hot_clear->snap_preview_active = false;
+        hot_clear->snap_preview_edge = SNAP_NONE;
+    }
     s->interaction_mode = INTERACTION_NONE;
     s->interaction_window = XCB_NONE;
     s->interaction_handle = HANDLE_INVALID;
@@ -835,10 +841,10 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
     s->interaction_handle = h;
     s->interaction_time = time;
 
-    s->interaction_start_x = hot->server.x;
-    s->interaction_start_y = hot->server.y;
-    s->interaction_start_w = hot->server.w;
-    s->interaction_start_h = hot->server.h;
+    s->interaction_start_x = start_move ? hot->desired.x : hot->server.x;
+    s->interaction_start_y = start_move ? hot->desired.y : hot->server.y;
+    s->interaction_start_w = start_move ? hot->desired.w : hot->server.w;
+    s->interaction_start_h = start_move ? hot->desired.h : hot->server.h;
 
     s->interaction_pointer_x = root_x;
     s->interaction_pointer_y = root_y;
@@ -984,6 +990,15 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
     if (start_move && !client_can_move(hot)) start_move = false;
     if (start_resize && !client_can_resize(hot)) start_resize = false;
 
+    if (start_move && s->snap_enabled && hot->snap_active) {
+        hot->desired = hot->snap_restore_frame_rect;
+        hot->snap_active = false;
+        hot->snap_edge = SNAP_NONE;
+        hot->snap_preview_active = false;
+        hot->snap_preview_edge = SNAP_NONE;
+        hot->dirty |= DIRTY_GEOM;
+    }
+
     if (!start_move && !start_resize) {
         xcb_allow_events(s->conn, XCB_ALLOW_REPLAY_POINTER, ev->time);
         return;
@@ -1004,7 +1019,23 @@ void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
         LOG_INFO("ButtonRelease in interaction");
     }
 
-    (void)ev;
+    if (s->interaction_mode == INTERACTION_MOVE) {
+        handle_t h = s->interaction_handle;
+        client_hot_t* hot = server_chot(s, h);
+        if (hot) {
+            bool can_snap = s->snap_enabled && client_can_move(hot) && !hot->override_redirect &&
+                            hot->layer != LAYER_FULLSCREEN && hot->type != WINDOW_TYPE_DOCK;
+            if (can_snap && hot->snap_preview_active) {
+                hot->snap_restore_frame_rect = hot->server;
+                hot->desired = hot->snap_preview_frame_rect;
+                hot->snap_active = true;
+                hot->snap_edge = hot->snap_preview_edge;
+                hot->dirty |= DIRTY_GEOM;
+            }
+            hot->snap_preview_active = false;
+            hot->snap_preview_edge = SNAP_NONE;
+        }
+    }
 
     wm_cancel_interaction(s);
 }
@@ -1074,6 +1105,24 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
         hot->desired.x = (int16_t)(s->interaction_start_x + dx);
         hot->desired.y = (int16_t)(s->interaction_start_y + dy);
         hot->dirty |= DIRTY_GEOM;
+
+        hot->snap_preview_active = false;
+        hot->snap_preview_edge = SNAP_NONE;
+
+        if (s->snap_enabled && client_can_move(hot) && !hot->override_redirect && hot->layer != LAYER_FULLSCREEN &&
+            hot->type != WINDOW_TYPE_DOCK) {
+            rect_t wa = s->workarea;
+            int mid = wm_monitor_at_point(s, ev->root_x, ev->root_y);
+            if (mid >= 0 && (uint32_t)mid < s->monitor_count) {
+                wa = s->monitors[mid].workarea;
+            }
+            snap_candidate_t cand = snap_compute_candidate(ev->root_x, ev->root_y, wa, (int)s->snap_threshold_px);
+            if (cand.active) {
+                hot->snap_preview_active = true;
+                hot->snap_preview_edge = cand.edge;
+                hot->snap_preview_frame_rect = cand.rect;
+            }
+        }
         return;
     }
 

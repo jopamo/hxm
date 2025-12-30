@@ -35,6 +35,8 @@
 #define DEFAULT_MENU_SEL_FG 0xffffff
 #define DEFAULT_BORDER_WIDTH 2
 #define DEFAULT_TITLE_HEIGHT 20
+#define DEFAULT_SNAP_THRESHOLD 24
+#define DEFAULT_SNAP_PREVIEW_BORDER 2
 #define DEFAULT_DESKTOP_COUNT 4
 #define DEFAULT_FONT "fixed"
 
@@ -79,6 +81,10 @@ void config_init_defaults(config_t* config) {
 
     config->focus_raise = true;
     config->fullscreen_use_workarea = false;
+    config->snap_enable = true;
+    config->snap_threshold_px = DEFAULT_SNAP_THRESHOLD;
+    config->snap_preview_border_px = DEFAULT_SNAP_PREVIEW_BORDER;
+    config->snap_preview_color = DEFAULT_ACTIVE_BORDER;
 
     small_vec_init(&config->key_bindings);
     small_vec_init(&config->rules);
@@ -472,6 +478,14 @@ bool config_load(config_t* config, const char* path) {
             config->focus_raise = (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0);
         } else if (strcmp(key, "fullscreen_use_workarea") == 0) {
             config->fullscreen_use_workarea = (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "snap_enable") == 0) {
+            config->snap_enable = (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0);
+        } else if (strcmp(key, "snap_threshold_px") == 0) {
+            config->snap_threshold_px = (uint32_t)atoi(val);
+        } else if (strcmp(key, "snap_preview_border_px") == 0) {
+            config->snap_preview_border_px = (uint32_t)atoi(val);
+        } else if (strcmp(key, "snap_preview_color") == 0) {
+            config->snap_preview_color = parse_color(val);
         } else if (strcmp(key, "keybind") == 0) {
             parse_keybind(config, val);
         } else if (strcmp(key, "rule") == 0) {

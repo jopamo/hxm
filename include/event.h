@@ -269,6 +269,12 @@ typedef struct server {
 
     /* Configuration */
     config_t config;
+    bool snap_enabled;
+    uint32_t snap_threshold_px;
+    uint32_t snap_preview_color;
+    uint16_t snap_preview_border_px;
+    xcb_window_t snap_preview_win;
+    bool snap_preview_mapped;
     bool is_test;
 
     /* Resources */

@@ -45,6 +45,9 @@ typedef struct rect {
     uint16_t w, h;
 } rect_t;
 
+/* Snap targets */
+typedef enum snap_edge { SNAP_NONE = 0, SNAP_LEFT, SNAP_RIGHT } snap_edge_t;
+
 /* Stacking layers (bottom -> top) */
 typedef enum layer {
     LAYER_DESKTOP = 0,
@@ -180,6 +183,13 @@ typedef struct client_hot {
     bool saved_maximize_valid;
     bool saved_maximized_horz;
     bool saved_maximized_vert;
+
+    bool snap_active;
+    snap_edge_t snap_edge;
+    rect_t snap_restore_frame_rect;
+    bool snap_preview_active;
+    snap_edge_t snap_preview_edge;
+    rect_t snap_preview_frame_rect;
 
     int32_t stacking_index;
     int8_t stacking_layer;

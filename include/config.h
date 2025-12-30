@@ -119,6 +119,12 @@ typedef struct config {
     /* Policy flags */
     bool focus_raise;
     bool fullscreen_use_workarea;
+
+    /* Snap-to-edge */
+    bool snap_enable;
+    uint32_t snap_threshold_px;
+    uint32_t snap_preview_border_px;
+    uint32_t snap_preview_color;
 } config_t;
 
 /* Initialize config to default values (does not load from disk) */

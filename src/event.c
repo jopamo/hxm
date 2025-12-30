@@ -23,6 +23,7 @@
 
 #include "frame.h"
 #include "hxm.h"
+#include "snap_preview.h"
 #include "wm.h"
 #include "wm_internal.h"
 #include "xcb_utils.h"
@@ -63,6 +64,8 @@ static void apply_reload(server_t* s);
 static void buckets_reset(event_buckets_t* b);
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
 static bool server_wait_for_events(server_t* s, int timeout_ms);
+static void server_apply_snap_config(server_t* s);
+static void server_apply_snap_config(server_t* s);
 
 volatile sig_atomic_t g_shutdown_pending = 0;
 volatile sig_atomic_t g_restart_pending = 0;
@@ -144,6 +147,7 @@ void server_init(server_t* s) {
     // Initialize configuration (defaults then optional load)
     config_init_defaults(&s->config);
     load_config_from_home(s);
+    server_apply_snap_config(s);
 
     // Initialize workspace state from config
     s->desktop_count = s->config.desktop_count ? s->config.desktop_count : 1;
@@ -187,6 +191,7 @@ void server_init(server_t* s) {
 
     // Adopt existing windows (must happen after we are the WM)
     wm_update_monitors(s);
+    snap_preview_init(s);
     wm_adopt_children(s);
 
     // Create epoll instance and register X connection fd
@@ -303,6 +308,8 @@ void server_cleanup(server_t* s) {
         cairo_surface_destroy(s->default_icon);
         s->default_icon = NULL;
     }
+
+    snap_preview_destroy(s);
 
     if (s->prefetched_event) {
         free(s->prefetched_event);
@@ -533,6 +540,23 @@ static void buckets_reset(event_buckets_t* b) {
 
     b->ingested = 0;
     b->coalesced = 0;
+}
+
+static void server_apply_snap_config(server_t* s) {
+    if (!s) return;
+    s->snap_enabled = s->config.snap_enable;
+
+    uint32_t threshold = s->config.snap_threshold_px;
+    if (threshold == 0) threshold = 24;
+    s->snap_threshold_px = threshold;
+
+    uint32_t border_px = s->config.snap_preview_border_px;
+    if (border_px == 0) border_px = 2;
+    s->snap_preview_border_px = (uint16_t)border_px;
+
+    uint32_t color = s->config.snap_preview_color;
+    if (color == 0) color = s->config.theme.window_active_border_color;
+    s->snap_preview_color = color;
 }
 
 void event_ingest(server_t* s, bool x_ready) {
@@ -1152,6 +1176,7 @@ static void apply_reload(server_t* s) {
 
     config_destroy(&s->config);
     s->config = next_config;
+    server_apply_snap_config(s);
 
     uint32_t desired = s->config.desktop_count ? s->config.desktop_count : s->desktop_count;
     if (desired == 0) desired = 1;
@@ -1182,6 +1207,9 @@ static void apply_reload(server_t* s) {
     menu_init(s);
 
     wm_setup_keys(s);
+
+    snap_preview_destroy(s);
+    snap_preview_init(s);
 
     for (size_t i = 0; i < s->active_clients.length; i++) {
         handle_t h = ptr_to_handle(s->active_clients.items[i]);
