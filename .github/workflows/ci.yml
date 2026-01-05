@@ -23,7 +23,7 @@ jobs:
             ubsan_options: ""
             tsan_options: ""
           
-          - name: ASan+UBSan
+          - name: ASan_UBSan
             cc: clang
             cflags: "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
             ldflags: "-fsanitize=address,undefined"
@@ -95,4 +95,4 @@ jobs:
         with:
           name: test-logs-${{ matrix.cfg.name }}
           path: |
-            ${{ matrix.cfg.build_dir }}/meson-logs/testlog.txt
+            ${{ matrix.cfg.build_dir }}/meson-logs/*.txt
