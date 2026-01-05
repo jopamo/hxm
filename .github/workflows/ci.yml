@@ -42,7 +42,7 @@ jobs:
             build_dir: build-tsan
             asan_options: ""
             ubsan_options: ""
-            tsan_options: "history_size=7:halt_on_error=1:print_stacktrace=1"
+            tsan_options: "history_size=7:halt_on_error=1:print_stacktrace=1:suppressions=$GITHUB_WORKSPACE/sanitizers/tsan.supp"
 
           - name: UBSan
             cc: clang

@@ -1,0 +1,4 @@
+# Suppress known GLib/Pango fontconfig worker race that fires under TSan in CI
+race:glib_fontconfig_worker
+  fun:g_queue_pop_tail
+  obj:*libglib-2.0.so*
