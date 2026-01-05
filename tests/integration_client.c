@@ -479,15 +479,19 @@ static void test_wm_presence_ewmh(void) {
 static void test_management_and_lists(void) {
     printf("Test: Management + client lists\n");
 
+    uint32_t timeout_ms = 1000;
+    const char* env = getenv("HXM_TEST_TIMEOUT_MS");
+    if (env) timeout_ms = (uint32_t)atoi(env);
+
     xcb_window_t w = create_window(200, 120);
     map_window(w);
 
     xcb_window_t frame = XCB_WINDOW_NONE;
-    require_eventual_reparent(w, 1000, &frame);
+    require_eventual_reparent(w, timeout_ms, &frame);
     printf("  Window %u reparented under %u\n", w, frame);
 
-    require_eventual_mapped(w, 1000);
-    require_eventual_client_list_membership(w, 1000);
+    require_eventual_mapped(w, timeout_ms);
+    require_eventual_client_list_membership(w, timeout_ms);
 
     destroy_window(w);
 

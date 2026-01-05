@@ -281,11 +281,15 @@ void server_init(server_t* s) {
     menu_init(s);
 
     // Default Icon
-    s->default_icon = cairo_image_surface_create_from_png("assets/hxm-black.png");
-    if (cairo_surface_status(s->default_icon) != CAIRO_STATUS_SUCCESS) {
-        if (s->default_icon) cairo_surface_destroy(s->default_icon);
+    if (access("assets/hxm-black.png", R_OK) == 0) {
+        s->default_icon = cairo_image_surface_create_from_png("assets/hxm-black.png");
+        if (cairo_surface_status(s->default_icon) != CAIRO_STATUS_SUCCESS) {
+            if (s->default_icon) cairo_surface_destroy(s->default_icon);
+            s->default_icon = NULL;
+            LOG_WARN("Failed to load default icon assets/hxm-black.png");
+        }
+    } else {
         s->default_icon = NULL;
-        LOG_WARN("Failed to load default icon assets/hxm-black.png, icons will be disabled for windows without one");
     }
 
     // Setup keys

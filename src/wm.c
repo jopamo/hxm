@@ -258,6 +258,13 @@ void wm_become(server_t* s) {
     xcb_connection_t* conn = s->conn;
     xcb_window_t root = s->root;
 
+    // Retry loop for WM_S0 acquisition (handle race during restart)
+    for (int i = 0; i < 10; i++) {
+        if (check_wm_s0_available(s)) break;
+        struct timespec ts = {0, 100000000};  // 100ms
+        nanosleep(&ts, NULL);
+    }
+
     if (!check_wm_s0_available(s)) {
         LOG_ERROR("Refusing to become WM: WM_S0 is already owned");
         return;
