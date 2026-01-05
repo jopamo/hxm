@@ -14,6 +14,11 @@ if ! command -v Xvfb >/dev/null 2>&1; then
   exit 77
 fi
 
+if ! command -v xvfb-run >/dev/null 2>&1; then
+  echo "SKIP: xvfb-run not found" >&2
+  exit 77
+fi
+
 if ! command -v pkg-config >/dev/null 2>&1; then
   echo "SKIP: pkg-config not found" >&2
   exit 77
@@ -41,80 +46,8 @@ if [ -z "$hxm_bin" ]; then
   fi
 fi
 
-wait_for_x() {
-  for _ in $(seq 1 50); do
-    if "$client_bin" get-root-cardinals _NET_SUPPORTED >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.05
-  done
-  return 1
-}
-
-wait_for_substructure_redirect() {
-  for _ in $(seq 1 100); do
-    if "$client_bin" assert-substructure-redirect >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.05
-  done
-  return 1
-}
-
-wait_for_supporting_wm_check() {
-  for _ in $(seq 1 100); do
-    local json
-    json=$("$client_bin" get-root-cardinals _NET_SUPPORTING_WM_CHECK 2>/dev/null || true)
-    local win
-    win=$(echo "$json" | sed 's/[^0-9]/ /g' | awk '{print $1}')
-    if [ -n "$win" ] && [ "$win" != "0" ]; then
-      return 0
-    fi
-    sleep 0.05
-  done
-  return 1
-}
-
-pick_display() {
-  if [ -n "${XVFB_DISPLAY:-}" ]; then
-    echo "$XVFB_DISPLAY"
-    return 0
-  fi
-  for i in $(seq 99 120); do
-    if [ ! -e "/tmp/.X${i}-lock" ]; then
-      echo ":$i"
-      return 0
-    fi
-  done
-  echo ":99"
-}
-
-start_xvfb() {
-  Xvfb "$DISPLAY" -screen 0 1024x768x24 "$@" >/dev/null 2>&1 &
-  xvfb_pid=$!
-}
-
 tmp_home=$(mktemp -d)
 cleanup() {
-  if [ -n "${hxm_pid:-}" ]; then
-    if kill -0 "$hxm_pid" 2>/dev/null; then
-      kill "$hxm_pid"
-      wait "$hxm_pid" || true
-    fi
-    # Force kill if still alive
-    if kill -0 "$hxm_pid" 2>/dev/null; then
-        kill -9 "$hxm_pid" 2>/dev/null || true
-    fi
-  fi
-  if [ -n "${xvfb_pid:-}" ]; then
-    if kill -0 "$xvfb_pid" 2>/dev/null; then
-      kill "$xvfb_pid"
-      wait "$xvfb_pid" || true
-    fi
-    if kill -0 "$xvfb_pid" 2>/dev/null; then
-        kill -9 "$xvfb_pid" 2>/dev/null || true
-    fi
-  fi
   rm -rf "$tmp_home"
 }
 trap cleanup EXIT
@@ -127,41 +60,60 @@ desktop_count = 3
 desktop_names = one,two,three
 EOF
 
-export DISPLAY=$(pick_display)
-start_xvfb +extension RANDR
-if ! wait_for_x; then
-  if [ -n "${xvfb_pid:-}" ] && kill -0 "$xvfb_pid" 2>/dev/null; then
-    kill "$xvfb_pid"
-    wait "$xvfb_pid" || true
+echo "Running EWMH tests with xvfb-run..."
+
+xvfb-run -a -s "-screen 0 1024x768x24 +extension RANDR" bash -c "
+  set -e
+  
+  if [ \"$($client_bin has-extension RANDR)\" != \"yes\" ]; then
+    echo \"warning: RANDR extension not available on Xvfb\" >&2
   fi
-  start_xvfb
-  if ! wait_for_x; then
-    echo "failed to start Xvfb" >&2
-    exit 1
+
+  hxm_log_file=\"${HXM_LOG_FILE:-/dev/null}\" 
+  \"$hxm_bin\" >\"$hxm_log_file\" 2>&1 &
+  hxm_pid=\$!
+  export hxm_pid
+
+  # Wait for WM to be ready
+  for _ in \$(seq 1 100); do
+    json=\$($client_bin get-root-cardinals _NET_SUPPORTING_WM_CHECK 2>/dev/null || true)
+    win=\$(echo \"\$json\" | sed 's/[^0-9]/ /g' | awk '{print $1}')
+    if [ -n \"\$win\" ] && [ \"\$win\" != \"0\" ]; then
+      break
+    fi
+    sleep 0.05
+  done
+  
+  if [ -z \"\$win\" ] || [ \"\$win\" = \"0\" ]; then
+     echo \"WM did not publish _NET_SUPPORTING_WM_CHECK\" >&2
+     kill \$hxm_pid || true
+     exit 1
   fi
-fi
 
-if [ "$("$client_bin" has-extension RANDR)" != "yes" ]; then
-  echo "warning: RANDR extension not available on Xvfb" >&2
-fi
+  for _ in \$(seq 1 100); do
+    if \"$client_bin\" assert-substructure-redirect >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.05
+  done
 
-hxm_log_file=${HXM_LOG_FILE:-/dev/null}
-"$hxm_bin" >"$hxm_log_file" 2>&1 &
-hxm_pid=$!
+  # Run tests
+  if ! \"$script_dir/test_desktops.sh\" \"$client_bin\"; then
+     kill \$hxm_pid || true
+     exit 1
+  fi
+  if ! \"$script_dir/test_strut_removal.sh\" \"$client_bin\"; then
+     kill \$hxm_pid || true
+     exit 1
+  fi
+  if ! \"$script_dir/test_state_remove.sh\" \"$client_bin\"; then
+     kill \$hxm_pid || true
+     exit 1
+  fi
+  if ! \"$script_dir/test_restart.sh\" \"$client_bin\"; then
+     kill \$hxm_pid || true
+     exit 1
+  fi
 
-if ! wait_for_supporting_wm_check; then
-  echo "WM did not publish _NET_SUPPORTING_WM_CHECK" >&2
-  exit 1
-fi
-
-if ! wait_for_substructure_redirect; then
-  echo "WM did not claim SubstructureRedirect on root" >&2
-  exit 1
-fi
-
-"$script_dir/test_desktops.sh" "$client_bin"
-"$script_dir/test_strut_removal.sh" "$client_bin"
-"$script_dir/test_state_remove.sh" "$client_bin"
-# Export hxm_pid for test_restart.sh
-export hxm_pid
-"$script_dir/test_restart.sh" "$client_bin"
+  kill \$hxm_pid
+  wait \$hxm_pid || true
