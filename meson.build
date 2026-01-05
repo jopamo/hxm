@@ -28,6 +28,7 @@ pango_dep = dependency('pango')
 pangocairo_dep = dependency('pangocairo')
 fontconfig_dep = dependency('fontconfig')
 rsvg_dep = dependency('librsvg-2.0')
+yaml_dep = dependency('yaml-0.1')
 
 # Optional dependencies
 xkbcommon_dep = dependency('xkbcommon', required: false)
@@ -63,6 +64,7 @@ deps = [
   pangocairo_dep,
   fontconfig_dep,
   rsvg_dep,
+  yaml_dep,
 ]
 
 # Include directories

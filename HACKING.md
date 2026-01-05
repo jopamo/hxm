@@ -17,6 +17,7 @@ core architectural invariants. Read `DESIGN.md` and `FLOW.md` first.
   - xcb-xkb
   - related XCB extensions
 - cairo, pango, fontconfig, librsvg
+- libyaml (yaml-0.1)
 
 ### Optional tools
 

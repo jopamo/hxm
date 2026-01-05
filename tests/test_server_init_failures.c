@@ -14,6 +14,8 @@
 
 #include "event.h"
 
+extern void xcb_stubs_reset(void);
+
 // Flags to control failure injection
 static bool fail_connect = false;
 static bool fail_fcntl = false;
@@ -133,6 +135,7 @@ void reset_flags(void) {
     fail_timerfd = false;
     fail_epoll_create = false;
     fail_epoll_ctl = false;
+    xcb_stubs_reset();
 }
 
 typedef void (*setup_fn)(void);
@@ -154,6 +157,7 @@ void run_test(const char* name, setup_fn setup) {
     server_t s;
     // Zero out s to avoid garbage
     memset(&s, 0, sizeof(s));
+    s.is_test = true;
 
     exit_status_capture = -1;
 

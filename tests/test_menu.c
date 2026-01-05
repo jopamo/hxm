@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "client.h"
 #include "event.h"
@@ -26,6 +27,17 @@ void setup_server(server_t* s) {
 
     // Menu init happens in server_init usually, but we call it manually
     menu_init(s);
+
+    // Load default menu config from source tree (tests run from build dir)
+    const char* candidates[] = {"data/menu.conf", "../data/menu.conf"};
+    bool loaded = false;
+    for (size_t i = 0; i < HXM_ARRAY_LEN(candidates); i++) {
+        if (access(candidates[i], R_OK) == 0 && menu_load_config(s, candidates[i])) {
+            loaded = true;
+            break;
+        }
+    }
+    assert(loaded && "menu.conf not found for test");
 }
 
 void test_menu_basics(void) {

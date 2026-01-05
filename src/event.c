@@ -59,12 +59,12 @@
 static int make_epoll_or_die(void);
 static void epoll_add_fd_or_die(int epfd, int fd);
 static void load_config_from_home(server_t* s);
+static void load_menu_config(server_t* s);
 static void run_autostart(void);
 static void apply_reload(server_t* s);
 static void buckets_reset(event_buckets_t* b);
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
 static bool server_wait_for_events(server_t* s, int timeout_ms);
-static void server_apply_snap_config(server_t* s);
 static void server_apply_snap_config(server_t* s);
 
 volatile sig_atomic_t g_shutdown_pending = 0;
@@ -72,7 +72,9 @@ volatile sig_atomic_t g_restart_pending = 0;
 volatile sig_atomic_t g_reload_pending = 0;
 
 void server_init(server_t* s) {
+    bool is_test = s->is_test;
     memset(s, 0, sizeof(*s));
+    s->is_test = is_test;
 
     s->conn = xcb_connect_cached();
     if (!s->conn) {
@@ -279,6 +281,7 @@ void server_init(server_t* s) {
 
     // Root menu
     menu_init(s);
+    load_menu_config(s);
 
     // Default Icon
     if (access("assets/hxm-black.png", R_OK) == 0) {
@@ -295,7 +298,9 @@ void server_init(server_t* s) {
     // Setup keys
     wm_setup_keys(s);
 
-    run_autostart();
+    if (!s->is_test) {
+        run_autostart();
+    }
 
     LOG_INFO("Server initialized");
 }
@@ -488,6 +493,13 @@ static void load_config_from_home(server_t* s) {
         config_load(&s->config, "/etc/hxm/hxm.conf");
     }
 
+    if (!config_loaded && access("data/hxm.conf", R_OK) == 0) {
+        config_loaded = config_load(&s->config, "data/hxm.conf");
+    }
+    if (!config_loaded && access("../data/hxm.conf", R_OK) == 0) {
+        config_loaded = config_load(&s->config, "../data/hxm.conf");
+    }
+
     // Now try to load the theme
     bool theme_loaded = false;
     if (xdg_config_home) {
@@ -502,6 +514,39 @@ static void load_config_from_home(server_t* s) {
 
     if (!theme_loaded) {
         theme_load(&s->config.theme, "/etc/hxm/themerc");
+    }
+}
+
+static void load_menu_config(server_t* s) {
+    char path[1024];
+    bool loaded = false;
+    const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
+    const char* home = getenv("HOME");
+
+    if (xdg_config_home) {
+        snprintf(path, sizeof(path), "%s/hxm/menu.conf", xdg_config_home);
+        loaded = menu_load_config(s, path);
+    }
+
+    if (!loaded && home) {
+        snprintf(path, sizeof(path), "%s/.config/hxm/menu.conf", home);
+        loaded = menu_load_config(s, path);
+    }
+
+    if (!loaded) {
+        loaded = menu_load_config(s, "/etc/hxm/menu.conf");
+    }
+
+    if (!loaded && access("data/menu.conf", R_OK) == 0) {
+        loaded = menu_load_config(s, "data/menu.conf");
+    }
+
+    if (!loaded && access("../data/menu.conf", R_OK) == 0) {
+        loaded = menu_load_config(s, "../data/menu.conf");
+    }
+
+    if (!loaded) {
+        LOG_WARN("Menu config not found; menu will be empty");
     }
 }
 
@@ -1165,6 +1210,14 @@ static void apply_reload(server_t* s) {
         loaded = config_load(&next_config, "/etc/hxm/hxm.conf");
     }
 
+    if (!loaded && access("data/hxm.conf", R_OK) == 0) {
+        loaded = config_load(&next_config, "data/hxm.conf");
+    }
+
+    if (!loaded && access("../data/hxm.conf", R_OK) == 0) {
+        loaded = config_load(&next_config, "../data/hxm.conf");
+    }
+
     bool theme_loaded = false;
     if (xdg_config_home) {
         snprintf(path, sizeof(path), "%s/hxm/themerc", xdg_config_home);
@@ -1209,6 +1262,7 @@ static void apply_reload(server_t* s) {
 
     menu_destroy(s);
     menu_init(s);
+    load_menu_config(s);
 
     wm_setup_keys(s);
 

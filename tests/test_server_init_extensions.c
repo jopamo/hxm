@@ -11,6 +11,8 @@
 #include "event.h"
 #include "wm.h"
 
+extern void xcb_stubs_reset(void);
+
 // We need to link with xcb_stubs.c but override some functions.
 // Since xcb_stubs.c defines them as strong symbols, we must use --wrap in linker.
 
@@ -115,6 +117,7 @@ void reset_mocks(void) {
     fail_damage_reply = false;
     fail_randr_reply = false;
     restore_active_window = XCB_NONE;
+    xcb_stubs_reset();
 }
 
 void damage_fail_test(void) {
@@ -124,6 +127,7 @@ void damage_fail_test(void) {
 
     server_t s;
     memset(&s, 0, sizeof(s));
+    s.is_test = true;
     server_init(&s);
 
     if (s.damage_supported) {
@@ -141,6 +145,7 @@ void randr_fail_test(void) {
 
     server_t s;
     memset(&s, 0, sizeof(s));
+    s.is_test = true;
     server_init(&s);
 
     if (s.randr_supported) {
@@ -158,6 +163,7 @@ void restore_active_test(void) {
 
     server_t s;
     memset(&s, 0, sizeof(s));
+    s.is_test = true;
     server_init(&s);
 
     if (s.initial_focus != 0x1234) {

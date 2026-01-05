@@ -22,6 +22,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <xcb/xcb_icccm.h>
+#include <yaml.h>
 
 #include "client.h"
 #include "event.h"
@@ -43,6 +44,19 @@ static void menu_clear_items(server_t* s) {
         free(item);
     }
     small_vec_clear(&s->menu.items);
+}
+
+static void menu_clear_config(menu_t* m) {
+    if (!m) return;
+    for (size_t i = 0; i < m->config_items.length; i++) {
+        menu_item_spec_t* spec = m->config_items.items[i];
+        if (!spec) continue;
+        free(spec->label);
+        free(spec->cmd);
+        free(spec->icon_path);
+        free(spec);
+    }
+    small_vec_clear(&m->config_items);
 }
 
 static cairo_surface_t* menu_load_icon(const char* path) {
@@ -92,6 +106,132 @@ static cairo_surface_t* menu_load_icon(const char* path) {
     }
 }
 
+static bool parse_bool_scalar(const char* val) {
+    if (!val) return false;
+    return strcasecmp(val, "true") == 0 || strcasecmp(val, "yes") == 0 || strcasecmp(val, "1") == 0 ||
+           strcasecmp(val, "on") == 0;
+}
+
+static menu_action_t parse_action_scalar(const char* val) {
+    if (!val) return MENU_ACTION_NONE;
+    if (strcasecmp(val, "exec") == 0) return MENU_ACTION_EXEC;
+    if (strcasecmp(val, "restart") == 0) return MENU_ACTION_RESTART;
+    if (strcasecmp(val, "exit") == 0) return MENU_ACTION_EXIT;
+    if (strcasecmp(val, "reload") == 0) return MENU_ACTION_RELOAD;
+    if (strcasecmp(val, "restore") == 0) return MENU_ACTION_RESTORE;
+    if (strcasecmp(val, "separator") == 0) return MENU_ACTION_SEPARATOR;
+    if (strcasecmp(val, "none") == 0) return MENU_ACTION_NONE;
+    LOG_WARN("Unknown menu action: %s", val);
+    return MENU_ACTION_NONE;
+}
+
+bool menu_load_config(server_t* s, const char* path) {
+    if (!s || !path) return false;
+
+    FILE* f = fopen(path, "r");
+    if (!f) return false;
+
+    yaml_parser_t parser;
+    yaml_document_t doc;
+
+    if (!yaml_parser_initialize(&parser)) {
+        fclose(f);
+        return false;
+    }
+
+    yaml_parser_set_input_file(&parser, f);
+
+    if (!yaml_parser_load(&parser, &doc)) {
+        LOG_WARN("Failed to parse YAML in %s", path);
+        yaml_parser_delete(&parser);
+        fclose(f);
+        return false;
+    }
+
+    yaml_node_t* root = yaml_document_get_root_node(&doc);
+    if (!root || root->type != YAML_SEQUENCE_NODE) {
+        LOG_WARN("menu.conf must be a YAML sequence of menu items: %s", path);
+        yaml_document_delete(&doc);
+        yaml_parser_delete(&parser);
+        fclose(f);
+        return false;
+    }
+
+    menu_clear_config(&s->menu);
+
+    size_t loaded = 0;
+    for (yaml_node_item_t* item = root->data.sequence.items.start; item < root->data.sequence.items.top; item++) {
+        yaml_node_t* node = yaml_document_get_node(&doc, *item);
+        if (!node || node->type != YAML_MAPPING_NODE) {
+            LOG_WARN("menu.conf item is not a mapping; skipping");
+            continue;
+        }
+
+        menu_item_spec_t* spec = calloc(1, sizeof(menu_item_spec_t));
+        bool separator_flag = false;
+
+        for (yaml_node_pair_t* pair = node->data.mapping.pairs.start; pair < node->data.mapping.pairs.top; pair++) {
+            yaml_node_t* key_node = yaml_document_get_node(&doc, pair->key);
+            yaml_node_t* val_node = yaml_document_get_node(&doc, pair->value);
+            if (!key_node || key_node->type != YAML_SCALAR_NODE) continue;
+
+            const char* key = (const char*)key_node->data.scalar.value;
+            if (!key) continue;
+
+            if (strcasecmp(key, "separator") == 0) {
+                if (val_node && val_node->type == YAML_SCALAR_NODE) {
+                    const char* val = (const char*)val_node->data.scalar.value;
+                    separator_flag = parse_bool_scalar(val);
+                }
+                continue;
+            }
+
+            if (!val_node || val_node->type != YAML_SCALAR_NODE) continue;
+            const char* val = (const char*)val_node->data.scalar.value;
+            if (!val) continue;
+
+            if (strcasecmp(key, "label") == 0)
+                spec->label = strdup(val);
+            else if (strcasecmp(key, "action") == 0)
+                spec->action = parse_action_scalar(val);
+            else if (strcasecmp(key, "cmd") == 0)
+                spec->cmd = strdup(val);
+            else if (strcasecmp(key, "icon") == 0)
+                spec->icon_path = strdup(val);
+        }
+
+        if (separator_flag) {
+            spec->action = MENU_ACTION_SEPARATOR;
+        } else if (spec->action == MENU_ACTION_NONE && spec->cmd) {
+            spec->action = MENU_ACTION_EXEC;
+        }
+
+        if (spec->action != MENU_ACTION_SEPARATOR && !spec->label) {
+            LOG_WARN("Menu item missing label; skipping");
+            free(spec->label);
+            free(spec->cmd);
+            free(spec->icon_path);
+            free(spec);
+            continue;
+        }
+
+        small_vec_push(&s->menu.config_items, spec);
+        loaded++;
+    }
+
+    yaml_document_delete(&doc);
+    yaml_parser_delete(&parser);
+    fclose(f);
+
+    if (loaded == 0) {
+        LOG_WARN("Loaded menu.conf from %s but found no items", path);
+        return false;
+    }
+
+    LOG_INFO("Loaded menu config from %s (%zu items)", path, loaded);
+    return true;
+}
+
 static void menu_add_item(server_t* s, const char* label, menu_action_t action, const char* cmd, handle_t client,
                           const char* icon_path) {
     menu_item_t* item = malloc(sizeof(menu_item_t));
@@ -115,6 +255,7 @@ void menu_init(server_t* s) {
     s->menu.w = MENU_WIDTH;
     s->menu.h = 2 * MENU_PADDING;
     small_vec_init(&s->menu.items);
+    small_vec_init(&s->menu.config_items);
     render_init(&s->menu.render_ctx);
 
     // Create window (Override Redirect)
@@ -133,55 +274,25 @@ void menu_destroy(server_t* s) {
     render_free(&s->menu.render_ctx);
 
     menu_clear_items(s);
+    menu_clear_config(&s->menu);
     small_vec_destroy(&s->menu.items);
+    small_vec_destroy(&s->menu.config_items);
 }
 
 static void menu_populate_root(server_t* s) {
     menu_clear_items(s);
-    menu_add_item(s, "firefox-nightly-bin", MENU_ACTION_EXEC, "firefox-nightly-bin", HANDLE_INVALID,
-                  "/usr/share/pixmaps/firefox.svg");
-    menu_add_item(s, "brave-nightly-bin", MENU_ACTION_EXEC, "brave-nightly-bin", HANDLE_INVALID,
-                  "/usr/share/pixmaps/brave.svg");
-    menu_add_item(s, "google-chrome-unstable", MENU_ACTION_EXEC, "google-chrome-unstable", HANDLE_INVALID,
-                  "/usr/share/pixmaps/chrome.svg");
-    menu_add_item(s, "chromium", MENU_ACTION_EXEC, "chromium", HANDLE_INVALID, "/usr/share/pixmaps/chromium.png");
-    menu_add_item(s, "pcmanfm-qt", MENU_ACTION_EXEC, "pcmanfm-qt", HANDLE_INVALID,
-                  "/usr/share/icons/hicolor/scalable/apps/pcmanfm-qt.svg");
-    menu_add_item(s, "keepassxc", MENU_ACTION_EXEC, "env QT_STYLE_OVERRIDE=Adwaita-Dark keepassxc", HANDLE_INVALID,
-                  "/usr/share/icons/hicolor/256x256/apps/keepassxc.png");
-    menu_add_item(s, "wireshark", MENU_ACTION_EXEC, "env QT_STYLE_OVERRIDE=Adwaita-Dark wireshark", HANDLE_INVALID,
-                  "/usr/share/icons/hicolor/128x128/apps/org.wireshark.Wireshark.png");
-    menu_add_item(s, "qalculate-gtk", MENU_ACTION_EXEC, "qalculate-gtk", HANDLE_INVALID,
-                  "/usr/share/icons/hicolor/128x128/apps/qalculate.png");
-    menu_add_item(s, "qbittorrent", MENU_ACTION_EXEC, "qbittorrent", HANDLE_INVALID,
-                  "/usr/share/icons/hicolor/128x128/apps/qbittorrent.png");
-    menu_add_item(s, "flameshot", MENU_ACTION_EXEC, "flameshot", HANDLE_INVALID,
-                  "/usr/share/icons/hicolor/48x48/apps/flameshot.png");
-    menu_add_item(s, "texxy", MENU_ACTION_EXEC, "texxy", HANDLE_INVALID,
-                  "/usr/share/icons/hicolor/scalable/apps/texxy.svg");
-    menu_add_item(s, "1term", MENU_ACTION_EXEC, "1term", HANDLE_INVALID,
-                  "/usr/share/icons/hicolor/256x256/apps/1term.png");
-    menu_add_item(s, "libreoffice-bin", MENU_ACTION_EXEC, "libreoffice-bin", HANDLE_INVALID,
-                  "/usr/share/icons/hicolor/scalable/apps/libreoffice-main.svg");
-    menu_add_item(s, "st", MENU_ACTION_EXEC, "st", HANDLE_INVALID, "/usr/share/icons/hicolor/256x256/apps/1term.png");
 
-    menu_add_item(s, NULL, MENU_ACTION_SEPARATOR, NULL, HANDLE_INVALID, NULL);
+    if (s->menu.config_items.length == 0) {
+        menu_add_item(s, "(Menu not configured)", MENU_ACTION_NONE, NULL, HANDLE_INVALID, NULL);
+        return;
+    }
 
-    // Preferences (flattened for now)
-    menu_add_item(s, "Preferences > Reconfigure", MENU_ACTION_RELOAD, NULL, HANDLE_INVALID, NULL);
-    menu_add_item(s, "Preferences > Restart", MENU_ACTION_RESTART, NULL, HANDLE_INVALID, NULL);
-
-    menu_add_item(s, NULL, MENU_ACTION_SEPARATOR, NULL, HANDLE_INVALID, NULL);
-
-    // Monitor Control (flattened for now)
-    menu_add_item(s, "Monitor > Disable eDP-1", MENU_ACTION_EXEC, "xrandr --output eDP-1 --off", HANDLE_INVALID, NULL);
-    menu_add_item(s, "Monitor > Enable eDP-1", MENU_ACTION_EXEC, "xrandr --output eDP-1 --auto", HANDLE_INVALID, NULL);
-    menu_add_item(s, "Monitor > Disable DP-1", MENU_ACTION_EXEC, "xrandr --output DP-1 --off", HANDLE_INVALID, NULL);
-    menu_add_item(s, "Monitor > Enable DP-1", MENU_ACTION_EXEC, "xrandr --output DP-1 --auto", HANDLE_INVALID, NULL);
-
-    menu_add_item(s, NULL, MENU_ACTION_SEPARATOR, NULL, HANDLE_INVALID, NULL);
-
-    menu_add_item(s, "Exit", MENU_ACTION_EXEC, "hxm --exit", HANDLE_INVALID, NULL);
+    for (size_t i = 0; i < s->menu.config_items.length; i++) {
+        menu_item_spec_t* spec = s->menu.config_items.items[i];
+        if (!spec) continue;
+        const char* label = (spec->action == MENU_ACTION_SEPARATOR) ? NULL : spec->label;
+        menu_add_item(s, label, spec->action, spec->cmd, HANDLE_INVALID, spec->icon_path);
+    }
 }
 
 /*
