@@ -96,3 +96,4 @@ jobs:
           name: test-logs-${{ matrix.cfg.name }}
           path: |
             ${{ matrix.cfg.build_dir }}/meson-logs/*.txt
+            ${{ matrix.cfg.build_dir }}/hxm.log

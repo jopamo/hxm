@@ -75,13 +75,27 @@ fi
 
 # Start hxm
 echo "Starting hxm..."
-"$hxm_bin" >/dev/null 2>&1 &
+wm_log="${repo_root}/build/hxm.log"
+mkdir -p "$(dirname "$wm_log")"
+"$hxm_bin" >"$wm_log" 2>&1 &
 HXM_PID=$!
 
 sleep 2
 
 # Run integration test
 echo "Running integration client..."
-"$integration_client"
+# Pass a longer timeout to the C client if TSAN is active
+timeout_ms=5000
+if [[ -n "${TSAN_OPTIONS:-}" ]]; then
+  timeout_ms=30000
+fi
+export HXM_TEST_TIMEOUT_MS="$timeout_ms"
+
+if ! "$integration_client"; then
+  echo "Integration test failed!" >&2
+  echo "WM log tail:" >&2
+  tail -n 200 "$wm_log" >&2 || true
+  exit 1
+fi
 
 echo "Integration test complete."
