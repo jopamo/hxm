@@ -117,3 +117,4 @@ xvfb-run -a -s "-screen 0 1024x768x24 +extension RANDR" bash -c "
 
   kill \$hxm_pid
   wait \$hxm_pid || true
+"

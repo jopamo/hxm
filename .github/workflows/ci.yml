@@ -16,24 +16,27 @@ jobs:
         cfg:
           - name: Default
             cc: clang
+            cxx: clang++
             cflags: "-g3 -O2"
             ldflags: ""
             build_dir: build-default
-            asan_options: "verify_asan_link_order=0"
+            asan_options: ""
             ubsan_options: ""
             tsan_options: ""
           
           - name: ASan_UBSan
             cc: clang
+            cxx: clang++
             cflags: "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
             ldflags: "-fsanitize=address,undefined"
             build_dir: build-asan
-            asan_options: "fast_unwind_on_malloc=0:malloc_context_size=0:symbolize=1:print_stacktrace=1:verify_asan_link_order=0"
-            ubsan_options: "print_stacktrace=1"
+            asan_options: "abort_on_error=1:fast_unwind_on_malloc=0:malloc_context_size=0:symbolize=1:print_stacktrace=1:verify_asan_link_order=0"
+            ubsan_options: "halt_on_error=1:print_stacktrace=1"
             tsan_options: ""
 
           - name: TSan
             cc: clang
+            cxx: clang++
             cflags: "-fsanitize=thread -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
             ldflags: "-fsanitize=thread"
             build_dir: build-tsan
@@ -43,24 +46,33 @@ jobs:
 
           - name: UBSan
             cc: clang
+            cxx: clang++
             cflags: "-fsanitize=undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
             ldflags: "-fsanitize=undefined"
             build_dir: build-ubsan
             asan_options: ""
-            ubsan_options: "print_stacktrace=1"
+            ubsan_options: "halt_on_error=1:print_stacktrace=1"
             tsan_options: ""
 
     env:
       CC: ${{ matrix.cfg.cc }}
+      CXX: ${{ matrix.cfg.cxx }}
       CFLAGS: ${{ matrix.cfg.cflags }}
+      CXXFLAGS: ${{ matrix.cfg.cflags }}
       LDFLAGS: ${{ matrix.cfg.ldflags }}
+      BUILD_DIR: ${{ matrix.cfg.build_dir }}
       ASAN_OPTIONS: ${{ matrix.cfg.asan_options }}
       UBSAN_OPTIONS: ${{ matrix.cfg.ubsan_options }}
       TSAN_OPTIONS: ${{ matrix.cfg.tsan_options }}
-      ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure symbolizer path
+        run: |
+          if command -v llvm-symbolizer >/dev/null 2>&1; then
+            echo "ASAN_SYMBOLIZER_PATH=$(command -v llvm-symbolizer)" >> "$GITHUB_ENV"
+          fi
 
       - name: Increase file descriptor limit
         run: ulimit -n 4096
@@ -81,16 +93,16 @@ jobs:
       - name: Configure
         run: |
           # Pass flags explicitly to meson setup via environment variables
-          meson setup ${{ matrix.cfg.build_dir }}
+          meson setup "$BUILD_DIR"
 
       - name: Build
         run: |
-          meson compile -C ${{ matrix.cfg.build_dir }}
+          meson compile -C "$BUILD_DIR"
 
       - name: Test
         run: |
           # Run tests with the sanitizer environment
-          meson test -C ${{ matrix.cfg.build_dir }} --print-errorlogs --verbose
+          meson test -C "$BUILD_DIR" --print-errorlogs --verbose
 
       - name: Upload Test Logs
         if: failure()
@@ -98,5 +110,5 @@ jobs:
         with:
           name: test-logs-${{ matrix.cfg.name }}
           path: |
-            ${{ matrix.cfg.build_dir }}/meson-logs/*.txt
-            ${{ matrix.cfg.build_dir }}/hxm.log
+            ${{ env.BUILD_DIR }}/meson-logs/*.txt
+            ${{ env.BUILD_DIR }}/hxm.log
