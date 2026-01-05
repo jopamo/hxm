@@ -19,7 +19,7 @@ jobs:
             cflags: "-g3 -O2"
             ldflags: ""
             build_dir: build-default
-            asan_options: ""
+            asan_options: "verify_asan_link_order=0"
             ubsan_options: ""
             tsan_options: ""
           
@@ -28,7 +28,7 @@ jobs:
             cflags: "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
             ldflags: "-fsanitize=address,undefined"
             build_dir: build-asan
-            asan_options: "fast_unwind_on_malloc=0:malloc_context_size=0:symbolize=1:print_stacktrace=1"
+            asan_options: "fast_unwind_on_malloc=0:malloc_context_size=0:symbolize=1:print_stacktrace=1:verify_asan_link_order=0"
             ubsan_options: "print_stacktrace=1"
             tsan_options: ""
 
