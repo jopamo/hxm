@@ -53,7 +53,9 @@ static cairo_surface_t* menu_load_icon(const char* path) {
         RsvgHandle* handle = rsvg_handle_new_from_file(path, &error);
         if (!handle) {
             if (error) {
-                LOG_WARN("Failed to load SVG icon %s: %s", path, error->message);
+                if (!g_error_matches(error, G_FILE_ERROR, G_FILE_ERROR_NOENT)) {
+                    LOG_WARN("Failed to load SVG icon %s: %s", path, error->message);
+                }
                 g_error_free(error);
             }
             return NULL;
