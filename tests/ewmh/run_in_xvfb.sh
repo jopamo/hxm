@@ -62,59 +62,64 @@ EOF
 
 echo "Running EWMH tests with xvfb-run..."
 
-xvfb-run -a -s "-screen 0 1024x768x24 +extension RANDR" bash -c "
-  set -e
-  
-  if [ \"$($client_bin has-extension RANDR)\" != \"yes\" ]; then
-    echo \"warning: RANDR extension not available on Xvfb\" >&2
-  fi
+export HXM_BIN="$hxm_bin"
+export HXM_LOG_FILE="${HXM_LOG_FILE:-/dev/null}"
+export EWMH_CLIENT_BIN="$client_bin"
+export EWMH_SCRIPT_DIR="$script_dir"
 
-  hxm_log_file=\"${HXM_LOG_FILE:-/dev/null}\" 
-  \"$hxm_bin\" >\"$hxm_log_file\" 2>&1 &
-  hxm_pid=\$!
-  export hxm_pid
+xvfb-run -a -s "-screen 0 1024x768x24 +extension RANDR" bash <<'EOF'
+set -e
 
-  # Wait for WM to be ready
-  for _ in \$(seq 1 100); do
-    json=\$($client_bin get-root-cardinals _NET_SUPPORTING_WM_CHECK 2>/dev/null || true)
-    win=\$(echo \"\$json\" | sed 's/[^0-9]/ /g' | awk '{print $1}')
-    if [ -n \"\$win\" ] && [ \"\$win\" != \"0\" ]; then
-      break
-    fi
-    sleep 0.05
-  done
-  
-  if [ -z \"\$win\" ] || [ \"\$win\" = \"0\" ]; then
-     echo \"WM did not publish _NET_SUPPORTING_WM_CHECK\" >&2
-     kill \$hxm_pid || true
-     exit 1
-  fi
+if [ "$("$EWMH_CLIENT_BIN" has-extension RANDR)" != "yes" ]; then
+  echo "warning: RANDR extension not available on Xvfb" >&2
+fi
 
-  for _ in \$(seq 1 100); do
-    if \"$client_bin\" assert-substructure-redirect >/dev/null 2>&1; then
-      break
-    fi
-    sleep 0.05
-  done
+hxm_log_file="${HXM_LOG_FILE:-/dev/null}"
+"$HXM_BIN" >"$hxm_log_file" 2>&1 &
+hxm_pid=$!
+export hxm_pid
 
-  # Run tests
-  if ! \"$script_dir/test_desktops.sh\" \"$client_bin\"; then
-     kill \$hxm_pid || true
-     exit 1
+# Wait for WM to be ready
+for _ in $(seq 1 100); do
+  json=$($EWMH_CLIENT_BIN get-root-cardinals _NET_SUPPORTING_WM_CHECK 2>/dev/null || true)
+  win=$(echo "$json" | sed 's/[^0-9]/ /g' | awk '{print $1}')
+  if [ -n "$win" ] && [ "$win" != "0" ]; then
+    break
   fi
-  if ! \"$script_dir/test_strut_removal.sh\" \"$client_bin\"; then
-     kill \$hxm_pid || true
-     exit 1
-  fi
-  if ! \"$script_dir/test_state_remove.sh\" \"$client_bin\"; then
-     kill \$hxm_pid || true
-     exit 1
-  fi
-  if ! \"$script_dir/test_restart.sh\" \"$client_bin\"; then
-     kill \$hxm_pid || true
-     exit 1
-  fi
+  sleep 0.05
+done
 
-  kill \$hxm_pid
-  wait \$hxm_pid || true
-"
+if [ -z "$win" ] || [ "$win" = "0" ]; then
+   echo "WM did not publish _NET_SUPPORTING_WM_CHECK" >&2
+   kill $hxm_pid || true
+   exit 1
+fi
+
+for _ in $(seq 1 100); do
+  if "$EWMH_CLIENT_BIN" assert-substructure-redirect >/dev/null 2>&1; then
+    break
+  fi
+  sleep 0.05
+done
+
+# Run tests
+if ! "$EWMH_SCRIPT_DIR/test_desktops.sh" "$EWMH_CLIENT_BIN"; then
+   kill $hxm_pid || true
+   exit 1
+fi
+if ! "$EWMH_SCRIPT_DIR/test_strut_removal.sh" "$EWMH_CLIENT_BIN"; then
+   kill $hxm_pid || true
+   exit 1
+fi
+if ! "$EWMH_SCRIPT_DIR/test_state_remove.sh" "$EWMH_CLIENT_BIN"; then
+   kill $hxm_pid || true
+   exit 1
+fi
+if ! "$EWMH_SCRIPT_DIR/test_restart.sh" "$EWMH_CLIENT_BIN"; then
+   kill $hxm_pid || true
+   exit 1
+fi
+
+kill $hxm_pid
+wait $hxm_pid || true
+EOF
