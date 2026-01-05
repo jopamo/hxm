@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-test:
+    name: ${{ matrix.cfg.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cfg:
+          - name: Default
+            cc: clang
+            cflags: "-g3 -O2"
+            ldflags: ""
+            build_dir: build-default
+            asan_options: ""
+            ubsan_options: ""
+            tsan_options: ""
+          
+          - name: ASan+UBSan
+            cc: clang
+            cflags: "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
+            ldflags: "-fsanitize=address,undefined"
+            build_dir: build-asan
+            asan_options: "fast_unwind_on_malloc=0:malloc_context_size=0:symbolize=1:print_stacktrace=1"
+            ubsan_options: "print_stacktrace=1"
+            tsan_options: ""
+
+          - name: TSan
+            cc: clang
+            cflags: "-fsanitize=thread -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
+            ldflags: "-fsanitize=thread"
+            build_dir: build-tsan
+            asan_options: ""
+            ubsan_options: ""
+            tsan_options: "history_size=7:halt_on_error=1:print_stacktrace=1"
+
+          - name: UBSan
+            cc: clang
+            cflags: "-fsanitize=undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
+            ldflags: "-fsanitize=undefined"
+            build_dir: build-ubsan
+            asan_options: ""
+            ubsan_options: "print_stacktrace=1"
+            tsan_options: ""
+
+    env:
+      CC: ${{ matrix.cfg.cc }}
+      CFLAGS: ${{ matrix.cfg.cflags }}
+      LDFLAGS: ${{ matrix.cfg.ldflags }}
+      ASAN_OPTIONS: ${{ matrix.cfg.asan_options }}
+      UBSAN_OPTIONS: ${{ matrix.cfg.ubsan_options }}
+      TSAN_OPTIONS: ${{ matrix.cfg.tsan_options }}
+      ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang llvm \
+            meson ninja-build \
+            libxcb1-dev libxcb-randr0-dev libxcb-xkb-dev libxcb-icccm4-dev \
+            libxcb-xinerama0-dev libxcb-keysyms1-dev libxcb-damage0-dev \
+            libxcb-sync-dev libxcb-util-dev \
+            libcairo2-dev libpango1.0-dev libfontconfig1-dev librsvg2-dev \
+            libxkbcommon-dev \
+            xvfb xauth
+
+      - name: Configure
+        run: |
+          # Pass flags explicitly to meson setup via environment variables
+          meson setup ${{ matrix.cfg.build_dir }}
+
+      - name: Build
+        run: |
+          meson compile -C ${{ matrix.cfg.build_dir }}
+
+      - name: Test
+        run: |
+          # Run tests with the sanitizer environment
+          meson test -C ${{ matrix.cfg.build_dir }} --print-errorlogs --verbose
+
+      - name: Upload Test Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-${{ matrix.cfg.name }}
+          path: |
+            ${{ matrix.cfg.build_dir }}/meson-logs/testlog.txt
