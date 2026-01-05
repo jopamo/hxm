@@ -96,13 +96,24 @@ start_xvfb() {
 
 tmp_home=$(mktemp -d)
 cleanup() {
-  if [ -n "${hxm_pid:-}" ] && kill -0 "$hxm_pid" 2>/dev/null; then
-    kill "$hxm_pid"
-    wait "$hxm_pid" || true
+  if [ -n "${hxm_pid:-}" ]; then
+    if kill -0 "$hxm_pid" 2>/dev/null; then
+      kill "$hxm_pid"
+      wait "$hxm_pid" || true
+    fi
+    # Force kill if still alive
+    if kill -0 "$hxm_pid" 2>/dev/null; then
+        kill -9 "$hxm_pid" 2>/dev/null || true
+    fi
   fi
-  if [ -n "${xvfb_pid:-}" ] && kill -0 "$xvfb_pid" 2>/dev/null; then
-    kill "$xvfb_pid"
-    wait "$xvfb_pid" || true
+  if [ -n "${xvfb_pid:-}" ]; then
+    if kill -0 "$xvfb_pid" 2>/dev/null; then
+      kill "$xvfb_pid"
+      wait "$xvfb_pid" || true
+    fi
+    if kill -0 "$xvfb_pid" 2>/dev/null; then
+        kill -9 "$xvfb_pid" 2>/dev/null || true
+    fi
   fi
   rm -rf "$tmp_home"
 }
