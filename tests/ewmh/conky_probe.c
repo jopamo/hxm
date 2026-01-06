@@ -457,7 +457,17 @@ int main(void) {
     }
     free(state_atoms);
 
-    if (!wm_state_is_normal(conn, conky_win, atoms.wm_state)) {
+    bool state_ok = false;
+    uint32_t state_waited = 0;
+    while (state_waited <= (uint32_t)window_timeout) {
+        if (wm_state_is_normal(conn, conky_win, atoms.wm_state)) {
+            state_ok = true;
+            break;
+        }
+        sleep_ms(50);
+        state_waited += 50;
+    }
+    if (!state_ok) {
         die("WM_STATE missing or not normal");
     }
     if (!wait_for_property(conn, conky_win, atoms.wm_hints, (uint32_t)window_timeout, true)) {
