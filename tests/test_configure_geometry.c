@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcb/xcb_icccm.h>
 #include <xcb/xproto.h>
 
 #include "client.h"
@@ -197,6 +198,88 @@ static void test_configure_request_mask_respects_existing(void) {
     cleanup_server(&s);
 }
 
+static void test_configure_request_min_size_clamps(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    handle_t h = add_client(&s, 3001, 3101);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
+    hot->hints.min_w = 50;
+    hot->hints.min_h = 20;
+
+    pending_config_t pc = {0};
+    pc.window = hot->xid;
+    pc.mask = XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+    pc.width = 1;
+    pc.height = 1;
+
+    wm_handle_configure_request(&s, h, &pc);
+    assert(hot->desired.w >= 50);
+    assert(hot->desired.h >= 20);
+    assert(hot->dirty & DIRTY_GEOM);
+
+    stub_config_calls_len = 0;
+    wm_flush_dirty(&s, monotonic_time_ns());
+
+    assert(stub_config_calls_len >= 2);
+    const stub_config_call_t* client_call = stub_config_call_at(1);
+    assert(client_call->win == hot->xid);
+    assert(client_call->w >= 50);
+    assert(client_call->h >= 20);
+
+    printf("test_configure_request_min_size_clamps passed\n");
+    cleanup_server(&s);
+}
+
+static void test_geometry_reply_tiny_fallback(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
+    memset(hot, 0, sizeof(*hot));
+    memset(cold, 0, sizeof(*cold));
+
+    render_init(&hot->render_ctx);
+    arena_init(&cold->string_arena, 128);
+
+    hot->self = h;
+    hot->xid = 9001;
+    hot->state = STATE_NEW;
+    hot->manage_phase = MANAGE_PHASE1;
+    hot->pending_replies = 1;
+    hot->desired = (rect_t){0, 0, 0, 0};
+
+    cookie_slot_t slot = {0};
+    slot.client = h;
+    slot.type = COOKIE_GET_GEOMETRY;
+    slot.data = hot->xid;
+
+    xcb_get_geometry_reply_t reply;
+    memset(&reply, 0, sizeof(reply));
+    reply.x = 0;
+    reply.y = 0;
+    reply.width = 1;
+    reply.height = 1;
+    reply.depth = 24;
+    reply.border_width = 0;
+
+    wm_handle_reply(&s, &slot, &reply, NULL);
+
+    assert(hot->server.w >= 50);
+    assert(hot->server.h >= 20);
+    assert(hot->desired.w >= 50);
+    assert(hot->desired.h >= 20);
+
+    printf("test_geometry_reply_tiny_fallback passed\n");
+    cleanup_server(&s);
+}
+
 static void test_synthetic_configure_notify_sent(void) {
     server_t s;
     setup_server(&s);
@@ -256,6 +339,8 @@ static void test_configure_request_ignores_border_and_stack_fields(void) {
 int main(void) {
     test_configure_request_applies_and_extents();
     test_configure_request_mask_respects_existing();
+    test_configure_request_min_size_clamps();
+    test_geometry_reply_tiny_fallback();
     test_synthetic_configure_notify_sent();
     test_configure_request_ignores_border_and_stack_fields();
     return 0;
