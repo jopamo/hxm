@@ -400,6 +400,18 @@ dummy_client = executable('dummy_client',
   dependencies: [xcb_dep],
 )
 
+conky_probe = executable('conky_probe',
+  'tests/ewmh/conky_probe.c',
+  include_directories: incdir,
+  dependencies: [xcb_dep],
+)
+
+conky_normal_client = executable('conky_normal_client',
+  'tests/ewmh/normal_client.c',
+  include_directories: incdir,
+  dependencies: [xcb_dep],
+)
+
 test_transient_cycle = executable('test_transient_cycle',
   ['tests/test_transient_cycle.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
@@ -584,6 +596,8 @@ script_env = environment()
 script_env.set('HXM_BIN', hxm.full_path())
 script_env.set('INTEGRATION_CLIENT', integration_client.full_path())
 script_env.set('DUMMY_CLIENT', dummy_client.full_path())
+script_env.set('CONKY_PROBE_BIN', conky_probe.full_path())
+script_env.set('CONKY_NORMAL_BIN', conky_normal_client.full_path())
 
 test('integration_script', bash,
   args: [integration_script],
@@ -610,6 +624,17 @@ test('ewmh_xvfb', bash,
   is_parallel: false,
   timeout: 120,
   depends: [hxm],
+)
+
+conky_script = join_paths(source_root, 'tests', 'ewmh', 'run_conky_probe.sh')
+
+test('conky_xvfb', bash,
+  args: [conky_script],
+  env: script_env,
+  workdir: source_root,
+  is_parallel: false,
+  timeout: 120,
+  depends: [hxm, conky_probe, conky_normal_client],
 )
 endif
 
