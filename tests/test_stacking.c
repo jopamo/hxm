@@ -61,6 +61,7 @@ static handle_t add_client(server_t* s, xcb_window_t xid, xcb_window_t frame, in
     hot->xid = xid;
     hot->frame = frame;
     hot->layer = layer;
+    hot->base_layer = layer;
     hot->state = STATE_MAPPED;
     hot->stacking_index = -1;
     hot->stacking_layer = -1;
@@ -219,6 +220,37 @@ void test_root_stacking_property_order(void) {
     cleanup_server(&s);
 }
 
+void test_root_stacking_desktop_below_normal(void) {
+    server_t s;
+    if (!init_server(&s)) return;
+
+    s.root = 1;
+    atoms._NET_CLIENT_LIST_STACKING = 500;
+
+    handle_t hdesk = add_client(&s, 11, 111, LAYER_DESKTOP);
+    handle_t hbelow = add_client(&s, 22, 122, LAYER_BELOW);
+    handle_t hnormal = add_client(&s, 33, 133, LAYER_NORMAL);
+
+    stack_raise(&s, hdesk);
+    stack_raise(&s, hbelow);
+    stack_raise(&s, hnormal);
+
+    s.root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+    stub_last_prop_atom = 0;
+    wm_flush_dirty(&s, monotonic_time_ns());
+
+    assert(stub_last_prop_atom == atoms._NET_CLIENT_LIST_STACKING);
+    assert(stub_last_prop_len == 3);
+    uint32_t* wins = (uint32_t*)stub_last_prop_data;
+    assert(wins[0] == 11);  // Desktop layer (wallpaper/root) at bottom
+    assert(wins[1] == 22);  // BELOW layer sits above desktop
+    assert(wins[2] == 33);  // Normal windows above BELOW
+
+    printf("test_root_stacking_desktop_below_normal passed\n");
+
+    cleanup_server(&s);
+}
+
 void test_focus_raise_on_focus(void) {
     server_t s;
     if (!init_server(&s)) return;
@@ -245,6 +277,7 @@ int main(void) {
     test_stack_cross_layer_sibling();
     test_stack_raise_transients_restack_count();
     test_root_stacking_property_order();
+    test_root_stacking_desktop_below_normal();
     test_focus_raise_on_focus();
     return 0;
 }
