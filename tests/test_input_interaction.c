@@ -134,6 +134,43 @@ static void test_click_to_focus(void) {
     cleanup_server(&s);
 }
 
+static void test_click_ignores_dock_and_desktop(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    handle_t h1 = add_mapped_client(&s, 1201, 1301);
+    handle_t h2 = add_mapped_client(&s, 1202, 1302);
+    handle_t h3 = add_mapped_client(&s, 1203, 1303);
+
+    client_hot_t* dock = server_chot(&s, h2);
+    client_hot_t* desktop = server_chot(&s, h3);
+    assert(dock != NULL);
+    assert(desktop != NULL);
+    dock->type = WINDOW_TYPE_DOCK;
+    desktop->type = WINDOW_TYPE_DESKTOP;
+
+    wm_set_focus(&s, h1);
+    assert(s.focused_client == h1);
+
+    xcb_button_press_event_t ev = {0};
+    ev.detail = 1;
+    ev.state = 0;
+
+    ev.event = dock->xid;
+    wm_handle_button_press(&s, &ev);
+    assert(s.focused_client == h1);
+    assert(s.interaction_mode == INTERACTION_NONE);
+
+    ev.event = desktop->xid;
+    wm_handle_button_press(&s, &ev);
+    assert(s.focused_client == h1);
+    assert(s.interaction_mode == INTERACTION_NONE);
+
+    printf("test_click_ignores_dock_and_desktop passed\n");
+    cleanup_server(&s);
+}
+
 static void test_move_interaction(void) {
     server_t s;
     setup_server(&s);
@@ -382,6 +419,7 @@ static void test_key_grabs_from_config(void) {
 
 int main(void) {
     test_click_to_focus();
+    test_click_ignores_dock_and_desktop();
     test_move_interaction();
     test_resize_interaction();
     test_resize_corner_top_left();
