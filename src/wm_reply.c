@@ -789,6 +789,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         hot->hints_flags = next_flags;
 
                         hot->dirty |= DIRTY_STATE;  // Allowed actions might change
+                        bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
 
                         if (hot->state == STATE_NEW && hot->manage_phase != MANAGE_DONE) {
                             bool user_size = (next_flags & XCB_ICCCM_SIZE_HINT_US_SIZE);
@@ -818,10 +819,14 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                                 }
                             }
 
-                            client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+                            if (!is_panel) {
+                                client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+                            }
 
                         } else if (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame) {
-                            client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+                            if (!is_panel) {
+                                client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+                            }
 
                             hot->dirty |= DIRTY_GEOM;
 
@@ -832,7 +837,9 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
                             uint16_t h_val = hot->desired.h;
 
-                            client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
+                            if (!is_panel) {
+                                client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
+                            }
 
                             if (w != hot->desired.w || h_val != hot->desired.h) {
                                 hot->desired.w = w;

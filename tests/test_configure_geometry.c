@@ -73,6 +73,11 @@ static void cleanup_server(server_t* s) {
             if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
         }
     }
+    if (s->monitors) {
+        free(s->monitors);
+        s->monitors = NULL;
+        s->monitor_count = 0;
+    }
     slotmap_destroy(&s->clients);
     small_vec_destroy(&s->active_clients);
     hash_map_destroy(&s->window_to_client);
@@ -336,6 +341,71 @@ static void test_configure_request_ignores_border_and_stack_fields(void) {
     cleanup_server(&s);
 }
 
+static void test_panel_configure_request_skips_min_constraints(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    handle_t h = add_client(&s, 5001, 5101);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->type = WINDOW_TYPE_DOCK;
+    hot->flags |= CLIENT_FLAG_UNDECORATED;
+    hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
+    hot->hints.min_w = 50;
+    hot->hints.min_h = 20;
+
+    pending_config_t pc = {0};
+    pc.window = hot->xid;
+    pc.mask = XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+    pc.width = 10;
+    pc.height = 5;
+
+    wm_handle_configure_request(&s, h, &pc);
+    assert(hot->desired.w == 10);
+    assert(hot->desired.h == 5);
+
+    stub_config_calls_len = 0;
+    wm_flush_dirty(&s, monotonic_time_ns());
+
+    const stub_config_call_t* client_call = stub_config_call_at(1);
+    assert(client_call);
+    assert(client_call->w == 10);
+    assert(client_call->h == 5);
+
+    printf("test_panel_configure_request_skips_min_constraints passed\n");
+    cleanup_server(&s);
+}
+
+static void test_panel_clamps_to_monitor_bounds(void) {
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    s.workarea = (rect_t){10, 10, 100, 100};
+    s.monitors = calloc(1, sizeof(monitor_t));
+    s.monitor_count = 1;
+    s.monitors[0].geom = (rect_t){0, 0, 200, 200};
+    s.monitors[0].workarea = (rect_t){10, 10, 100, 100};
+
+    handle_t h = add_client(&s, 6001, 6101);
+    client_hot_t* hot = server_chot(&s, h);
+    hot->type = WINDOW_TYPE_DESKTOP;
+    hot->flags |= CLIENT_FLAG_UNDECORATED;
+    hot->desired = (rect_t){150, 170, 80, 50};
+    hot->dirty |= DIRTY_GEOM;
+
+    stub_config_calls_len = 0;
+    wm_flush_dirty(&s, monotonic_time_ns());
+
+    const stub_config_call_t* frame_call = stub_config_call_at(0);
+    assert(frame_call);
+    assert(frame_call->x == 120);
+    assert(frame_call->y == 150);
+
+    printf("test_panel_clamps_to_monitor_bounds passed\n");
+    cleanup_server(&s);
+}
+
 int main(void) {
     test_configure_request_applies_and_extents();
     test_configure_request_mask_respects_existing();
@@ -343,5 +413,7 @@ int main(void) {
     test_geometry_reply_tiny_fallback();
     test_synthetic_configure_notify_sent();
     test_configure_request_ignores_border_and_stack_fields();
+    test_panel_configure_request_skips_min_constraints();
+    test_panel_clamps_to_monitor_bounds();
     return 0;
 }

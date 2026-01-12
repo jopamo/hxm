@@ -6,6 +6,7 @@
 #include <xcb/xproto.h>
 
 #include "client.h"
+#include "config.h"
 #include "cookie_jar.h"
 #include "event.h"
 #include "hxm.h"
@@ -355,6 +356,70 @@ static void test_finish_manage_ignores_reparent_unmap(void) {
     assert(server_get_client_by_window(&s, hot->xid) == h);
 
     printf("test_finish_manage_ignores_reparent_unmap passed\n");
+    cleanup_server(&s);
+}
+
+static void test_rules_preserve_sticky_for_panel(void) {
+    server_t s;
+    setup_server(&s);
+
+    small_vec_init(&s.config.rules);
+
+    app_rule_t* r = calloc(1, sizeof(*r));
+    r->class_match = strdup("Conky");
+    r->desktop = 2;
+    r->layer = -1;
+    r->focus = -1;
+    r->type_match = -1;
+    r->transient_match = -1;
+    r->placement = PLACEMENT_DEFAULT;
+    small_vec_push(&s.config.rules, r);
+
+    void *hot_ptr = NULL, *cold_ptr = NULL;
+    handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+    client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
+    memset(hot, 0, sizeof(*hot));
+    memset(cold, 0, sizeof(*cold));
+
+    render_init(&hot->render_ctx);
+    arena_init(&cold->string_arena, 128);
+
+    hot->self = h;
+    hot->xid = 2301;
+    hot->state = STATE_NEW;
+    hot->type = WINDOW_TYPE_DOCK;
+    hot->layer = LAYER_DOCK;
+    hot->base_layer = LAYER_DOCK;
+    hot->sticky = true;
+    hot->desktop = 0;
+    hot->desired = (rect_t){0, 0, 100, 80};
+    hot->visual_id = s.root_visual;
+    hot->depth = s.root_depth;
+    list_init(&hot->focus_node);
+    list_init(&hot->transients_head);
+    list_init(&hot->transient_sibling);
+    cold->wm_class = arena_strdup(&cold->string_arena, "Conky");
+
+    hash_map_insert(&s.window_to_client, hot->xid, handle_to_ptr(h));
+
+    client_finish_manage(&s, h);
+
+    assert(hot->sticky == true);
+    assert(hot->desktop == -1);
+
+    printf("test_rules_preserve_sticky_for_panel passed\n");
+
+    for (size_t i = 0; i < s.config.rules.length; i++) {
+        app_rule_t* rule = s.config.rules.items[i];
+        if (rule) {
+            free(rule->class_match);
+            free(rule->instance_match);
+            free(rule->title_match);
+            free(rule);
+        }
+    }
+    small_vec_destroy(&s.config.rules);
     cleanup_server(&s);
 }
 
@@ -728,6 +793,7 @@ int main(void) {
     test_finish_manage_maps_client_then_frame();
     test_finish_manage_ignores_reparent_unmap();
     test_desktop_background_below_conky();
+    test_rules_preserve_sticky_for_panel();
     test_map_request_maps_and_stays_mapped();
     test_unmap_destroy_unmanages();
     test_destroy_notify_unmanages_and_destroys_frame();

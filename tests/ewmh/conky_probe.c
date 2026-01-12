@@ -37,11 +37,6 @@ static void die(const char* msg) {
     exit(1);
 }
 
-static void dief(const char* msg) {
-    fprintf(stderr, "conky_probe: %s (%s)\n", msg, strerror(errno));
-    exit(1);
-}
-
 static xcb_atom_t get_atom(xcb_connection_t* conn, const char* name) {
     xcb_intern_atom_cookie_t cookie = xcb_intern_atom(conn, 0, (uint16_t)strlen(name), name);
     xcb_intern_atom_reply_t* reply = xcb_intern_atom_reply(conn, cookie, NULL);
@@ -86,13 +81,27 @@ static xcb_connection_t* connect_with_retry(uint32_t timeout_ms) {
     return NULL;
 }
 
-static bool property_exists(xcb_connection_t* conn, xcb_window_t win, xcb_atom_t prop) {
+static bool property_present(xcb_connection_t* conn, xcb_window_t win, xcb_atom_t prop, bool require_nonempty) {
     xcb_get_property_cookie_t ck = xcb_get_property(conn, 0, win, prop, XCB_ATOM_ANY, 0, 128);
     xcb_get_property_reply_t* rep = xcb_get_property_reply(conn, ck, NULL);
     if (!rep) return false;
-    bool ok = (rep->type != XCB_ATOM_NONE && rep->value_len > 0);
+    bool ok = (rep->type != XCB_ATOM_NONE);
+    if (ok && require_nonempty) {
+        ok = (rep->value_len > 0);
+    }
     free(rep);
     return ok;
+}
+
+static bool wait_for_property(xcb_connection_t* conn, xcb_window_t win, xcb_atom_t prop, uint32_t timeout_ms,
+                              bool require_nonempty) {
+    uint32_t waited = 0;
+    while (waited <= timeout_ms) {
+        if (property_present(conn, win, prop, require_nonempty)) return true;
+        sleep_ms(50);
+        waited += 50;
+    }
+    return false;
 }
 
 static bool fetch_atom_list(xcb_connection_t* conn, xcb_window_t win, xcb_atom_t prop, xcb_atom_t** atoms_out,
@@ -368,6 +377,8 @@ int main(void) {
     bool expect_skip_taskbar = getenv_bool("EXPECT_SKIP_TASKBAR", true);
     bool expect_skip_pager = getenv_bool("EXPECT_SKIP_PAGER", true);
     bool check_stacking = getenv_bool("CHECK_STACKING", true);
+    bool require_hints = getenv_bool("REQUIRE_HINTS", false);
+    bool require_normal_hints = getenv_bool("REQUIRE_NORMAL_HINTS", false);
 
     int min_w = getenv_int("MIN_W", 50);
     int min_h = getenv_int("MIN_H", 20);
@@ -449,11 +460,19 @@ int main(void) {
     if (!wm_state_is_normal(conn, conky_win, atoms.wm_state)) {
         die("WM_STATE missing or not normal");
     }
-    if (!property_exists(conn, conky_win, atoms.wm_hints)) {
-        die("WM_HINTS missing");
+    if (!wait_for_property(conn, conky_win, atoms.wm_hints, (uint32_t)window_timeout, true)) {
+        if (require_hints) {
+            die("WM_HINTS missing");
+        } else {
+            fprintf(stderr, "conky_probe: WARN: WM_HINTS missing\\n");
+        }
     }
-    if (!property_exists(conn, conky_win, atoms.wm_normal_hints)) {
-        die("WM_NORMAL_HINTS missing");
+    if (!wait_for_property(conn, conky_win, atoms.wm_normal_hints, (uint32_t)window_timeout, true)) {
+        if (require_normal_hints) {
+            die("WM_NORMAL_HINTS missing");
+        } else {
+            fprintf(stderr, "conky_probe: WARN: WM_NORMAL_HINTS missing\\n");
+        }
     }
 
     xcb_get_window_attributes_cookie_t ack = xcb_get_window_attributes(conn, conky_win);

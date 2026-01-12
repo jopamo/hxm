@@ -614,7 +614,10 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
         // Do not adjust width/height; client requests full size including shadows
     }
 
-    client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+    bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
+    if (!is_panel) {
+        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+    }
     hot->dirty |= DIRTY_GEOM;
 
     LOG_DEBUG("Client %lx desired geom updated: %d,%d %dx%d (mask %x)", h, hot->desired.x, hot->desired.y,
@@ -668,6 +671,16 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
             xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 1048576);
         cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
                         ((uint64_t)hot->xid << 32) | atoms._NET_WM_ICON, s->txn_id, wm_handle_reply);
+    } else if (ev->atom == atoms._NET_WM_STATE) {
+        xcb_get_property_cookie_t ck =
+            xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STATE, XCB_ATOM_ATOM, 0, 32);
+        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
+                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_STATE, s->txn_id, wm_handle_reply);
+    } else if (ev->atom == atoms._NET_WM_WINDOW_TYPE) {
+        xcb_get_property_cookie_t ck =
+            xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_WINDOW_TYPE, XCB_ATOM_ATOM, 0, 32);
+        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h,
+                        ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE, s->txn_id, wm_handle_reply);
     } else if (ev->atom == atoms._NET_WM_DESKTOP) {
         xcb_get_property_cookie_t ck =
             xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 0, 1);
@@ -1155,17 +1168,26 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
         new_h -= dy;
     }
 
+    bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
+
     // Constrain size
-    if (new_w < MIN_FRAME_SIZE) new_w = MIN_FRAME_SIZE;
-    if (new_w > MAX_FRAME_SIZE) new_w = MAX_FRAME_SIZE;
-    if (new_h < MIN_FRAME_SIZE) new_h = MIN_FRAME_SIZE;
-    if (new_h > MAX_FRAME_SIZE) new_h = MAX_FRAME_SIZE;
+    if (is_panel) {
+        if (new_w < 1) new_w = 1;
+        if (new_h < 1) new_h = 1;
+    } else {
+        if (new_w < MIN_FRAME_SIZE) new_w = MIN_FRAME_SIZE;
+        if (new_w > MAX_FRAME_SIZE) new_w = MAX_FRAME_SIZE;
+        if (new_h < MIN_FRAME_SIZE) new_h = MIN_FRAME_SIZE;
+        if (new_h > MAX_FRAME_SIZE) new_h = MAX_FRAME_SIZE;
+    }
 
     uint16_t w = (uint16_t)new_w;
     uint16_t h_val = (uint16_t)new_h;
 
     // Apply hints
-    client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
+    if (!is_panel) {
+        client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
+    }
     // Adjust position if resizing top/left
     // Determine effective delta
     int dw = (int)w - s->interaction_start_w;

@@ -345,6 +345,9 @@ static void client_apply_rules(server_t* s, handle_t h) {
     client_cold_t* cold = server_ccold(s, h);
     if (!hot || !cold) return;
 
+    bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
+    bool keep_sticky = is_panel && hot->sticky;
+
     for (size_t i = 0; i < s->config.rules.length; i++) {
         app_rule_t* r = s->config.rules.items[i];
         bool matched = true;
@@ -366,9 +369,12 @@ static void client_apply_rules(server_t* s, handle_t h) {
                 if (r->desktop == -1) {
                     hot->desktop = -1;
                     hot->sticky = true;
+                    if (is_panel) keep_sticky = true;
                 } else {
                     hot->desktop = r->desktop;
-                    hot->sticky = false;
+                    if (!keep_sticky) {
+                        hot->sticky = false;
+                    }
                 }
             }
 
@@ -382,6 +388,10 @@ static void client_apply_rules(server_t* s, handle_t h) {
             if (r->focus != -1) hot->focus_override = r->focus;
             if (r->placement != PLACEMENT_DEFAULT) hot->placement = (uint8_t)r->placement;
         }
+    }
+
+    if (is_panel && hot->sticky) {
+        hot->desktop = -1;
     }
 
     if (!hot->sticky && hot->desktop >= (int32_t)s->desktop_count) {
