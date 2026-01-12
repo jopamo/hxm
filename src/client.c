@@ -15,6 +15,7 @@
 
 #include "client.h"
 
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 #include <xcb/xcb_icccm.h>
@@ -26,6 +27,29 @@
 #include "slotmap.h"
 #include "wm.h"
 #include "xcb_utils.h"
+
+static bool str_contains_case(const char* haystack, const char* needle) {
+    if (!haystack || !needle || !*needle) return false;
+    size_t nlen = strlen(needle);
+    for (const char* p = haystack; *p; p++) {
+        size_t i = 0;
+        while (i < nlen && p[i]) {
+            char hc = (char)tolower((unsigned char)p[i]);
+            char nc = (char)tolower((unsigned char)needle[i]);
+            if (hc != nc) break;
+            i++;
+        }
+        if (i == nlen) return true;
+    }
+    return false;
+}
+
+static bool client_is_conky(const client_cold_t* cold) {
+    if (!cold) return false;
+    if (str_contains_case(cold->wm_class, "conky")) return true;
+    if (str_contains_case(cold->wm_instance, "conky")) return true;
+    return false;
+}
 
 bool should_focus_on_map(const client_hot_t* hot) {
     if (hot->focus_override != -1) return (bool)hot->focus_override;
@@ -380,6 +404,8 @@ static void client_apply_rules(server_t* s, handle_t h) {
 void client_finish_manage(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     if (!hot) return;
+    client_cold_t* cold = server_ccold(s, h);
+    bool is_conky = client_is_conky(cold);
     TRACE_LOG("finish_manage h=%lx xid=%u desktop=%d sticky=%d initial_state=%u", h, hot->xid, hot->desktop,
               hot->sticky, hot->initial_state);
 
@@ -612,8 +638,13 @@ void client_finish_manage(server_t* s, handle_t h) {
         } else {
             // Avoid double raise if we are about to focus it and focus_raise is enabled
             if (!focus_it || !s->config.focus_raise) {
-                TRACE_LOG("finish_manage stack raise h=%lx", h);
-                stack_raise(s, h);
+                if (hot->type == WINDOW_TYPE_DESKTOP && !is_conky) {
+                    TRACE_LOG("finish_manage stack lower desktop background h=%lx", h);
+                    stack_lower(s, h);
+                } else {
+                    TRACE_LOG("finish_manage stack raise h=%lx", h);
+                    stack_raise(s, h);
+                }
             }
         }
 

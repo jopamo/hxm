@@ -244,6 +244,73 @@ static void test_finish_manage_maps_client_then_frame(void) {
     cleanup_server(&s);
 }
 
+static void test_desktop_background_below_conky(void) {
+    server_t s;
+    setup_server(&s);
+
+    void *hot_ptr1 = NULL, *cold_ptr1 = NULL;
+    handle_t h_conky = slotmap_alloc(&s.clients, &hot_ptr1, &cold_ptr1);
+    client_hot_t* conky_hot = (client_hot_t*)hot_ptr1;
+    client_cold_t* conky_cold = (client_cold_t*)cold_ptr1;
+    memset(conky_hot, 0, sizeof(*conky_hot));
+    memset(conky_cold, 0, sizeof(*conky_cold));
+    render_init(&conky_hot->render_ctx);
+    arena_init(&conky_cold->string_arena, 128);
+    conky_hot->self = h_conky;
+    conky_hot->xid = 2201;
+    conky_hot->state = STATE_NEW;
+    conky_hot->type = WINDOW_TYPE_DESKTOP;
+    conky_hot->layer = LAYER_DESKTOP;
+    conky_hot->base_layer = LAYER_DESKTOP;
+    conky_hot->focus_override = -1;
+    conky_hot->transient_for = HANDLE_INVALID;
+    conky_hot->desktop = 0;
+    conky_hot->desired = (rect_t){0, 0, 100, 80};
+    conky_hot->visual_id = s.root_visual;
+    conky_hot->depth = s.root_depth;
+    list_init(&conky_hot->focus_node);
+    list_init(&conky_hot->transients_head);
+    list_init(&conky_hot->transient_sibling);
+    conky_cold->wm_class = arena_strdup(&conky_cold->string_arena, "Conky");
+    hash_map_insert(&s.window_to_client, conky_hot->xid, handle_to_ptr(h_conky));
+
+    void *hot_ptr2 = NULL, *cold_ptr2 = NULL;
+    handle_t h_bg = slotmap_alloc(&s.clients, &hot_ptr2, &cold_ptr2);
+    client_hot_t* bg_hot = (client_hot_t*)hot_ptr2;
+    client_cold_t* bg_cold = (client_cold_t*)cold_ptr2;
+    memset(bg_hot, 0, sizeof(*bg_hot));
+    memset(bg_cold, 0, sizeof(*bg_cold));
+    render_init(&bg_hot->render_ctx);
+    arena_init(&bg_cold->string_arena, 128);
+    bg_hot->self = h_bg;
+    bg_hot->xid = 2202;
+    bg_hot->state = STATE_NEW;
+    bg_hot->type = WINDOW_TYPE_DESKTOP;
+    bg_hot->layer = LAYER_DESKTOP;
+    bg_hot->base_layer = LAYER_DESKTOP;
+    bg_hot->focus_override = -1;
+    bg_hot->transient_for = HANDLE_INVALID;
+    bg_hot->desktop = 0;
+    bg_hot->desired = (rect_t){0, 0, 100, 80};
+    bg_hot->visual_id = s.root_visual;
+    bg_hot->depth = s.root_depth;
+    list_init(&bg_hot->focus_node);
+    list_init(&bg_hot->transients_head);
+    list_init(&bg_hot->transient_sibling);
+    bg_cold->wm_class = arena_strdup(&bg_cold->string_arena, "Wallpaper");
+    hash_map_insert(&s.window_to_client, bg_hot->xid, handle_to_ptr(h_bg));
+
+    client_finish_manage(&s, h_conky);
+    client_finish_manage(&s, h_bg);
+
+    assert(s.layers[LAYER_DESKTOP].length == 2);
+    assert(ptr_to_handle(s.layers[LAYER_DESKTOP].items[0]) == h_bg);
+    assert(ptr_to_handle(s.layers[LAYER_DESKTOP].items[1]) == h_conky);
+
+    printf("test_desktop_background_below_conky passed\n");
+    cleanup_server(&s);
+}
+
 static void test_finish_manage_ignores_reparent_unmap(void) {
     server_t s;
     setup_server(&s);
@@ -660,6 +727,7 @@ int main(void) {
     test_map_request_starts_manage_once();
     test_finish_manage_maps_client_then_frame();
     test_finish_manage_ignores_reparent_unmap();
+    test_desktop_background_below_conky();
     test_map_request_maps_and_stays_mapped();
     test_unmap_destroy_unmanages();
     test_destroy_notify_unmanages_and_destroys_frame();
