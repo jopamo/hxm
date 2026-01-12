@@ -95,9 +95,11 @@ void client_manage_start(server_t* s, xcb_window_t win) {
 
     hot->state_above = false;
     hot->state_below = false;
+    hot->desktop = (int32_t)s->current_desktop;
     hot->sticky = false;
     hot->skip_taskbar = false;
     hot->skip_pager = false;
+    hot->net_wm_desktop_seen = false;
 
     hot->focus_override = -1;
 
@@ -402,11 +404,17 @@ void client_finish_manage(server_t* s, handle_t h) {
     // ---------------------------------------------------------
     rect_t geom = hot->desired;
 
-    uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_EVENT_MASK;
+    uint32_t mask = XCB_CW_EVENT_MASK;
     uint32_t values[3];
 
-    // Set background to inactive color initially
-    values[0] = 0x333333;
+    // Use parent-relative background for desktop windows to avoid opaque frames.
+    if (hot->type == WINDOW_TYPE_DESKTOP) {
+        mask |= XCB_CW_BACK_PIXMAP;
+        values[0] = XCB_BACK_PIXMAP_PARENT_RELATIVE;
+    } else {
+        mask |= XCB_CW_BACK_PIXEL;
+        values[0] = 0x333333;
+    }
 
     values[1] = XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS |
                 XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW;
