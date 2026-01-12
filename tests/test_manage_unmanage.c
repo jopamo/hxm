@@ -235,6 +235,7 @@ static void test_finish_manage_maps_client_then_frame(void) {
 static void test_map_request_maps_and_stays_mapped(void) {
     server_t s;
     setup_server(&s);
+    arena_init(&s.tick_arena, 4096);
 
     s.desktop_count = 1;
     s.current_desktop = 0;
@@ -283,6 +284,7 @@ static void test_map_request_maps_and_stays_mapped(void) {
 
     printf("test_map_request_maps_and_stays_mapped passed\n");
     stub_poll_for_reply_hook = NULL;
+    arena_destroy(&s.tick_arena);
     cleanup_server(&s);
 }
 
