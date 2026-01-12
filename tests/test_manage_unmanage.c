@@ -17,6 +17,8 @@ extern void xcb_stubs_set_query_tree_children(const xcb_window_t* children, int 
 extern bool xcb_stubs_attr_request_window(uint32_t seq, xcb_window_t* out_window);
 extern int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request, void** reply,
                                        xcb_generic_error_t** error);
+extern int stub_map_window_count;
+extern int stub_unmap_window_count;
 extern int stub_mapped_windows_len;
 extern xcb_window_t stub_mapped_windows[256];
 extern bool xcb_stubs_enqueue_event(xcb_generic_event_t* ev);
@@ -227,6 +229,60 @@ static void test_finish_manage_maps_client_then_frame(void) {
     assert(stub_mapped_windows[1] == hot->frame);
 
     printf("test_finish_manage_maps_client_then_frame passed\n");
+    cleanup_server(&s);
+}
+
+static void test_map_request_maps_and_stays_mapped(void) {
+    server_t s;
+    setup_server(&s);
+
+    s.desktop_count = 1;
+    s.current_desktop = 0;
+
+    xcb_map_request_event_t ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.window = 5678;
+    ev.parent = s.root;
+
+    g_map_request_window = ev.window;
+    stub_poll_for_reply_hook = map_request_poll_for_reply;
+
+    wm_handle_map_request(&s, &ev);
+    cookie_jar_drain(&s.cookie_jar, s.conn, &s, 8);
+
+    handle_t h = server_get_client_by_window(&s, ev.window);
+    assert(h != HANDLE_INVALID);
+
+    client_hot_t* hot = server_chot(&s, h);
+    assert(hot != NULL);
+
+    hot->desired = (rect_t){0, 0, 120, 90};
+    hot->visual_id = s.root_visual;
+    hot->depth = s.root_depth;
+    hot->pending_replies = 0;
+    hot->state = STATE_READY;
+
+    stub_map_window_count = 0;
+    stub_unmap_window_count = 0;
+    stub_destroy_window_count = 0;
+    stub_mapped_windows_len = 0;
+
+    wm_flush_dirty(&s, monotonic_time_ns());
+
+    assert(hot->state == STATE_MAPPED);
+    assert(stub_map_window_count == 2);
+    assert(stub_mapped_windows_len == 2);
+    assert(stub_mapped_windows[0] == hot->xid);
+    assert(stub_mapped_windows[1] == hot->frame);
+    assert(stub_unmap_window_count == 0);
+    assert(stub_destroy_window_count == 0);
+    assert(server_get_client_by_window(&s, hot->xid) == h);
+
+    wm_flush_dirty(&s, monotonic_time_ns());
+    assert(stub_unmap_window_count == 0);
+
+    printf("test_map_request_maps_and_stays_mapped passed\n");
+    stub_poll_for_reply_hook = NULL;
     cleanup_server(&s);
 }
 
@@ -482,6 +538,29 @@ static void test_manage_start_slot_full(void) {
     xcb_disconnect(s.conn);
 }
 
+static void test_manage_start_defaults_desktop_current(void) {
+    server_t s;
+    setup_server(&s);
+
+    s.desktop_count = 4;
+    s.current_desktop = 2;
+
+    xcb_window_t win = 4242;
+    client_manage_start(&s, win);
+
+    handle_t h = server_get_client_by_window(&s, win);
+    assert(h != HANDLE_INVALID);
+
+    client_hot_t* hot = server_chot(&s, h);
+    assert(hot != NULL);
+    assert(hot->desktop == (int32_t)s.current_desktop);
+    assert(hot->sticky == false);
+    assert(hot->net_wm_desktop_seen == false);
+
+    printf("test_manage_start_defaults_desktop_current passed\n");
+    cleanup_server(&s);
+}
+
 static void test_should_focus_on_map_override(void) {
     client_hot_t hot = {0};
 
@@ -506,6 +585,7 @@ int main(void) {
     test_adopt_children_skips_override_and_unmapped();
     test_map_request_starts_manage_once();
     test_finish_manage_maps_client_then_frame();
+    test_map_request_maps_and_stays_mapped();
     test_unmap_destroy_unmanages();
     test_destroy_notify_unmanages_and_destroys_frame();
     test_iconify_ignores_unmap_notify_send_event();
@@ -513,6 +593,7 @@ int main(void) {
 
     test_manage_start_already_managed();
     test_manage_start_slot_full();
+    test_manage_start_defaults_desktop_current();
     test_should_focus_on_map_override();
 
     return 0;
