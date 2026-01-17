@@ -74,27 +74,33 @@ static bool client_apply_gtk_frame_extents(server_t* s, handle_t h, const xcb_ge
     if (!hot) return false;
 
     int len = r ? xcb_get_property_value_length(r) : 0;
-    bool has_extents = (r && r->format == 32 && len >= (int)(4 * sizeof(uint32_t)));
+    bool has_extents = (r && r->type == XCB_ATOM_CARDINAL && r->format == 32 && len >= (int)(4 * sizeof(uint32_t)));
 
     bool changed = (hot->gtk_frame_extents_set != has_extents);
     hot->gtk_frame_extents_set = has_extents;
 
     if (has_extents) {
         const uint32_t* v = (const uint32_t*)xcb_get_property_value(r);
-        if (hot->gtk_extents.left != (uint16_t)v[0]) {
-            hot->gtk_extents.left = (uint16_t)v[0];
+        uint32_t l = v[0], rt = v[1], t = v[2], b = v[3];
+        if (l > 65535u) l = 65535u;
+        if (rt > 65535u) rt = 65535u;
+        if (t > 65535u) t = 65535u;
+        if (b > 65535u) b = 65535u;
+
+        if (hot->gtk_extents.left != (uint16_t)l) {
+            hot->gtk_extents.left = (uint16_t)l;
             changed = true;
         }
-        if (hot->gtk_extents.right != (uint16_t)v[1]) {
-            hot->gtk_extents.right = (uint16_t)v[1];
+        if (hot->gtk_extents.right != (uint16_t)rt) {
+            hot->gtk_extents.right = (uint16_t)rt;
             changed = true;
         }
-        if (hot->gtk_extents.top != (uint16_t)v[2]) {
-            hot->gtk_extents.top = (uint16_t)v[2];
+        if (hot->gtk_extents.top != (uint16_t)t) {
+            hot->gtk_extents.top = (uint16_t)t;
             changed = true;
         }
-        if (hot->gtk_extents.bottom != (uint16_t)v[3]) {
-            hot->gtk_extents.bottom = (uint16_t)v[3];
+        if (hot->gtk_extents.bottom != (uint16_t)b) {
+            hot->gtk_extents.bottom = (uint16_t)b;
             changed = true;
         }
     } else {
@@ -190,6 +196,12 @@ static char* prop_get_string(const xcb_get_property_reply_t* r, int* out_len) {
     if (len <= 0) return NULL;
     if (out_len) *out_len = len;
     return (char*)xcb_get_property_value(r);
+}
+
+static size_t string_len_until_nul(const char* s, size_t n) {
+    if (!s || n == 0) return 0;
+    const char* p = memchr(s, '\0', n);
+    return p ? (size_t)(p - s) : n;
 }
 
 static uint32_t* prop_get_u32_array(const xcb_get_property_reply_t* r, int min_count, int* out_count) {
@@ -439,6 +451,7 @@ static bool check_transient_cycle(server_t* s, handle_t child, handle_t parent) 
 void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
     if (err) {
         LOG_DEBUG("Cookie %u returned error code %d", slot->sequence, err->error_code);
+        reply = NULL;
     }
 
     if (slot->client == HANDLE_INVALID) {
@@ -643,7 +656,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     int len = 0;
                     char* str = prop_get_string(r, &len);
                     if (str && !cold->has_net_wm_name) {
-                        size_t trimmed_len = clamp_prop_len(len, MAX_TITLE_BYTES);
+                        size_t max = clamp_prop_len(len, MAX_TITLE_BYTES);
+                        size_t trimmed_len = string_len_until_nul(str, max);
                         if (!cold->base_title || strlen(cold->base_title) != trimmed_len ||
                             strncmp(cold->base_title, str, trimmed_len) != 0) {
                             cold->base_title = arena_strndup(&cold->string_arena, str, trimmed_len);
@@ -662,7 +676,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                     int len = 0;
                     char* str = prop_get_string(r, &len);
                     if (str && !cold->has_net_wm_icon_name) {
-                        size_t trimmed_len = clamp_prop_len(len, MAX_TITLE_BYTES);
+                        size_t max = clamp_prop_len(len, MAX_TITLE_BYTES);
+                        size_t trimmed_len = string_len_until_nul(str, max);
                         if (!cold->base_icon_name || strlen(cold->base_icon_name) != trimmed_len ||
                             strncmp(cold->base_icon_name, str, trimmed_len) != 0) {
                             cold->base_icon_name = arena_strndup(&cold->string_arena, str, trimmed_len);
@@ -679,10 +694,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
             } else if (atom == atoms._GTK_FRAME_EXTENTS) {
                 if (client_apply_gtk_frame_extents(s, slot->client, r)) {
-                    // Existing logic for geometry updates if not in manage phase
-                    if (hot->manage_phase == MANAGE_DONE) {
-                        hot->dirty |= DIRTY_GEOM;
-                    }
+                    hot->dirty |= DIRTY_GEOM;
                     if (client_apply_decoration_hints(hot)) changed = true;
                 }
 
@@ -1188,8 +1200,11 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                         if (w == 0 || h == 0) break;
 
                         uint64_t pixels = (uint64_t)w * (uint64_t)h;
-                        if (pixels > (uint64_t)(total_words - i - 2)) break;
-                        if (pixels > icon_pixels_max) break;
+                        if (pixels > (uint64_t)(total_words - i - 2)) break;  // truncated, stop
+                        if (pixels > icon_pixels_max) {
+                            i += (int)(2 + pixels);
+                            continue;
+                        }  // oversize, skip
                         if (total_pixels + pixels > icon_total_pixels_max) break;
 
                         if (w <= icon_dim_max && h <= icon_dim_max) {
@@ -1364,9 +1379,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             xcb_sync_query_counter_reply_t* r = (xcb_sync_query_counter_reply_t*)reply;
             xcb_sync_counter_t counter = (xcb_sync_counter_t)slot->data;
             if (hot->sync_counter == counter) {
-                int64_t value = ((int64_t)r->counter_value.hi << 32) | r->counter_value.lo;
-                if (value < 0) value = 0;
-                uint64_t uvalue = (uint64_t)value;
+                uint64_t uvalue =
+                    ((uint64_t)(uint32_t)r->counter_value.hi << 32) | (uint64_t)(uint32_t)r->counter_value.lo;
                 if (uvalue > hot->sync_value) {
                     hot->sync_value = uvalue;
                 }
