@@ -1409,7 +1409,6 @@ void server_run(server_t* s) {
                 char* args[] = {path, NULL};
 
                 server_cleanup(s);
-                xcb_flush(s->conn);  // Should be a no-op if conn is NULL, but server_cleanup disconnects
                 execv(path, args);
             }
             LOG_ERROR("Failed to restart: %s", strerror(errno));
