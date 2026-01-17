@@ -1,0 +1,5 @@
+build*
+tests/ewmh/x_test_client
+tests/ewmh/panel_simulator
+
+coverage/
