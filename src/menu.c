@@ -308,13 +308,16 @@ void menu_init(server_t* s) {
 }
 
 void menu_destroy(server_t* s) {
-    if (s->conn) xcb_destroy_window(s->conn, s->menu.window);
+    if (s->conn && s->menu.window != XCB_NONE) {
+        xcb_destroy_window(s->conn, s->menu.window);
+        s->menu.window = XCB_NONE;
+    }
     render_free(&s->menu.render_ctx);
 
     menu_clear_items(s);
     menu_clear_config(&s->menu);
-    small_vec_destroy(&s->menu.items);
-    small_vec_destroy(&s->menu.config_items);
+    if (s->menu.items.items) small_vec_destroy(&s->menu.items);
+    if (s->menu.config_items.items) small_vec_destroy(&s->menu.config_items);
 }
 
 static void menu_populate_root(server_t* s) {
