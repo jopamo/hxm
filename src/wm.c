@@ -1949,6 +1949,18 @@ void wm_client_toggle_maximize(server_t* s, handle_t h) {
     LOG_INFO("Client %u maximized toggle: %d", hot->xid, want);
 }
 
+static void ignore_one_unmap(client_hot_t* hot) {
+    if (!hot) return;
+    if (hot->ignore_unmap == 0) return;
+    hot->ignore_unmap--;
+}
+
+static void add_ignore_unmaps(client_hot_t* hot, uint8_t n) {
+    if (!hot) return;
+    uint16_t sum = (uint16_t)hot->ignore_unmap + (uint16_t)n;
+    hot->ignore_unmap = (sum > UINT8_MAX) ? UINT8_MAX : (uint8_t)sum;
+}
+
 void wm_client_iconify(server_t* s, handle_t h) {
     client_hot_t* hot = server_chot(s, h);
     if (!hot || hot->state != STATE_MAPPED) return;
@@ -1957,7 +1969,7 @@ void wm_client_iconify(server_t* s, handle_t h) {
     TRACE_LOG("iconify h=%lx xid=%u frame=%u layer=%d", h, hot->xid, hot->frame, hot->layer);
 
     hot->state = STATE_UNMAPPED;
-    if (hot->ignore_unmap < UINT8_MAX) hot->ignore_unmap++;
+    add_ignore_unmaps(hot, 2);
     xcb_unmap_window(s->conn, hot->frame);
     stack_remove(s, h);
 
