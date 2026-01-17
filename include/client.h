@@ -297,6 +297,10 @@ static inline uint8_t client_layer_from_state(const client_hot_t* hot) {
     return hot->base_layer;
 }
 
+static inline int stack_current_layer(const client_hot_t* c) {
+    return (c->stacking_layer >= 0) ? (int)c->stacking_layer : (int)c->layer;
+}
+
 /* client_cold_t: rarely accessed client state */
 typedef struct client_cold {
     /* Effective/composed strings used for UI */

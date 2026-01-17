@@ -140,7 +140,7 @@ static void test_frame_destroy_during_interaction_cancels_only(void) {
     client_hot_t* c = must_get_client(&s, h);
 
     // Start an interactive resize on this client
-    wm_start_interaction(&s, h, c, /*start_move*/ false, /*resize_dir*/ 9, /*root_x*/ 1919, /*root_y*/ 0, 0);
+    wm_start_interaction(&s, h, c, /*start_move*/ false, /*resize_dir*/ 9, /*root_x*/ 1919, /*root_y*/ 0, 0, false);
 
     assert(s.interaction_mode == INTERACTION_RESIZE);
     assert(s.interaction_handle == h);
@@ -202,7 +202,7 @@ static void test_unmanage_cancels_interaction_before_frame_destroy(void) {
     handle_t h = test_create_managed_client(&s, client_xid, frame_xid);
     client_hot_t* c = must_get_client(&s, h);
 
-    wm_start_interaction(&s, h, c, false, 9, 10, 10, 0);
+    wm_start_interaction(&s, h, c, false, 9, 10, 10, 0, false);
 
     // Now unmanage the client explicitly
     // unmanage_client is likely `client_unmanage` or `unmanage_window`?

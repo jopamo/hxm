@@ -19,7 +19,7 @@ uint32_t wm_clean_mods(uint16_t state);
 
 // Exposed interaction logic
 void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir, int16_t root_x,
-                          int16_t root_y, uint32_t time);
+                          int16_t root_y, uint32_t time, bool is_keyboard);
 
 void wm_client_set_maximize(server_t* s, client_hot_t* hot, bool max_horz, bool max_vert);
 
