@@ -15,6 +15,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <librsvg/rsvg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,6 +34,34 @@
 #define MENU_PADDING 4
 #define MENU_ITEM_HEIGHT 24
 #define MENU_WIDTH 240
+
+static void* xmalloc(size_t n) {
+    void* p = malloc(n);
+    if (!p) {
+        LOG_ERROR("oom");
+        abort();
+    }
+    return p;
+}
+
+static void* xcalloc(size_t n, size_t sz) {
+    void* p = calloc(n, sz);
+    if (!p) {
+        LOG_ERROR("oom");
+        abort();
+    }
+    return p;
+}
+
+static char* xstrdup(const char* s) {
+    if (!s) return NULL;
+    char* p = strdup(s);
+    if (!p) {
+        LOG_ERROR("oom");
+        abort();
+    }
+    return p;
+}
 
 static void menu_clear_items(server_t* s) {
     for (size_t i = 0; i < s->menu.items.length; i++) {
@@ -62,7 +91,10 @@ static void menu_clear_config(menu_t* m) {
 static cairo_surface_t* menu_load_icon(const char* path) {
     if (!path || path[0] == '\0') return NULL;
 
-    if (strstr(path, ".svg")) {
+    const char* dot = strrchr(path, '.');
+    bool is_svg = (dot && strcasecmp(dot, ".svg") == 0);
+
+    if (is_svg) {
         GError* error = NULL;
         RsvgHandle* handle = rsvg_handle_new_from_file(path, &error);
         if (!handle) {
@@ -87,11 +119,17 @@ static cairo_surface_t* menu_load_icon(const char* path) {
 
         RsvgRectangle viewport = {0.0, 0.0, (double)w, (double)h};
         cairo_surface_t* surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
+        if (cairo_surface_status(surface) != CAIRO_STATUS_SUCCESS) {
+            g_object_unref(handle);
+            cairo_surface_destroy(surface);
+            return NULL;
+        }
+
         cairo_t* cr = cairo_create(surface);
-        rsvg_handle_render_document(handle, cr, &viewport, &error);
-        if (error) {
-            LOG_WARN("Failed to render SVG icon %s: %s", path, error->message);
-            g_error_free(error);
+        gboolean ok = rsvg_handle_render_document(handle, cr, &viewport, &error);
+        if (!ok || error) {
+            LOG_WARN("Failed to render SVG icon %s: %s", path, error ? error->message : "unknown error");
+            if (error) g_error_free(error);
         }
         cairo_destroy(cr);
         g_object_unref(handle);
@@ -167,7 +205,7 @@ bool menu_load_config(server_t* s, const char* path) {
             continue;
         }
 
-        menu_item_spec_t* spec = calloc(1, sizeof(menu_item_spec_t));
+        menu_item_spec_t* spec = xcalloc(1, sizeof(menu_item_spec_t));
         bool separator_flag = false;
 
         for (yaml_node_pair_t* pair = node->data.mapping.pairs.start; pair < node->data.mapping.pairs.top; pair++) {
@@ -191,13 +229,13 @@ bool menu_load_config(server_t* s, const char* path) {
             if (!val) continue;
 
             if (strcasecmp(key, "label") == 0)
-                spec->label = strdup(val);
+                spec->label = xstrdup(val);
             else if (strcasecmp(key, "action") == 0)
                 spec->action = parse_action_scalar(val);
             else if (strcasecmp(key, "cmd") == 0)
-                spec->cmd = strdup(val);
+                spec->cmd = xstrdup(val);
             else if (strcasecmp(key, "icon") == 0)
-                spec->icon_path = strdup(val);
+                spec->icon_path = xstrdup(val);
         }
 
         if (separator_flag) {
@@ -234,12 +272,12 @@ bool menu_load_config(server_t* s, const char* path) {
 
 static void menu_add_item(server_t* s, const char* label, menu_action_t action, const char* cmd, handle_t client,
                           const char* icon_path) {
-    menu_item_t* item = malloc(sizeof(menu_item_t));
-    item->label = label ? strdup(label) : NULL;
+    menu_item_t* item = xmalloc(sizeof(menu_item_t));
+    item->label = label ? xstrdup(label) : NULL;
     item->action = action;
-    item->cmd = cmd ? strdup(cmd) : NULL;
+    item->cmd = cmd ? xstrdup(cmd) : NULL;
     item->client = client;
-    item->icon_path = icon_path ? strdup(icon_path) : NULL;
+    item->icon_path = icon_path ? xstrdup(icon_path) : NULL;
     item->icon_surface = menu_load_icon(icon_path);
     small_vec_push(&s->menu.items, item);
 
@@ -337,10 +375,32 @@ void menu_show(server_t* s, int16_t x, int16_t y) {
     const uint32_t stack_values[] = {XCB_STACK_MODE_ABOVE};
     xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_STACK_MODE, stack_values);
 
-    xcb_grab_pointer(s->conn, 0, s->root,
-                     XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
-                     XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
-    xcb_grab_keyboard(s->conn, 0, s->root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+    xcb_grab_pointer_cookie_t pc =
+        xcb_grab_pointer(s->conn, 0, s->root,
+                         XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
+                         XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
+    xcb_grab_keyboard_cookie_t kc =
+        xcb_grab_keyboard(s->conn, 0, s->root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+
+#if HXM_DIAG
+    xcb_grab_pointer_reply_t* pr = xcb_grab_pointer_reply(s->conn, pc, NULL);
+    if (pr) {
+        if (pr->status != XCB_GRAB_STATUS_SUCCESS) {
+            LOG_WARN("menu_show: pointer grab failed status=%d", pr->status);
+        }
+        free(pr);
+    }
+    xcb_grab_keyboard_reply_t* kr = xcb_grab_keyboard_reply(s->conn, kc, NULL);
+    if (kr) {
+        if (kr->status != XCB_GRAB_STATUS_SUCCESS) {
+            LOG_WARN("menu_show: keyboard grab failed status=%d", kr->status);
+        }
+        free(kr);
+    }
+#else
+    (void)pc;
+    (void)kc;
+#endif
 
     menu_handle_expose(s);
 }
@@ -398,10 +458,32 @@ void menu_show_client_list(server_t* s, int16_t x, int16_t y) {
     const uint32_t stack_values[] = {XCB_STACK_MODE_ABOVE};
     xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_STACK_MODE, stack_values);
 
-    xcb_grab_pointer(s->conn, 0, s->root,
-                     XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
-                     XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
-    xcb_grab_keyboard(s->conn, 0, s->root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+    xcb_grab_pointer_cookie_t pc =
+        xcb_grab_pointer(s->conn, 0, s->root,
+                         XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
+                         XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
+    xcb_grab_keyboard_cookie_t kc =
+        xcb_grab_keyboard(s->conn, 0, s->root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+
+#if HXM_DIAG
+    xcb_grab_pointer_reply_t* pr = xcb_grab_pointer_reply(s->conn, pc, NULL);
+    if (pr) {
+        if (pr->status != XCB_GRAB_STATUS_SUCCESS) {
+            LOG_WARN("menu_show_client_list: pointer grab failed status=%d", pr->status);
+        }
+        free(pr);
+    }
+    xcb_grab_keyboard_reply_t* kr = xcb_grab_keyboard_reply(s->conn, kc, NULL);
+    if (kr) {
+        if (kr->status != XCB_GRAB_STATUS_SUCCESS) {
+            LOG_WARN("menu_show_client_list: keyboard grab failed status=%d", kr->status);
+        }
+        free(kr);
+    }
+#else
+    (void)pc;
+    (void)kc;
+#endif
 
     menu_handle_expose(s);
 }
@@ -560,10 +642,10 @@ void menu_handle_expose_region(server_t* s, const dirty_region_t* dirty) {
 }
 
 void menu_handle_pointer_motion(server_t* s, int16_t x, int16_t y) {
-    int16_t local_x = x - s->menu.x;
-    int16_t local_y = y - s->menu.y;
+    int32_t local_x = (int32_t)x - (int32_t)s->menu.x;
+    int32_t local_y = (int32_t)y - (int32_t)s->menu.y;
 
-    if (local_x < 0 || local_x > s->menu.w || local_y < 0 || local_y > s->menu.h) {
+    if (local_x < 0 || local_x >= (int32_t)s->menu.w || local_y < 0 || local_y >= (int32_t)s->menu.h) {
         if (s->menu.selected_index != -1) {
             s->menu.selected_index = -1;
             menu_handle_expose(s);
@@ -585,6 +667,10 @@ void menu_handle_pointer_motion(server_t* s, int16_t x, int16_t y) {
     }
 }
 
+extern volatile sig_atomic_t g_shutdown_pending;
+extern volatile sig_atomic_t g_restart_pending;
+extern volatile sig_atomic_t g_reload_pending;
+
 static void spawn(const char* cmd) {
     pid_t p = fork();
     if (p < 0) return;
@@ -605,10 +691,10 @@ static void spawn(const char* cmd) {
 }
 
 void menu_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
-    int16_t local_x = ev->root_x - s->menu.x;
-    int16_t local_y = ev->root_y - s->menu.y;
+    int32_t local_x = (int32_t)ev->root_x - (int32_t)s->menu.x;
+    int32_t local_y = (int32_t)ev->root_y - (int32_t)s->menu.y;
 
-    if (local_x < 0 || local_x > s->menu.w || local_y < 0 || local_y > s->menu.h) {
+    if (local_x < 0 || local_x >= (int32_t)s->menu.w || local_y < 0 || local_y >= (int32_t)s->menu.h) {
         menu_hide(s);
     }
 }
@@ -616,10 +702,10 @@ void menu_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
 static void menu_activate_selected(server_t* s);
 
 void menu_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
-    int16_t local_x = ev->root_x - s->menu.x;
-    int16_t local_y = ev->root_y - s->menu.y;
+    int32_t local_x = (int32_t)ev->root_x - (int32_t)s->menu.x;
+    int32_t local_y = (int32_t)ev->root_y - (int32_t)s->menu.y;
 
-    if (local_x >= 0 && local_x <= s->menu.w && local_y >= 0 && local_y <= s->menu.h) {
+    if (local_x >= 0 && local_x < (int32_t)s->menu.w && local_y >= 0 && local_y < (int32_t)s->menu.h) {
         int32_t index = (local_y - MENU_PADDING) / MENU_ITEM_HEIGHT;
         if (index >= 0 && index < (int32_t)s->menu.items.length) {
             menu_item_t* item = s->menu.items.items[index];
@@ -694,13 +780,16 @@ static void menu_activate_selected(server_t* s) {
             if (item->cmd) spawn(item->cmd);
             break;
         case MENU_ACTION_EXIT:
-            exit(0);
+            g_shutdown_pending = 1;
+            server_schedule_timer(s, 1);
             break;
         case MENU_ACTION_RESTART:
-            spawn("hxm --restart");
+            g_restart_pending = 1;
+            server_schedule_timer(s, 1);
             break;
         case MENU_ACTION_RELOAD:
-            spawn("hxm --reconfigure");
+            g_reload_pending = 1;
+            server_schedule_timer(s, 1);
             break;
         case MENU_ACTION_RESTORE:
             menu_do_restore(s, item->client);
