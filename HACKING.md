@@ -1,7 +1,7 @@
 # Hacking Guide
 
 This document describes how to build, test, and modify hxm without violating its
-core architectural invariants. Read `DESIGN.md` and `FLOW.md` first.
+core architectural invariants. Read `DESIGN.md` first.
 
 ---
 
@@ -75,17 +75,6 @@ meson test -C build
 ```
 
 ---
-
-## LLM Report
-
-The project maintains an automated "LLM Context Report" in the root directory (`REPORT.md`).
-This report includes symbols, code coverage, and static analysis results.
-
-To keep it updated automatically, install the git hooks:
-```sh
-./scripts/install_git_hooks.sh
-```
-Once installed, every commit will automatically trigger a full test/analysis run and update `REPORT.md` and `TODO.md`.
 
 ---
 
