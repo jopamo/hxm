@@ -214,9 +214,6 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
         client_hot_t* hot = server_chot(s, h);
         if (!hot) continue;
         if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED) continue;
-        if (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP) continue;
-        if (hot->skip_taskbar || hot->skip_pager) continue;
-
         if (idx >= cap) return idx;
 #ifndef NDEBUG
         for (uint32_t j = 0; j < idx; j++) {
