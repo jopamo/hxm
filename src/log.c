@@ -31,22 +31,38 @@ static inline const char* safe_level_str(enum log_level level) {
     return "UNK";
 }
 
+static bool env_truthy(const char* s) {
+    if (!s || !*s) return false;
+    if (strcmp(s, "1") == 0) return true;
+    if (strcasecmp(s, "true") == 0) return true;
+    if (strcasecmp(s, "yes") == 0) return true;
+    if (strcasecmp(s, "on") == 0) return true;
+    return false;
+}
+
 static void log_init_once(void) {
     static bool initialized = false;
     if (initialized) return;
     initialized = true;
 
     const char* utc = getenv("HXM_LOG_UTC");
-    if (utc && (strcmp(utc, "1") == 0 || strcmp(utc, "true") == 0)) use_utc = true;
+    if (env_truthy(utc)) use_utc = true;
 
     const char* mono = getenv("HXM_LOG_MONO");
-    if (mono && (strcmp(mono, "1") == 0 || strcmp(mono, "true") == 0)) use_monotonic = true;
+    if (env_truthy(mono)) use_monotonic = true;
+
+    // Make stdout line-buffered so logs show up promptly when piped
+    setvbuf(stdout, NULL, _IOLBF, 0);
 }
 
 static void format_timestamp(char* out, size_t out_sz, long* ms_out) {
     struct timespec ts;
     clockid_t clk = use_monotonic ? CLOCK_MONOTONIC : CLOCK_REALTIME;
-    clock_gettime(clk, &ts);
+    if (clock_gettime(clk, &ts) != 0) {
+        snprintf(out, out_sz, "??:??:??");
+        *ms_out = 0;
+        return;
+    }
 
     *ms_out = ts.tv_nsec / 1000000;
 
@@ -83,11 +99,15 @@ void hxm_log(enum log_level level, const char* fmt, ...) {
     vfprintf(out, fmt, ap);
     va_end(ap);
     fputc('\n', out);
+
+    if (level >= LOG_WARN) fflush(out);
 }
 
 #else
 
-void hxm_err(const char* fmt, ...) {
+void hxm_log(enum log_level level, const char* fmt, ...) {
+    // In non-diagnostic builds, drop DEBUG/INFO spam
+    if (level < LOG_WARN) return;
     if (!fmt) fmt = "(null fmt)";
 
     va_list ap;
