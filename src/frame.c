@@ -46,16 +46,28 @@ void frame_init_resources(server_t* s) {
 
 void frame_cleanup_resources(server_t* s) {
     if (!s->conn) return;
-    xcb_free_cursor(s->conn, s->cursor_left_ptr);
-    xcb_free_cursor(s->conn, s->cursor_move);
-    xcb_free_cursor(s->conn, s->cursor_resize_top);
-    xcb_free_cursor(s->conn, s->cursor_resize_bottom);
-    xcb_free_cursor(s->conn, s->cursor_resize_left);
-    xcb_free_cursor(s->conn, s->cursor_resize_right);
-    xcb_free_cursor(s->conn, s->cursor_resize_top_left);
-    xcb_free_cursor(s->conn, s->cursor_resize_top_right);
-    xcb_free_cursor(s->conn, s->cursor_resize_bottom_left);
-    xcb_free_cursor(s->conn, s->cursor_resize_bottom_right);
+
+    if (s->cursor_left_ptr != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_left_ptr);
+    if (s->cursor_move != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_move);
+    if (s->cursor_resize_top != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_resize_top);
+    if (s->cursor_resize_bottom != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_resize_bottom);
+    if (s->cursor_resize_left != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_resize_left);
+    if (s->cursor_resize_right != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_resize_right);
+    if (s->cursor_resize_top_left != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_resize_top_left);
+    if (s->cursor_resize_top_right != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_resize_top_right);
+    if (s->cursor_resize_bottom_left != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_resize_bottom_left);
+    if (s->cursor_resize_bottom_right != XCB_NONE) xcb_free_cursor(s->conn, s->cursor_resize_bottom_right);
+
+    s->cursor_left_ptr = XCB_NONE;
+    s->cursor_move = XCB_NONE;
+    s->cursor_resize_top = XCB_NONE;
+    s->cursor_resize_bottom = XCB_NONE;
+    s->cursor_resize_left = XCB_NONE;
+    s->cursor_resize_right = XCB_NONE;
+    s->cursor_resize_top_left = XCB_NONE;
+    s->cursor_resize_top_right = XCB_NONE;
+    s->cursor_resize_bottom_left = XCB_NONE;
+    s->cursor_resize_bottom_right = XCB_NONE;
 }
 
 #define BUTTON_WIDTH 16
@@ -64,7 +76,8 @@ void frame_cleanup_resources(server_t* s) {
 
 static xcb_rectangle_t get_button_rect(server_t* s, client_hot_t* hot, frame_button_t btn) {
     uint16_t frame_w = hot->server.w + 2 * s->config.theme.border_width;
-    int16_t x = (int16_t)frame_w - BUTTON_PADDING - BUTTON_WIDTH;
+    // Buttons are laid out inside the right border
+    int16_t x = (int16_t)frame_w - (int16_t)s->config.theme.border_width - BUTTON_PADDING - BUTTON_WIDTH;
     int16_t y = (int16_t)((s->config.theme.title_height - BUTTON_HEIGHT) / 2);
 
     if (btn == FRAME_BUTTON_MAXIMIZE) x -= (BUTTON_WIDTH + BUTTON_PADDING);
@@ -92,7 +105,7 @@ void frame_redraw_region(server_t* s, handle_t h, const dirty_region_t* dirty) {
 
     if (dirty && dirty->valid) {
         dirty_region_union(&hot->frame_damage, dirty);
-        hot->dirty |= DIRTY_FRAME_ALL;
+        // Let frame_flush use frame_damage as the clip region
     } else {
         hot->dirty |= DIRTY_FRAME_ALL;
     }
@@ -125,7 +138,7 @@ void frame_flush(server_t* s, handle_t h) {
     uint16_t frame_w = hot->server.w + 2 * s->config.theme.border_width;
     uint16_t frame_h = hot->server.h + s->config.theme.title_height + s->config.theme.border_width;
 
-    // Frames are always created with the root visual/depth.
+    // Frames are always created with the root visual/depth
     xcb_visualtype_t* visual = s->root_visual_type;
     if (!visual) {
         LOG_WARN("No root visual found, skipping redraw for client %u", hot->xid);
@@ -138,15 +151,15 @@ void frame_flush(server_t* s, handle_t h) {
     if (!(hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_STYLE))) {
         if (hot->frame_damage.valid) {
             clip_ptr = &hot->frame_damage;
-        } else if (hot->dirty & DIRTY_FRAME_TITLE) {
+        } else if (hot->dirty & (DIRTY_FRAME_TITLE | DIRTY_TITLE)) {
             partial_clip = dirty_region_make(0, 0, frame_w, (uint16_t)s->config.theme.title_height);
             clip_ptr = &partial_clip;
         } else if (hot->dirty & DIRTY_FRAME_BUTTONS) {
             // Button area is roughly right side of titlebar
             uint16_t btn_area_w = (uint16_t)(3 * (BUTTON_WIDTH + BUTTON_PADDING) + BUTTON_PADDING);
-            // Fix: Include border width in the clip region calculation.
-            // Buttons are positioned relative to the right edge minus border.
-            // Clip region is in frame coordinates (0,0 is top-left of frame).
+            // Fix: Include border width in the clip region calculation
+            // Buttons are positioned relative to the right edge minus border
+            // Clip region is in frame coordinates (0,0 is top-left of frame)
             int16_t clip_x = (int16_t)(frame_w - btn_area_w - s->config.theme.border_width);
             if (clip_x < 0) clip_x = 0;
 
@@ -160,7 +173,8 @@ void frame_flush(server_t* s, handle_t h) {
                  active, frame_w, frame_h, &s->config.theme, hot->icon_surface ? hot->icon_surface : s->default_icon,
                  clip_ptr);
 
-    hot->dirty &= ~(DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_FRAME_STYLE);
+    hot->dirty &= ~(DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_FRAME_STYLE |
+                    DIRTY_TITLE);
     dirty_region_reset(&hot->frame_damage);
 }
 
