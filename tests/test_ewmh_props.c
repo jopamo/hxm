@@ -195,7 +195,7 @@ static void test_client_list_add_remove(void) {
     cleanup_server(&s);
 }
 
-static void test_client_list_filters_skip_and_dock(void) {
+static void test_client_list_includes_all_managed(void) {
     server_t s;
     setup_server(&s);
     xcb_stubs_reset();
@@ -228,9 +228,12 @@ static void test_client_list_filters_skip_and_dock(void) {
 
     const struct stub_prop_call* list = find_prop_call(s.root, atoms._NET_CLIENT_LIST, false);
     assert(list != NULL);
-    assert(list->len == 1);
+    assert(list->len == 4);
     const uint32_t* list_vals = (const uint32_t*)list->data;
     assert(list_vals[0] == 7001);
+    assert(list_vals[1] == 7002);
+    assert(list_vals[2] == 7003);
+    assert(list_vals[3] == 7004);
 
     const struct stub_prop_call* list_stack = find_prop_call(s.root, atoms._NET_CLIENT_LIST_STACKING, false);
     assert(list_stack != NULL);
@@ -241,7 +244,7 @@ static void test_client_list_filters_skip_and_dock(void) {
     assert(stack_vals[2] == 7003);
     assert(stack_vals[3] == 7004);
 
-    printf("test_client_list_filters_skip_and_dock passed\n");
+    printf("test_client_list_includes_all_managed passed\n");
     cleanup_server(&s);
 }
 
@@ -820,7 +823,7 @@ static void test_urgency_hint_maps_to_ewmh_state(void) {
 int main(void) {
     test_active_window_updates();
     test_client_list_add_remove();
-    test_client_list_filters_skip_and_dock();
+    test_client_list_includes_all_managed();
     test_desktop_props_publish_and_switch();
     test_net_wm_desktop_reply_sets_sticky_and_desktop();
     test_net_wm_desktop_reply_clamps_out_of_range();
