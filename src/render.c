@@ -11,17 +11,30 @@
 
 #include "render.h"
 
+#include <assert.h>
 #include <math.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
-// Mutex for thread-unsafe library calls (librsvg/pango/cairo interactions)
-static pthread_mutex_t render_mutex = PTHREAD_MUTEX_INITIALIZER;
+// Rendering is expected to run on the WM thread
+// XCB/cairo_xcb are not safely usable from multiple threads on one connection
 
 // Helper to convert hex uint32 to RGBA
 static rgba_t u32_to_rgba(uint32_t c) {
     return (rgba_t){((c >> 16) & 0xFF) / 255.0, ((c >> 8) & 0xFF) / 255.0, (c & 0xFF) / 255.0, 1.0};
+}
+
+static inline bool cairo_surface_ok(cairo_surface_t* s) { return s && cairo_surface_status(s) == CAIRO_STATUS_SUCCESS; }
+
+static inline bool cairo_ctx_ok(cairo_t* cr) { return cr && cairo_status(cr) == CAIRO_STATUS_SUCCESS; }
+
+static bool get_image_wh(cairo_surface_t* s, int* out_w, int* out_h) {
+    if (!s) return false;
+    if (cairo_surface_get_type(s) != CAIRO_SURFACE_TYPE_IMAGE) return false;
+    *out_w = cairo_image_surface_get_width(s);
+    *out_h = cairo_image_surface_get_height(s);
+    return (*out_w > 0 && *out_h > 0);
 }
 
 static void draw_bevel(cairo_t* cr, int w, int h, bool raised, bool bevel2) {
@@ -113,17 +126,14 @@ static void draw_appearance(cairo_t* cr, int w, int h, appearance_t* app) {
 }
 
 void render_init(render_context_t* ctx) {
-    pthread_mutex_lock(&render_mutex);
     ctx->surface = NULL;
     ctx->cr = NULL;
     ctx->layout = NULL;
     ctx->width = 0;
     ctx->height = 0;
-    pthread_mutex_unlock(&render_mutex);
 }
 
 void render_free(render_context_t* ctx) {
-    pthread_mutex_lock(&render_mutex);
     if (ctx->layout) {
         g_object_unref(ctx->layout);
         ctx->layout = NULL;
@@ -138,7 +148,6 @@ void render_free(render_context_t* ctx) {
     }
     ctx->width = 0;
     ctx->height = 0;
-    pthread_mutex_unlock(&render_mutex);
 }
 
 static void ensure_layout(render_context_t* ctx) {
@@ -222,11 +231,24 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
         target_surface = cairo_xcb_surface_create(conn, pixmap, visual, w, h);
     }
 
+    if (!cairo_surface_ok(target_surface)) {
+        if (!is_test && pixmap != XCB_NONE) xcb_free_pixmap(conn, pixmap);
+        if (target_surface) cairo_surface_destroy(target_surface);
+        return;
+    }
+
     cairo_t* cr = cairo_create(target_surface);
+    if (!cairo_ctx_ok(cr)) {
+        cairo_destroy(cr);
+        cairo_surface_destroy(target_surface);
+        if (!is_test && pixmap != XCB_NONE) xcb_free_pixmap(conn, pixmap);
+        return;
+    }
+
     if (dirty && dirty->valid) {
         dirty_region_t clip = *dirty;
         // Validate clip before clamp to avoid pixman asserts if coords are bogus
-        if (clip.x > -10000 && clip.y > -10000 && clip.w > 0 && clip.h > 0) {
+        if (clip.w > 0 && clip.h > 0) {
             dirty_region_clamp(&clip, 0, 0, (uint16_t)w, (uint16_t)h);
             if (!clip.valid) {
                 cairo_destroy(cr);
@@ -236,7 +258,7 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
                 }
                 return;
             }
-            cairo_rectangle(cr, clip.x, clip.y, clip.w, clip.h);
+            cairo_rectangle(cr, (double)clip.x, (double)clip.y, (double)clip.w, (double)clip.h);
             cairo_clip(cr);
         }
     }
@@ -296,22 +318,23 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
 
     // 2. Draw Icon
     if (icon) {
-        int icon_w = cairo_image_surface_get_width(icon);
-        int icon_h = cairo_image_surface_get_height(icon);
-        double target_size = title_h - 4;
-        if (target_size > 16) target_size = 16;
-        if (target_size < 8) target_size = 8;
-        double scale = target_size / ((icon_w > icon_h) ? icon_w : icon_h);
-        double draw_w = icon_w * scale;
-        double draw_h = icon_h * scale;
-        double icon_y = (title_h - draw_h) / 2.0;
-        cairo_save(cr);
-        cairo_translate(cr, title_x_offset, icon_y);
-        cairo_scale(cr, scale, scale);
-        cairo_set_source_surface(cr, icon, 0, 0);
-        cairo_paint(cr);
-        cairo_restore(cr);
-        title_x_offset += (int)draw_w + 6;
+        int icon_w, icon_h;
+        if (get_image_wh(icon, &icon_w, &icon_h)) {
+            double target_size = title_h - 4;
+            if (target_size > 16) target_size = 16;
+            if (target_size < 8) target_size = 8;
+            double scale = target_size / ((icon_w > icon_h) ? icon_w : icon_h);
+            double draw_w = icon_w * scale;
+            double draw_h = icon_h * scale;
+            double icon_y = (title_h - draw_h) / 2.0;
+            cairo_save(cr);
+            cairo_translate(cr, title_x_offset, icon_y);
+            cairo_scale(cr, scale, scale);
+            cairo_set_source_surface(cr, icon, 0, 0);
+            cairo_paint(cr);
+            cairo_restore(cr);
+            title_x_offset += (int)draw_w + 6;
+        }
     }
 
     // Button dimensions (used for title text clipping)
@@ -343,9 +366,11 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
 
     // 4. Draw Borders
     cairo_set_source_rgba(cr, border.r, border.g, border.b, border.a);
-    cairo_set_line_width(cr, (double)border_w);
-    cairo_rectangle(cr, (double)border_w / 2.0, (double)border_w / 2.0, (double)w - border_w, (double)h - border_w);
-    cairo_stroke(cr);
+    if (border_w > 0 && border_w * 2 < w && border_w * 2 < h) {
+        cairo_set_line_width(cr, (double)border_w);
+        cairo_rectangle(cr, (double)border_w / 2.0, (double)border_w / 2.0, (double)w - border_w, (double)h - border_w);
+        cairo_stroke(cr);
+    }
 
     // 5. Draw Handle (Bottom bar)
     // We need handle_height and handle_bg. For now we use some defaults or pass
@@ -382,8 +407,9 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
 
     // 6. Blit to Window
     cairo_destroy(cr);
+    cairo_surface_flush(target_surface);
+
     if (is_test) {
-        cairo_surface_flush(target_surface);
         xcb_gcontext_t gc = xcb_generate_id(conn);
         uint32_t mask = XCB_GC_GRAPHICS_EXPOSURES;
         uint32_t values[] = {0};
