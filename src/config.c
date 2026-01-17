@@ -1,14 +1,14 @@
 /* src/config.c
  * Configuration file parsing and handling
  *
- * This module parses the `hxm.conf` and `themerc` files.
- * Format is line-based key-value pairs: `key = value`.
+ * This module parses `hxm.conf` and `themerc`
+ * Format is line-based key/value pairs like `key = value` or `key: value`
  *
- * It supports:
- * - Basic types: integers, booleans, strings.
- * - Colors (hex).
- * - Keybindings (modifiers + keysym + action).
- * - Window Rules (regex matching -> placement/layer/desktop).
+ * Supports:
+ * - Basic types: integers, booleans, strings
+ * - Colors (hex)
+ * - Keybindings (modifiers + keysym + action)
+ * - Window rules (match fields -> placement/layer/desktop/focus)
  */
 
 #include "config.h"
@@ -22,6 +22,10 @@
 
 #include "client.h"
 #include "hxm.h"
+
+#ifndef ARRAY_LEN
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
+#endif
 
 #define DEFAULT_ACTIVE_BG 0x4c597d
 #define DEFAULT_ACTIVE_FG 0xffffff
@@ -141,6 +145,8 @@ void config_destroy(config_t* config) {
 }
 
 static char* trim_whitespace(char* str) {
+    // Trim leading and trailing ASCII whitespace in place
+    // Returns pointer into the original buffer
     char* end;
     while (isspace((unsigned char)*str)) str++;
     if (*str == 0) return str;
@@ -151,12 +157,14 @@ static char* trim_whitespace(char* str) {
 }
 
 static uint32_t parse_color(const char* val) {
+    // Accept #RRGGBB or 0xRRGGBB or plain hex
     if (val[0] == '#') val++;
     if (val[0] == '0' && val[1] == 'x') val += 2;
     return (uint32_t)strtoul(val, NULL, 16);
 }
 
 static background_style_t parse_appearance_flags(const char* val) {
+    // Flags are space-separated words like "solid flat" or "gradient vertical raised"
     background_style_t flags = 0;
     char* copy = strdup(val);
     char* token = strtok(copy, " \t");
@@ -190,6 +198,8 @@ static background_style_t parse_appearance_flags(const char* val) {
 }
 
 static void parse_keybind(config_t* config, const char* val) {
+    // Format: "Mod4+Shift+Return: exec xterm"
+    // Left side is modifiers + keysym, right side is action [and optional argument]
     char* copy = strdup(val);
     char* colon = strchr(copy, ':');
     if (!colon) {
@@ -282,6 +292,8 @@ static void parse_keybind(config_t* config, const char* val) {
 }
 
 static void parse_rule(config_t* config, const char* val) {
+    // Format: "class:Firefox, title:Preferences -> desktop:2, layer:above, focus:true"
+    // Match side and action side are comma-separated key:value pairs
     char* copy = strdup(val);
     char* arrow = strstr(copy, "->");
     if (!arrow) {
@@ -390,6 +402,9 @@ static void parse_rule(config_t* config, const char* val) {
 }
 
 bool config_load(config_t* config, const char* path) {
+    // hxm.conf parser
+    // Unknown keys are ignored with a warning
+    // Lines starting with '#' are comments
     FILE* f = fopen(path, "r");
     if (!f) {
         LOG_INFO("Config file not found: %s", path);
@@ -443,12 +458,14 @@ bool config_load(config_t* config, const char* path) {
         } else if (strcmp(key, "desktop_count") == 0) {
             config->desktop_count = (uint32_t)atoi(val);
         } else if (strcmp(key, "desktop_names") == 0) {
-            // Free old if any
+            // Replace the entire desktop name list
             if (config->desktop_names) {
                 for (uint32_t j = 0; j < config->desktop_names_count; j++) {
                     if (config->desktop_names[j]) free(config->desktop_names[j]);
                 }
                 free(config->desktop_names);
+                config->desktop_names = NULL;
+                config->desktop_names_count = 0;
             }
 
             // Split by comma
@@ -459,7 +476,7 @@ bool config_load(config_t* config, const char* path) {
                 if (*p == ',') count++;
                 p++;
             }
-            count++;  // One more than commas
+            count++;
 
             // Allocate names array
             config->desktop_names = calloc(count, sizeof(char*));
@@ -491,6 +508,7 @@ bool config_load(config_t* config, const char* path) {
         } else if (strcmp(key, "rule") == 0) {
             parse_rule(config, val);
         } else if (strcmp(key, "clear_keybinds") == 0) {
+            // Drop all bindings added so far, including defaults
             for (size_t i = 0; i < config->key_bindings.length; i++) {
                 key_binding_t* b = config->key_bindings.items[i];
                 if (b->exec_cmd) free(b->exec_cmd);
@@ -509,6 +527,9 @@ bool config_load(config_t* config, const char* path) {
 }
 
 bool theme_load(theme_t* theme, const char* path) {
+    // themerc parser
+    // Accepts both "key: value" and "key = value"
+    // Lines starting with '#', '!' are comments
     FILE* f = fopen(path, "r");
     if (!f) {
         LOG_INFO("Theme file not found: %s", path);
