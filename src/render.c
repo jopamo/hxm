@@ -131,6 +131,8 @@ void render_init(render_context_t* ctx) {
     ctx->layout = NULL;
     ctx->width = 0;
     ctx->height = 0;
+    ctx->last_title = NULL;
+    ctx->last_title_width = -1;
 }
 
 void render_free(render_context_t* ctx) {
@@ -145,6 +147,10 @@ void render_free(render_context_t* ctx) {
     if (ctx->surface) {
         cairo_surface_destroy(ctx->surface);
         ctx->surface = NULL;
+    }
+    if (ctx->last_title) {
+        free(ctx->last_title);
+        ctx->last_title = NULL;
     }
     ctx->width = 0;
     ctx->height = 0;
@@ -353,9 +359,21 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
     // 3. Draw Title Text
     if (title && title[0] != '\0') {
         cairo_set_source_rgba(cr, text.r, text.g, text.b, text.a);
-        pango_layout_set_text(ctx->layout, title, -1);
-        pango_layout_set_width(ctx->layout, title_text_width * PANGO_SCALE);
-        pango_layout_set_ellipsize(ctx->layout, PANGO_ELLIPSIZE_END);
+
+        // Update layout text only if changed
+        if (!ctx->last_title || strcmp(ctx->last_title, title) != 0) {
+            pango_layout_set_text(ctx->layout, title, -1);
+            if (ctx->last_title) free(ctx->last_title);
+            ctx->last_title = strdup(title);
+        }
+
+        // Update layout width only if changed
+        if (ctx->last_title_width != title_text_width) {
+            pango_layout_set_width(ctx->layout, title_text_width * PANGO_SCALE);
+            pango_layout_set_ellipsize(ctx->layout, PANGO_ELLIPSIZE_END);
+            ctx->last_title_width = title_text_width;
+        }
+
         int text_h;
         pango_layout_get_pixel_size(ctx->layout, NULL, &text_h);
         double text_y = (title_h - text_h) / 2.0;
