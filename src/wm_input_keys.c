@@ -74,6 +74,9 @@ static void spawn(const char* cmd) {
 static bool is_focusable(client_hot_t* c, server_t* s) {
     if (c->state != STATE_MAPPED) return false;
 
+    // Respect "show desktop" temporary hides
+    if (s->showing_desktop && c->show_desktop_hidden) return false;
+
     // Must be on current desktop or sticky
     if (c->desktop != (int32_t)s->current_desktop && !c->sticky) return false;
 
@@ -109,7 +112,7 @@ void wm_cycle_focus(server_t* s, bool forward) {
 
     // Guard against infinite loop if no windows are focusable
     int iterations = 0;
-    int max_iterations = 1000;  // Sanity limit
+    int max_iterations = (int)s->active_clients.length + 4;  // Sanity limit
 
     while (node != start_node && iterations++ < max_iterations) {
         // Skip the list head (sentinel)
@@ -175,6 +178,7 @@ static int safe_atoi(const char* str) {
     char* end;
     long val = strtol(str, &end, 10);
     if (end == str) return 0;
+    if (val < 0) return 0;
     return (int)val;
 }
 
@@ -184,8 +188,8 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
     xcb_keysym_t sym = xcb_key_symbols_get_keysym(s->keysyms, ev->detail, 0);
 
     // Menu logic takes precedence
-    if (s->menu.visible && sym == XK_Escape) {
-        menu_hide(s);
+    if (s->menu.visible) {
+        menu_handle_key_press(s, ev);
         return;
     }
 
@@ -199,7 +203,7 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
         key_binding_t* b = s->config.key_bindings.items[i];
         if (!b) continue;
 
-        if (b->keysym != sym || b->modifiers != clean_state) continue;
+        if (b->keysym != sym || (uint32_t)b->modifiers != clean_state) continue;
 
         LOG_INFO("Matched key binding action %d", b->action);
 
