@@ -462,6 +462,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             // Log window classification
 #if HXM_DIAG
             const char* class_str = (r->_class == XCB_WINDOW_CLASS_INPUT_ONLY) ? "InputOnly" : "InputOutput";
+            (void)class_str;
 #endif
             LOG_DEBUG("Classify win=%u override=%d class=%s map_state=%d", win, r->override_redirect, class_str,
                       r->map_state);

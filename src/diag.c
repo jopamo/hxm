@@ -50,6 +50,7 @@ void diag_dump_focus_history(const server_t* s, const char* tag) {
             break;
         }
         const client_hot_t* c = (const client_hot_t*)((const char*)node - offsetof(client_hot_t, focus_node));
+        (void)c;
         LOG_DEBUG("  [%d] node=%p prev=%p next=%p h=%lx xid=%u state=%d", guard, (void*)node, (void*)node->prev,
                   (void*)node->next, c->self, c->xid, c->state);
         node = node->next;
@@ -81,6 +82,7 @@ void diag_dump_transients(const client_hot_t* hot, const char* tag) {
             break;
         }
         const client_hot_t* c = (const client_hot_t*)((const char*)node - offsetof(client_hot_t, transient_sibling));
+        (void)c;
         LOG_DEBUG("  [%d] node=%p prev=%p next=%p h=%lx xid=%u state=%d", guard, (void*)node, (void*)node->prev,
                   (void*)node->next, c->self, c->xid, c->state);
         node = node->next;

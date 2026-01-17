@@ -415,6 +415,7 @@ void stack_sync_to_xcb(server_t* s, handle_t h) {
 
     TRACE_ONLY({
         uint32_t mode = (mask & XCB_CONFIG_WINDOW_SIBLING) ? values[1] : values[0];
+        (void)mode;
         TRACE_LOG("stack_sync_to_xcb h=%lx frame=%u sibling=%u mode=%u", h, c->frame, sibling, mode);
     });
 
