@@ -382,6 +382,7 @@ struct counters {
 extern struct counters counters;
 
 void counters_init(void);
+void counters_tick_record(uint64_t dt_ns);
 
 #if HXM_DIAG
 void counters_dump(void);
