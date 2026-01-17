@@ -1,5 +1,11 @@
 /* src/cookie_jar.c
  * XCB cookie management for async replies
+ *
+ * Design:
+ * - Open-addressed hash table keyed by XCB sequence numbers
+ * - Linear probing for collision resolution
+ * - Backshift deletion to avoid tombstones and keep probe chains valid
+ * - A scan cursor to fairly poll for replies without starving other work
  */
 
 #include "cookie_jar.h"
@@ -14,10 +20,13 @@
 
 __attribute__((weak)) void* cj_calloc(size_t n, size_t size) { return calloc(n, size); }
 
+// Load factor threshold: grow when live_count/cap >= 0.7
 #define COOKIE_JAR_MAX_LOAD_NUM 7
 #define COOKIE_JAR_MAX_LOAD_DEN 10
 
 static size_t cookie_jar_next_pow2(size_t x) {
+    // Round up to next power of two
+    // cap is always a power of two so we can use mask = cap - 1
     size_t p = 1;
     while (p < x) p <<= 1;
     return p;
@@ -27,6 +36,7 @@ static inline size_t cookie_home(uint32_t seq, size_t mask) { return ((size_t)se
 static inline size_t cookie_next(size_t i, size_t mask) { return (i + 1) & mask; }
 
 static size_t cookie_jar_probe(const cookie_jar_t* cj, uint32_t seq) {
+    // Find a slot for seq, either an exact match or the first empty slot
     size_t mask = cj->cap - 1;
     size_t i = cookie_home(seq, mask);
     while (cj->slots[i].live && cj->slots[i].sequence != seq) {
@@ -36,6 +46,7 @@ static size_t cookie_jar_probe(const cookie_jar_t* cj, uint32_t seq) {
 }
 
 static void cookie_jar_grow(cookie_jar_t* cj, size_t new_cap) {
+    // Rehash into a new table
     new_cap = cookie_jar_next_pow2(new_cap);
     if (new_cap < 2) new_cap = 2;
 
@@ -94,6 +105,8 @@ static void cookie_jar_remove(cookie_jar_t* cj, size_t idx) {
         if (home <= i) {
             should_move = (home <= hole && hole < i);
         } else {
+            // Home wrapped around end of table
+            // Move if hole is in wrapped interval
             should_move = (hole < i) || (home <= hole);
         }
 
@@ -109,6 +122,7 @@ static void cookie_jar_remove(cookie_jar_t* cj, size_t idx) {
 }
 
 void cookie_jar_init(cookie_jar_t* cj) {
+    // Ensure cap is a power of two for fast masking
     size_t cap = COOKIE_JAR_CAP;
     if (cap < 16) cap = 16;
     cap = cookie_jar_next_pow2(cap);
@@ -131,10 +145,12 @@ void cookie_jar_destroy(cookie_jar_t* cj) {
 
 bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data,
                      uint64_t txn_id, cookie_handler_fn handler) {
+    // Grow before insertion to preserve probe behavior and keep load bounded
     if (cj->live_count * COOKIE_JAR_MAX_LOAD_DEN >= cj->cap * COOKIE_JAR_MAX_LOAD_NUM) {
         cookie_jar_grow(cj, cj->cap * 2);
     }
 
+    // If sequence is already present, overwrite its metadata
     size_t idx = cookie_jar_probe(cj, sequence);
     cookie_slot_t* slot = &cj->slots[idx];
 
@@ -184,6 +200,7 @@ void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s
             int ready = xcb_poll_for_reply(conn, slot->sequence, &reply, &err);
 
             if (ready) {
+                // Remove before invoking handler so re-entrancy can safely push new cookies
                 cookie_slot_t local = *slot;
                 cookie_jar_remove(cj, idx);
 
