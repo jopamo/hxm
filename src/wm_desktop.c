@@ -28,6 +28,11 @@ static bool wm_should_hide_for_show_desktop(const client_hot_t* hot) {
     return hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
 }
 
+static bool wm_client_should_be_visible_now(const server_t* s, const client_hot_t* hot) {
+    if (!s || !hot) return false;
+    return hot->sticky || (hot->desktop == (int32_t)s->current_desktop);
+}
+
 void wm_set_showing_desktop(server_t* s, bool show) {
     if (!s) return;
     if (s->showing_desktop == show) return;
@@ -53,12 +58,13 @@ void wm_set_showing_desktop(server_t* s, bool show) {
             client_hot_t* hot = server_chot(s, h);
             if (hot && hot->show_desktop_hidden) {
                 hot->show_desktop_hidden = false;
-                if (hot->state == STATE_UNMAPPED) {
+                if (hot->state == STATE_UNMAPPED && wm_client_should_be_visible_now(s, hot)) {
                     LOG_DEBUG("wm_desktop: Restoring client %lx from unmapped state", h);
                     wm_client_restore(s, h);
                 }
             }
         }
+        s->root_dirty |= ROOT_DIRTY_VISIBILITY | ROOT_DIRTY_ACTIVE_WINDOW;
     }
 }
 
@@ -151,6 +157,58 @@ void wm_publish_desktop_props(server_t* s) {
     }
 }
 
+static void wa_shrink_left(rect_t* wa, int32_t new_left) {
+    if (!wa) return;
+    int32_t x = wa->x;
+    int32_t r = (int32_t)wa->x + (int32_t)wa->w;
+    if (new_left <= x) return;
+    if (new_left >= r) {
+        wa->x = (int16_t)new_left;
+        wa->w = 0;
+        return;
+    }
+    wa->w = (uint16_t)(r - new_left);
+    wa->x = (int16_t)new_left;
+}
+
+static void wa_shrink_right(rect_t* wa, int32_t new_right) {
+    if (!wa) return;
+    int32_t x = wa->x;
+    int32_t r = (int32_t)wa->x + (int32_t)wa->w;
+    if (new_right >= r) return;
+    if (new_right <= x) {
+        wa->w = 0;
+        return;
+    }
+    wa->w = (uint16_t)(new_right - x);
+}
+
+static void wa_shrink_top(rect_t* wa, int32_t new_top) {
+    if (!wa) return;
+    int32_t y = wa->y;
+    int32_t b = (int32_t)wa->y + (int32_t)wa->h;
+    if (new_top <= y) return;
+    if (new_top >= b) {
+        wa->y = (int16_t)new_top;
+        wa->h = 0;
+        return;
+    }
+    wa->h = (uint16_t)(b - new_top);
+    wa->y = (int16_t)new_top;
+}
+
+static void wa_shrink_bottom(rect_t* wa, int32_t new_bottom) {
+    if (!wa) return;
+    int32_t y = wa->y;
+    int32_t b = (int32_t)wa->y + (int32_t)wa->h;
+    if (new_bottom >= b) return;
+    if (new_bottom <= y) {
+        wa->h = 0;
+        return;
+    }
+    wa->h = (uint16_t)(new_bottom - y);
+}
+
 /*
  * wm_compute_workarea:
  * Calculate the usable screen geometry (minus panels/docks).
@@ -168,13 +226,16 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
     monitor_t default_mon;
     monitor_t* mons = s->monitors;
 
+    xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+    int32_t screen_w = (int32_t)screen->width_in_pixels;
+    int32_t screen_h = (int32_t)screen->height_in_pixels;
+
     if (m_count == 0) {
         m_count = 1;
-        xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
         default_mon.geom.x = 0;
         default_mon.geom.y = 0;
-        default_mon.geom.w = screen->width_in_pixels;
-        default_mon.geom.h = screen->height_in_pixels;
+        default_mon.geom.w = (uint16_t)screen_w;
+        default_mon.geom.h = (uint16_t)screen_h;
         default_mon.workarea = default_mon.geom;
         mons = &default_mon;
     } else {
@@ -201,7 +262,7 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
             int32_t mr = mon->geom.x + mon->geom.w;
             int32_t mb = mon->geom.y + mon->geom.h;
 
-            if (cold->strut.left > 0 && (int32_t)cold->strut.left > ml && (int32_t)cold->strut.left < mr) {
+            if (cold->strut.left > 0) {
                 // Check if strut vertical range overlaps monitor
                 bool overlap = true;
                 if (cold->strut_partial_active) {
@@ -209,54 +270,37 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
                 }
                 if (overlap) {
                     int32_t new_l = (int32_t)cold->strut.left;
-                    if (new_l > mon->workarea.x) {
-                        mon->workarea.w -= (uint16_t)(new_l - mon->workarea.x);
-                        mon->workarea.x = (int16_t)new_l;
-                    }
+                    if (new_l > ml) wa_shrink_left(&mon->workarea, new_l);
                 }
             }
             if (cold->strut.right > 0) {
-                xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
-                int32_t r_edge = (int32_t)screen->width_in_pixels - (int32_t)cold->strut.right;
-                if (r_edge < mr && r_edge > ml) {
-                    bool overlap = true;
-                    if (cold->strut_partial_active) {
-                        overlap = (cold->strut.right_start_y < (uint32_t)mb && cold->strut.right_end_y > (uint32_t)mt);
-                    }
-                    if (overlap) {
-                        if (r_edge < (int32_t)(mon->workarea.x + mon->workarea.w)) {
-                            mon->workarea.w = (uint16_t)(r_edge - mon->workarea.x);
-                        }
-                    }
+                int32_t r_edge = screen_w - (int32_t)cold->strut.right;
+                bool overlap = true;
+                if (cold->strut_partial_active) {
+                    overlap = (cold->strut.right_start_y < (uint32_t)mb && cold->strut.right_end_y > (uint32_t)mt);
+                }
+                if (overlap) {
+                    if (r_edge < mr) wa_shrink_right(&mon->workarea, r_edge);
                 }
             }
-            if (cold->strut.top > 0 && (int32_t)cold->strut.top > mt && (int32_t)cold->strut.top < mb) {
+            if (cold->strut.top > 0) {
                 bool overlap = true;
                 if (cold->strut_partial_active) {
                     overlap = (cold->strut.top_start_x < (uint32_t)mr && cold->strut.top_end_x > (uint32_t)ml);
                 }
                 if (overlap) {
                     int32_t new_t = (int32_t)cold->strut.top;
-                    if (new_t > mon->workarea.y) {
-                        mon->workarea.h -= (uint16_t)(new_t - mon->workarea.y);
-                        mon->workarea.y = (int16_t)new_t;
-                    }
+                    if (new_t > mt) wa_shrink_top(&mon->workarea, new_t);
                 }
             }
             if (cold->strut.bottom > 0) {
-                xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
-                int32_t b_edge = (int32_t)screen->height_in_pixels - (int32_t)cold->strut.bottom;
-                if (b_edge < mb && b_edge > mt) {
-                    bool overlap = true;
-                    if (cold->strut_partial_active) {
-                        overlap =
-                            (cold->strut.bottom_start_x < (uint32_t)mr && cold->strut.bottom_end_x > (uint32_t)ml);
-                    }
-                    if (overlap) {
-                        if (b_edge < (int32_t)(mon->workarea.y + mon->workarea.h)) {
-                            mon->workarea.h = (uint16_t)(b_edge - mon->workarea.y);
-                        }
-                    }
+                int32_t b_edge = screen_h - (int32_t)cold->strut.bottom;
+                bool overlap = true;
+                if (cold->strut_partial_active) {
+                    overlap = (cold->strut.bottom_start_x < (uint32_t)mr && cold->strut.bottom_end_x > (uint32_t)ml);
+                }
+                if (overlap) {
+                    if (b_edge < mb) wa_shrink_bottom(&mon->workarea, b_edge);
                 }
             }
         }
