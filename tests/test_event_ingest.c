@@ -30,6 +30,7 @@ static void setup_server(server_t* s) {
     small_vec_init(&s->buckets.unmap_notifies);
     small_vec_init(&s->buckets.destroy_notifies);
     small_vec_init(&s->buckets.key_presses);
+    small_vec_init(&s->buckets.key_releases);
     small_vec_init(&s->buckets.button_events);
     small_vec_init(&s->buckets.client_messages);
 
@@ -47,6 +48,7 @@ static void cleanup_server(server_t* s) {
     small_vec_destroy(&s->buckets.unmap_notifies);
     small_vec_destroy(&s->buckets.destroy_notifies);
     small_vec_destroy(&s->buckets.key_presses);
+    small_vec_destroy(&s->buckets.key_releases);
     small_vec_destroy(&s->buckets.button_events);
     small_vec_destroy(&s->buckets.client_messages);
 

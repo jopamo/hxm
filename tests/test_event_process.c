@@ -23,6 +23,7 @@ extern int stub_prop_calls_len;
 
 // Counters for wrapped functions
 static int call_wm_handle_key_press = 0;
+static int call_wm_handle_key_release = 0;
 static int call_wm_handle_button_press = 0;
 static int call_wm_handle_button_release = 0;
 static int call_menu_handle_expose_region = 0;
@@ -37,6 +38,12 @@ void __wrap_wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
     (void)s;
     (void)ev;
     call_wm_handle_key_press++;
+}
+
+void __wrap_wm_handle_key_release(server_t* s, xcb_key_release_event_t* ev) {
+    (void)s;
+    (void)ev;
+    call_wm_handle_key_release++;
 }
 
 void __wrap_wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
@@ -89,6 +96,7 @@ void __wrap_wm_publish_workarea(server_t* s, const rect_t* wa) {
 
 static void reset_counters(void) {
     call_wm_handle_key_press = 0;
+    call_wm_handle_key_release = 0;
     call_wm_handle_button_press = 0;
     call_wm_handle_button_release = 0;
     call_menu_handle_expose_region = 0;
@@ -109,6 +117,7 @@ static void setup_server(server_t* s) {
     small_vec_init(&s->buckets.unmap_notifies);
     small_vec_init(&s->buckets.destroy_notifies);
     small_vec_init(&s->buckets.key_presses);
+    small_vec_init(&s->buckets.key_releases);
     small_vec_init(&s->buckets.button_events);
     small_vec_init(&s->buckets.client_messages);
 
@@ -129,6 +138,7 @@ static void cleanup_server(server_t* s) {
     small_vec_destroy(&s->buckets.unmap_notifies);
     small_vec_destroy(&s->buckets.destroy_notifies);
     small_vec_destroy(&s->buckets.key_presses);
+    small_vec_destroy(&s->buckets.key_releases);
     small_vec_destroy(&s->buckets.button_events);
     small_vec_destroy(&s->buckets.client_messages);
 
@@ -161,6 +171,7 @@ static void test_6_1_key_press_dispatch(void) {
     event_process(&s);
 
     assert(call_wm_handle_key_press == 1);
+    assert(call_wm_handle_key_release == 0);
     printf("test_6_1_key_press_dispatch passed\n");
     cleanup_server(&s);
 }

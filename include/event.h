@@ -74,6 +74,7 @@ typedef struct event_buckets {
     small_vec_t destroy_notifies; /* xcb_destroy_notify_event_t* */
 
     small_vec_t key_presses;     /* xcb_key_press_event_t* */
+    small_vec_t key_releases;    /* xcb_key_release_event_t* */
     small_vec_t button_events;   /* xcb_button_press_event_t* or xcb_button_release_event_t* */
     small_vec_t client_messages; /* xcb_client_message_event_t* */
 
@@ -255,6 +256,8 @@ typedef struct server {
 
     /* Root menu */
     menu_t menu;
+    bool switcher_active;
+    handle_t switcher_origin;
 
     /* Control flags */
     bool running;

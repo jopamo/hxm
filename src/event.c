@@ -239,6 +239,7 @@ void server_init(server_t* s) {
     small_vec_init(&s->buckets.unmap_notifies);
     small_vec_init(&s->buckets.destroy_notifies);
     small_vec_init(&s->buckets.key_presses);
+    small_vec_init(&s->buckets.key_releases);
     small_vec_init(&s->buckets.button_events);
     small_vec_init(&s->buckets.client_messages);
 
@@ -367,6 +368,7 @@ void server_cleanup(server_t* s) {
     small_vec_destroy(&s->buckets.unmap_notifies);
     small_vec_destroy(&s->buckets.destroy_notifies);
     small_vec_destroy(&s->buckets.key_presses);
+    small_vec_destroy(&s->buckets.key_releases);
     small_vec_destroy(&s->buckets.button_events);
     small_vec_destroy(&s->buckets.client_messages);
 
@@ -556,6 +558,7 @@ static void buckets_reset(event_buckets_t* b) {
     small_vec_clear(&b->unmap_notifies);
     small_vec_clear(&b->destroy_notifies);
     small_vec_clear(&b->key_presses);
+    small_vec_clear(&b->key_releases);
     small_vec_clear(&b->button_events);
     small_vec_clear(&b->client_messages);
 
@@ -724,6 +727,13 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
             void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
             memcpy(copy, e, sizeof(*e));
             small_vec_push(&s->buckets.key_presses, copy);
+            break;
+        }
+        case XCB_KEY_RELEASE: {
+            xcb_key_release_event_t* e = (xcb_key_release_event_t*)ev;
+            void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+            memcpy(copy, e, sizeof(*e));
+            small_vec_push(&s->buckets.key_releases, copy);
             break;
         }
 
@@ -966,6 +976,10 @@ void event_process(server_t* s) {
         } else {
             wm_handle_key_press(s, ev);
         }
+    }
+    for (size_t i = 0; i < s->buckets.key_releases.length; i++) {
+        xcb_key_release_event_t* ev = s->buckets.key_releases.items[i];
+        wm_handle_key_release(s, ev);
     }
 
     // 3. buttons (menu, focus, move/resize)

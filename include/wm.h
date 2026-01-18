@@ -52,6 +52,7 @@ void wm_publish_desktop_props(server_t* s);
 
 /* Compute current workarea in root coordinates */
 void wm_compute_workarea(server_t* s, rect_t* out);
+void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom);
 
 /* Client state set for _NET_WM_STATE style updates */
 typedef struct client_state_set {
@@ -89,6 +90,7 @@ void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev);
 void wm_handle_destroy_notify(server_t* s, xcb_destroy_notify_event_t* ev);
 
 void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev);
+void wm_handle_key_release(server_t* s, xcb_key_release_event_t* ev);
 void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev);
 void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev);
 void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev);
@@ -113,6 +115,12 @@ void wm_client_restore(server_t* s, handle_t h);
 
 /* Focus implementation (src/focus.c) */
 void wm_set_focus(server_t* s, handle_t h);
+
+/* Alt-tab switcher */
+void wm_switcher_start(server_t* s, int dir);
+void wm_switcher_step(server_t* s, int dir);
+void wm_switcher_commit(server_t* s);
+void wm_switcher_cancel(server_t* s);
 
 /* Stacking (src/stack.c) */
 void stack_raise(server_t* s, handle_t h);

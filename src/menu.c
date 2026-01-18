@@ -63,6 +63,55 @@ static char* xstrdup(const char* s) {
     return p;
 }
 
+static int menu_find_next_selectable(server_t* s, int start, int dir);
+static int menu_find_first_selectable(server_t* s);
+
+static bool switcher_is_candidate(const server_t* s, const client_hot_t* hot) {
+    if (!s || !hot) return false;
+    if (s->showing_desktop && hot->show_desktop_hidden) return false;
+
+    switch (hot->type) {
+        case WINDOW_TYPE_DOCK:
+        case WINDOW_TYPE_NOTIFICATION:
+        case WINDOW_TYPE_DESKTOP:
+        case WINDOW_TYPE_MENU:
+        case WINDOW_TYPE_DROPDOWN_MENU:
+        case WINDOW_TYPE_POPUP_MENU:
+        case WINDOW_TYPE_TOOLTIP:
+        case WINDOW_TYPE_COMBO:
+        case WINDOW_TYPE_DND:
+            return false;
+        default:
+            return true;
+    }
+}
+
+static void menu_format_client_label(const server_t* s, const client_hot_t* hot, const client_cold_t* cold, char* out,
+                                     size_t out_len) {
+    const char* title = (cold && cold->title) ? cold->title : "Unnamed";
+    char tag[64];
+    size_t pos = 0;
+
+    tag[0] = '\0';
+
+    if (hot && !hot->sticky && hot->desktop >= 0 && (uint32_t)hot->desktop != s->current_desktop) {
+        pos += (size_t)snprintf(tag + pos, sizeof(tag) - pos, "ws %d", hot->desktop);
+    }
+    if (hot && hot->state == STATE_UNMAPPED) {
+        if (pos > 0 && pos + 1 < sizeof(tag)) {
+            tag[pos++] = ' ';
+            tag[pos] = '\0';
+        }
+        snprintf(tag + pos, sizeof(tag) - pos, "min");
+    }
+
+    if (tag[0] != '\0') {
+        snprintf(out, out_len, "[%s] %s", tag, title);
+    } else {
+        snprintf(out, out_len, "%s", title);
+    }
+}
+
 static void menu_clear_items(server_t* s) {
     for (size_t i = 0; i < s->menu.items.length; i++) {
         menu_item_t* item = s->menu.items.items[i];
@@ -288,6 +337,7 @@ static void menu_add_item(server_t* s, const char* label, menu_action_t action, 
 void menu_init(server_t* s) {
     s->menu.visible = false;
     s->menu.is_client_list = false;
+    s->menu.is_switcher = false;
     s->menu.selected_index = -1;
     s->menu.item_height = MENU_ITEM_HEIGHT;
     s->menu.w = MENU_WIDTH;
@@ -301,7 +351,7 @@ void menu_init(server_t* s) {
     uint32_t mask = XCB_CW_BACK_PIXEL | XCB_CW_OVERRIDE_REDIRECT | XCB_CW_EVENT_MASK;
     uint32_t values[] = {s->config.theme.menu_items.color, 1,
                          XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE |
-                             XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_KEY_PRESS};
+                             XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_KEY_PRESS | XCB_EVENT_MASK_KEY_RELEASE};
 
     xcb_create_window(s->conn, XCB_COPY_FROM_PARENT, s->menu.window, s->root, 0, 0, s->menu.w, s->menu.h, 1,
                       XCB_WINDOW_CLASS_INPUT_OUTPUT, XCB_COPY_FROM_PARENT, mask, values);
@@ -353,6 +403,7 @@ void menu_show(server_t* s, int16_t x, int16_t y) {
 
     assert(s->interaction_mode == INTERACTION_NONE);
     s->menu.is_client_list = false;
+    s->menu.is_switcher = false;
     menu_populate_root(s);
 
     uint32_t values_h[] = {s->menu.h};
@@ -416,6 +467,7 @@ void menu_show_client_list(server_t* s, int16_t x, int16_t y) {
 
     assert(s->interaction_mode == INTERACTION_NONE);
     s->menu.is_client_list = true;
+    s->menu.is_switcher = false;
     menu_clear_items(s);
 
     for (uint32_t i = 1; i < s->clients.cap; i++) {
@@ -494,6 +546,7 @@ void menu_show_client_list(server_t* s, int16_t x, int16_t y) {
 void menu_hide(server_t* s) {
     if (!s->menu.visible) return;
     s->menu.visible = false;
+    s->menu.is_switcher = false;
     if (s->interaction_mode == INTERACTION_MENU) {
         s->interaction_mode = INTERACTION_NONE;
     }
@@ -653,6 +706,139 @@ void menu_handle_pointer_motion(server_t* s, int16_t x, int16_t y) {
             s->menu.selected_index = -1;
             menu_handle_expose(s);
         }
+
+        void menu_show_switcher(server_t * s, handle_t origin) {
+            if (s->menu.visible) {
+                menu_hide(s);
+            }
+
+            assert(s->interaction_mode == INTERACTION_NONE);
+            s->menu.is_client_list = true;
+            s->menu.is_switcher = true;
+            menu_clear_items(s);
+
+            int origin_index = -1;
+            int idx = 0;
+
+            for (list_node_t* node = s->focus_history.next; node != &s->focus_history; node = node->next) {
+                client_hot_t* hot = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
+                if (!switcher_is_candidate(s, hot)) continue;
+
+                client_cold_t* cold = server_ccold(s, hot->self);
+                char label[256];
+                menu_format_client_label(s, hot, cold, label, sizeof(label));
+                menu_add_item(s, label, MENU_ACTION_RESTORE, NULL, hot->self, NULL);
+
+                if (hot->self == origin) origin_index = idx;
+                idx++;
+            }
+
+            if (s->menu.items.length == 0) {
+                menu_add_item(s, "(No windows)", MENU_ACTION_NONE, NULL, HANDLE_INVALID, NULL);
+            }
+
+            uint32_t values_h[] = {s->menu.h};
+            xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_HEIGHT, values_h);
+
+            rect_t geom;
+            client_hot_t* origin_hot = (origin != HANDLE_INVALID) ? server_chot(s, origin) : NULL;
+            if (origin_hot) {
+                wm_get_monitor_geometry(s, origin_hot, &geom);
+            } else if (s->monitor_count > 0) {
+                geom = s->monitors[0].geom;
+            } else {
+                xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+                geom.x = 0;
+                geom.y = 0;
+                geom.w = (uint16_t)screen->width_in_pixels;
+                geom.h = (uint16_t)screen->height_in_pixels;
+            }
+
+            int32_t x = geom.x + ((int32_t)geom.w - (int32_t)s->menu.w) / 2;
+            int32_t y = geom.y + ((int32_t)geom.h - (int32_t)s->menu.h) / 2;
+
+            if (x < geom.x) x = geom.x;
+            if (y < geom.y) y = geom.y;
+            if (x + s->menu.w > (int32_t)(geom.x + geom.w)) x = (geom.x + (int32_t)geom.w) - (int32_t)s->menu.w;
+            if (y + s->menu.h > (int32_t)(geom.y + geom.h)) y = (geom.y + (int32_t)geom.h) - (int32_t)s->menu.h;
+
+            s->menu.x = (int16_t)x;
+            s->menu.y = (int16_t)y;
+            s->menu.visible = true;
+            s->menu.selected_index = origin_index;
+            s->interaction_mode = INTERACTION_MENU;
+
+            uint32_t values[] = {(uint32_t)s->menu.x, (uint32_t)s->menu.y};
+            xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y, values);
+
+            xcb_map_window(s->conn, s->menu.window);
+
+            const uint32_t stack_values[] = {XCB_STACK_MODE_ABOVE};
+            xcb_configure_window(s->conn, s->menu.window, XCB_CONFIG_WINDOW_STACK_MODE, stack_values);
+
+            xcb_grab_pointer_cookie_t pc = xcb_grab_pointer(
+                s->conn, 0, s->root,
+                XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION,
+                XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
+            xcb_grab_keyboard_cookie_t kc =
+                xcb_grab_keyboard(s->conn, 0, s->root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+
+#if HXM_DIAG
+            xcb_grab_pointer_reply_t* pr = xcb_grab_pointer_reply(s->conn, pc, NULL);
+            if (pr) {
+                if (pr->status != XCB_GRAB_STATUS_SUCCESS) {
+                    LOG_WARN("menu_show_switcher: pointer grab failed status=%d", pr->status);
+                }
+                free(pr);
+            }
+            xcb_grab_keyboard_reply_t* kr = xcb_grab_keyboard_reply(s->conn, kc, NULL);
+            if (kr) {
+                if (kr->status != XCB_GRAB_STATUS_SUCCESS) {
+                    LOG_WARN("menu_show_switcher: keyboard grab failed status=%d", kr->status);
+                }
+                free(kr);
+            }
+#else
+            (void)pc;
+            (void)kc;
+#endif
+
+            menu_handle_expose(s);
+        }
+
+        bool menu_switcher_step(server_t * s, int dir) {
+            if (!s->menu.visible || !s->menu.is_switcher) return false;
+
+            int start = s->menu.selected_index;
+            if (dir == 0) {
+                int first = menu_find_first_selectable(s);
+                if (first != s->menu.selected_index && first >= 0) {
+                    s->menu.selected_index = first;
+                    menu_handle_expose(s);
+                    return true;
+                }
+                return false;
+            }
+
+            if (start < 0) start = menu_find_first_selectable(s);
+            int next = menu_find_next_selectable(s, start, dir);
+            if (next != s->menu.selected_index && next >= 0) {
+                s->menu.selected_index = next;
+                menu_handle_expose(s);
+                return true;
+            }
+            return false;
+        }
+
+        handle_t menu_switcher_selected_client(const server_t* s) {
+            if (!s || !s->menu.visible || s->menu.selected_index < 0 ||
+                s->menu.selected_index >= (int32_t)s->menu.items.length)
+                return HANDLE_INVALID;
+
+            menu_item_t* item = s->menu.items.items[s->menu.selected_index];
+            if (!item || item->action != MENU_ACTION_RESTORE) return HANDLE_INVALID;
+            return item->client;
+        }
         return;
     }
 
@@ -806,6 +992,29 @@ void menu_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
     if (!s->menu.visible) return;
 
     xcb_keysym_t sym = xcb_key_symbols_get_keysym(s->keysyms, ev->detail, 0);
+
+    if (s->menu.is_switcher) {
+        switch (sym) {
+            case XK_Escape:
+                wm_switcher_cancel(s);
+                return;
+            case XK_Tab: {
+                int dir = (ev->state & XCB_MOD_MASK_SHIFT) ? -1 : 1;
+                wm_switcher_step(s, dir);
+                return;
+            }
+            case XK_ISO_Left_Tab:
+                wm_switcher_step(s, -1);
+                return;
+            case XK_Return:
+            case XK_KP_Enter:
+            case XK_space:
+                wm_switcher_commit(s);
+                return;
+            default:
+                break;
+        }
+    }
 
     switch (sym) {
         case XK_Escape:
