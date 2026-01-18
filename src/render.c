@@ -251,8 +251,10 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
         return;
     }
 
+    bool use_clip = false;
+    dirty_region_t clip = {0};
     if (dirty && dirty->valid) {
-        dirty_region_t clip = *dirty;
+        clip = *dirty;
         // Validate clip before clamp to avoid pixman asserts if coords are bogus
         if (clip.w > 0 && clip.h > 0) {
             dirty_region_clamp(&clip, 0, 0, (uint16_t)w, (uint16_t)h);
@@ -266,6 +268,7 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
             }
             cairo_rectangle(cr, (double)clip.x, (double)clip.y, (double)clip.w, (double)clip.h);
             cairo_clip(cr);
+            use_clip = true;
         }
     }
 
@@ -442,7 +445,11 @@ void render_frame(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* vi
         uint32_t mask = XCB_GC_GRAPHICS_EXPOSURES;
         uint32_t values[] = {0};
         xcb_create_gc(conn, gc, win, mask, values);
-        xcb_copy_area(conn, pixmap, win, gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
+        if (use_clip) {
+            xcb_copy_area(conn, pixmap, win, gc, clip.x, clip.y, clip.x, clip.y, clip.w, clip.h);
+        } else {
+            xcb_copy_area(conn, pixmap, win, gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
+        }
         xcb_free_gc(conn, gc);
         xcb_free_pixmap(conn, pixmap);
     }
