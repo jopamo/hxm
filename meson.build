@@ -571,6 +571,13 @@ test_expose_damage = executable('test_expose_damage',
 )
 test('expose_damage', test_expose_damage)
 
+test_wm_dirty_frame_damage = executable('test_wm_dirty_frame_damage',
+  ['tests/test_wm_dirty_frame_damage.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('wm_dirty_frame_damage', test_wm_dirty_frame_damage)
+
 test_race_conditions = executable('test_race_conditions',
   ['tests/test_race_conditions.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,

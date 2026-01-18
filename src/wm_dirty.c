@@ -330,7 +330,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
             continue;
         }
 
-        if (hot->dirty == DIRTY_NONE) {
+        if (hot->dirty == DIRTY_NONE && !hot->frame_damage.valid) {
             if (i < s->active_clients.length && s->active_clients.items[i] == ptr) i++;
             continue;
         }
@@ -585,6 +585,11 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
             xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32,
                                 1, &desktop);
             hot->dirty &= ~DIRTY_DESKTOP;
+        }
+
+        if (hot->frame_damage.valid || (hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS |
+                                                      DIRTY_FRAME_BORDER | DIRTY_FRAME_STYLE | DIRTY_TITLE))) {
+            flushed = true;
         }
 
         frame_flush(s, h);
