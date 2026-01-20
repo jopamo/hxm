@@ -88,6 +88,7 @@ typedef struct menu {
 
     bool visible;
     bool is_client_list;
+    bool is_switcher;
 
     int32_t selected_index; /* -1 for none */
     int32_t item_height;
@@ -113,6 +114,7 @@ bool menu_load_config(server_t* s, const char* path);
 /* Show/hide */
 void menu_show(server_t* s, int16_t x, int16_t y);
 void menu_show_client_list(server_t* s, int16_t x, int16_t y);
+void menu_show_switcher(server_t* s, handle_t origin);
 void menu_hide(server_t* s);
 
 /* Event handlers while menu is active */
@@ -122,6 +124,10 @@ void menu_handle_pointer_motion(server_t* s, int16_t x, int16_t y);
 void menu_handle_button_press(server_t* s, xcb_button_press_event_t* ev);
 void menu_handle_button_release(server_t* s, xcb_button_release_event_t* ev);
 void menu_handle_key_press(server_t* s, xcb_key_press_event_t* ev);
+
+/* Switcher helpers */
+bool menu_switcher_step(server_t* s, int dir);
+handle_t menu_switcher_selected_client(const server_t* s);
 
 /* Optional helpers for callers */
 static inline bool menu_is_visible(const menu_t* m) { return m && m->visible; }

@@ -97,6 +97,78 @@ static bool is_focusable(client_hot_t* c, server_t* s) {
     }
 }
 
+void wm_switcher_start(server_t* s, int dir) {
+    if (!s) return;
+
+    if (s->switcher_active) {
+        wm_switcher_step(s, dir);
+        return;
+    }
+
+    s->switcher_active = true;
+    s->switcher_origin = s->focused_client;
+
+    menu_show_switcher(s, s->switcher_origin);
+    if (!s->menu.visible || !s->menu.is_switcher) {
+        s->switcher_active = false;
+        return;
+    }
+
+    if (s->menu.selected_index < 0) {
+        wm_switcher_step(s, 0);
+    } else {
+        wm_switcher_step(s, dir);
+    }
+}
+
+void wm_switcher_step(server_t* s, int dir) {
+    if (!s || !s->switcher_active) return;
+    menu_switcher_step(s, dir);
+}
+
+static void switcher_activate_client(server_t* s, handle_t h) {
+    if (!s || h == HANDLE_INVALID) return;
+
+    client_hot_t* hot = server_chot(s, h);
+    if (!hot) return;
+
+    if (!hot->sticky && hot->desktop >= 0 && (uint32_t)hot->desktop != s->current_desktop) {
+        wm_switch_workspace(s, (uint32_t)hot->desktop);
+    }
+
+    if (hot->state == STATE_UNMAPPED) {
+        wm_client_restore(s, h);
+    }
+
+    wm_set_focus(s, h);
+    stack_raise(s, h);
+}
+
+void wm_switcher_commit(server_t* s) {
+    if (!s || !s->switcher_active) return;
+
+    handle_t selected = menu_switcher_selected_client(s);
+    menu_hide(s);
+    s->switcher_active = false;
+    s->switcher_origin = HANDLE_INVALID;
+
+    switcher_activate_client(s, selected);
+}
+
+void wm_switcher_cancel(server_t* s) {
+    if (!s || !s->switcher_active) return;
+
+    handle_t origin = s->switcher_origin;
+
+    menu_hide(s);
+    s->switcher_active = false;
+    s->switcher_origin = HANDLE_INVALID;
+
+    if (origin != HANDLE_INVALID) {
+        wm_set_focus(s, origin);
+    }
+}
+
 void wm_cycle_focus(server_t* s, bool forward) {
     if (list_empty(&s->focus_history)) return;
 
@@ -213,11 +285,11 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
                 break;
 
             case ACTION_FOCUS_NEXT:
-                wm_cycle_focus(s, true);
+                wm_switcher_start(s, 1);
                 break;
 
             case ACTION_FOCUS_PREV:
-                wm_cycle_focus(s, false);
+                wm_switcher_start(s, -1);
                 break;
 
             case ACTION_TERMINAL:
@@ -298,5 +370,14 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
         }
         // Break after finding the first matching binding (prevent duplicate triggers)
         return;
+    }
+}
+
+void wm_handle_key_release(server_t* s, xcb_key_release_event_t* ev) {
+    if (!s || !s->switcher_active || !s->keysyms) return;
+
+    xcb_keysym_t sym = xcb_key_symbols_get_keysym(s->keysyms, ev->detail, 0);
+    if (sym == XK_Alt_L || sym == XK_Alt_R) {
+        wm_switcher_commit(s);
     }
 }
