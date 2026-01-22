@@ -97,6 +97,8 @@ static bool is_focusable(client_hot_t* c, server_t* s) {
     }
 }
 
+void wm_switcher_step(server_t* s, int dir);
+
 void wm_switcher_start(server_t* s, int dir) {
     if (!s) return;
 
