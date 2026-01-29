@@ -44,6 +44,11 @@ endif
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
 add_project_arguments('-Wpedantic', language: 'c')
 
+possible_cc_flags = [
+  '-Wno-c2y-extensions',
+]
+add_project_arguments(cc.get_supported_arguments(possible_cc_flags), language: 'c')
+
 if get_option('debug')
   add_project_arguments('-DHXM_DIAG=1', language: 'c')
 endif
@@ -605,6 +610,13 @@ test_stress_lifecycle = executable('test_stress_lifecycle',
   dependencies: deps,
 )
 test('stress_lifecycle', test_stress_lifecycle)
+
+test_repro_tiny_window = executable('test_repro_tiny_window',
+  ['tests/repro_tiny_window.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('repro_tiny_window', test_repro_tiny_window)
 
 bash = find_program('bash')
 source_root = meson.project_source_root()
