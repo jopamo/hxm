@@ -77,19 +77,19 @@ void test_resize_handle_logic(void) {
 
   // Dimensions:
   // Frame W = 200 + 2*5 = 210
-  // Frame H = 200 + 20 + 5 = 225
+  // Frame H = 200 + 20 + MAX(5, 6) = 200 + 20 + 6 = 226
 
-  // Bottom area: y >= 225 - 6 = 219.
-  // Border area: y >= 225 - 5 = 220.
+  // Bottom area: y >= 226 - 6 = 220.
+  // Border area: y >= 226 - 5 = 221.
 
   // Grip width = 6 * 2 = 12.
   // Right grip X: [210 - 12, 210] = [198, 210].
   // Right border X: [210 - 5, 210] = [205, 210].
 
   // Case 1: Click in Handle area (but not border) at Bottom Center
-  // x = 100 (Center), y = 219.
+  // x = 100 (Center), y = 220.
   bev.event_x = 100;
-  bev.event_y = 219;
+  bev.event_y = 220;
 
   wm_handle_button_press(&s, &bev);
 
@@ -101,9 +101,9 @@ void test_resize_handle_logic(void) {
   s.interaction_resize_dir = RESIZE_NONE;
 
   // Case 2: Click in Bottom Right Grip (but not right border, not bottom
-  // border) x = 200 (198 <= 200 < 205). y = 219 (219 <= 219 < 220).
+  // border) x = 200 (198 <= 200 < 205). y = 220 (220 <= 220 < 221).
   bev.event_x = 200;
-  bev.event_y = 219;
+  bev.event_y = 220;
 
   wm_handle_button_press(&s, &bev);
 
@@ -116,9 +116,9 @@ void test_resize_handle_logic(void) {
 
   // Case 3: Click in Bottom Left Grip (but not left border)
   // Grip X: [0, 12]. Left border X: [0, 5].
-  // x = 8. y = 219.
+  // x = 8. y = 220.
   bev.event_x = 8;
-  bev.event_y = 219;
+  bev.event_y = 220;
 
   wm_handle_button_press(&s, &bev);
 
