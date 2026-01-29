@@ -346,6 +346,13 @@ test_resize = executable('test_resize',
 )
 test('resize', test_resize)
 
+test_resize_handle = executable('test_resize_handle',
+  ['tests/test_resize_handle.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+)
+test('resize_handle', test_resize_handle)
+
 test_frame_destroy = executable('test_frame_destroy',
   ['tests/test_frame_destroy.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
