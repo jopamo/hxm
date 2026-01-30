@@ -928,8 +928,10 @@ static int wm_get_resize_dir(server_t *s, client_hot_t *hot, int16_t x,
   uint16_t th = s->config.theme.title_height;
   uint16_t hh = s->config.theme.handle_height;
 
+  uint16_t bottom_h = (hh > bw) ? hh : bw;
+
   uint16_t frame_w = hot->server.w + 2 * bw;
-  uint16_t frame_h = hot->server.h + th + bw;
+  uint16_t frame_h = hot->server.h + th + bottom_h;
 
   int dir = RESIZE_NONE;
   if (x < bw)
