@@ -1,104 +1,69 @@
-name: CI
+name: ci
 
 on:
   push:
-    branches: [ main, master, "ci/*" ]
   pull_request:
-    branches: [ main, master, "ci/*" ]
 
 jobs:
-  build-test:
-    name: ${{ matrix.cfg.name }}
+  san:
     runs-on: ubuntu-latest
+    container: fedora:rawhide
+    name: san-${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
-        cfg:
-          - name: Default
-            cc: clang
-            cxx: clang++
-            cflags: "-g3 -O2"
-            ldflags: ""
-            build_dir: build-default
-            asan_options: ""
-            ubsan_options: ""
-            tsan_options: ""
-          
-          - name: ASan_UBSan
-            cc: clang
-            cxx: clang++
-            cflags: "-fsanitize=address,undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
-            ldflags: "-fsanitize=address,undefined"
-            build_dir: build-asan
-            asan_options: "abort_on_error=1:fast_unwind_on_malloc=0:malloc_context_size=0:symbolize=1:print_stacktrace=1:verify_asan_link_order=0"
-            ubsan_options: "halt_on_error=1:print_stacktrace=1"
-            tsan_options: ""
-
-          - name: UBSan
-            cc: clang
-            cxx: clang++
-            cflags: "-fsanitize=undefined -fno-omit-frame-pointer -fno-optimize-sibling-calls -g3 -O1"
-            ldflags: "-fsanitize=undefined"
-            build_dir: build-ubsan
-            asan_options: ""
-            ubsan_options: "halt_on_error=1:print_stacktrace=1"
-            tsan_options: ""
+        include:
+          - name: asan
+            meson_sanitize: "address,undefined"
+            extra_cflags: "-fsanitize-address-use-after-scope"
+            runtime_env: |
+              ASAN_OPTIONS=abort_on_error=1:detect_leaks=1:fast_unwind_on_malloc=0:detect_stack_use_after_return=1:strict_string_checks=1:check_initialization_order=1:detect_odr_violation=1
+              UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
+          - name: ubsan
+            meson_sanitize: "undefined"
+            extra_cflags: ""
+            runtime_env: |
+              UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1
 
     env:
-      CC: ${{ matrix.cfg.cc }}
-      CXX: ${{ matrix.cfg.cxx }}
-      CFLAGS: ${{ matrix.cfg.cflags }}
-      CXXFLAGS: ${{ matrix.cfg.cflags }}
-      LDFLAGS: ${{ matrix.cfg.ldflags }}
-      BUILD_DIR: ${{ matrix.cfg.build_dir }}
-      ASAN_OPTIONS: ${{ matrix.cfg.asan_options }}
-      UBSAN_OPTIONS: ${{ matrix.cfg.ubsan_options }}
-      TSAN_OPTIONS: ${{ matrix.cfg.tsan_options }}
+      CC: clang
+      CXX: clang++
+      LLVM_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
+      ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
+      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
+      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
+      LDFLAGS: -fuse-ld=lld
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure symbolizer path
-        run: |
-          if command -v llvm-symbolizer >/dev/null 2>&1; then
-            echo "ASAN_SYMBOLIZER_PATH=$(command -v llvm-symbolizer)" >> "$GITHUB_ENV"
-          fi
-
-      - name: Increase file descriptor limit
-        run: ulimit -n 4096
-
       - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            clang llvm \
-            meson ninja-build \
-            libxcb1-dev libxcb-randr0-dev libxcb-xkb-dev libxcb-icccm4-dev \
-            libxcb-xinerama0-dev libxcb-keysyms1-dev libxcb-damage0-dev \
-            libxcb-sync-dev libxcb-util-dev \
-            libcairo2-dev libpango1.0-dev libfontconfig1-dev librsvg2-dev \
-            libxkbcommon-dev \
-            xvfb xauth
+          dnf -y update
+          dnf -y install \
+            clang llvm lld compiler-rt \
+            git meson ninja-build pkgconf-pkg-config \
+            libbpf-devel libxdp-devel
 
       - name: Configure
         run: |
-          # Pass flags explicitly to meson setup via environment variables
-          meson setup "$BUILD_DIR"
+          builddir="build-${{ matrix.name }}"
+          export CFLAGS="${CFLAGS} ${{ matrix.extra_cflags }}"
+          export CXXFLAGS="${CXXFLAGS} ${{ matrix.extra_cflags }}"
+          meson setup "$builddir" \
+            -D b_sanitize="${{ matrix.meson_sanitize }}" \
+            -D b_lto=false \
+            -D b_ndebug=false
 
       - name: Build
-        run: |
-          meson compile -C "$BUILD_DIR"
+        run: meson compile -C "build-${{ matrix.name }}"
 
       - name: Test
         run: |
-          # Run tests with the sanitizer environment
-          meson test -C "$BUILD_DIR" --print-errorlogs --verbose
-
-      - name: Upload Test Logs
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-logs-${{ matrix.cfg.name }}
-          path: |
-            ${{ env.BUILD_DIR }}/meson-logs/*.txt
-            ${{ env.BUILD_DIR }}/hxm.log
+          set -euo pipefail
+          eval "${{ matrix.runtime_env }}"
+          if [ "${{ matrix.name }}" = "tsan" ]; then
+            meson test -C "build-${{ matrix.name }}" --print-errorlogs --num-processes 1
+          else
+            meson test -C "build-${{ matrix.name }}" --print-errorlogs
+          fi
