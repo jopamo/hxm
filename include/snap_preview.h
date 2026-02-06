@@ -14,9 +14,9 @@ extern "C" {
 #include "client.h"
 #include "event.h"
 
-void snap_preview_init(server_t* s);
-void snap_preview_destroy(server_t* s);
-void snap_preview_apply(server_t* s, const rect_t* rect, bool show);
+void snap_preview_init(server_t *s);
+void snap_preview_destroy(server_t *s);
+void snap_preview_apply(server_t *s, const rect_t *rect, bool show);
 
 #ifdef __cplusplus
 }
