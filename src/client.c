@@ -414,13 +414,15 @@ void client_finish_manage(server_t *s, handle_t h) {
       (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
   uint16_t th =
       (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+  uint16_t hh = s->config.theme.handle_height;
+  uint16_t bottom_h = (hh > bw) ? hh : bw;
 
   // Use root visual/depth for frames to avoid client-visual artifacts (ex:
   // video overlays)
 
   hot->frame = xcb_generate_id(s->conn);
   xcb_create_window(s->conn, s->root_depth, hot->frame, s->root, geom.x, geom.y,
-                    geom.w + 2 * bw, geom.h + th + bw, 0,
+                    geom.w + 2 * bw, geom.h + th + bottom_h, 0,
                     XCB_WINDOW_CLASS_INPUT_OUTPUT, s->root_visual, mask,
                     values);
 
@@ -473,7 +475,7 @@ void client_finish_manage(server_t *s, handle_t h) {
     client_h = frame_h;
   } else {
     frame_w += 2 * bw;
-    frame_h += th + bw;
+    frame_h += th + bottom_h;
   }
 
   uint32_t frame_values[4];
@@ -504,8 +506,8 @@ void client_finish_manage(server_t *s, handle_t h) {
 
   // Set _NET_FRAME_EXTENTS before mapping
   // if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
-  uint32_t extents[4] = {bw, bw, th + bw, bw};
-  if (hot->flags & CLIENT_FLAG_UNDECORATED) {
+  uint32_t extents[4] = {bw, bw, th + bw, bottom_h};
+  if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
     extents[0] = 0;
     extents[1] = 0;
     extents[2] = 0;
