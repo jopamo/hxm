@@ -123,7 +123,9 @@ void wm_set_frame_extents_for_window(server_t *s, xcb_window_t win,
                                      bool undecorated) {
   uint32_t bw = undecorated ? 0 : s->config.theme.border_width;
   uint32_t th = undecorated ? 0 : s->config.theme.title_height;
-  uint32_t extents[4] = {bw, bw, th + bw, bw};
+  uint32_t hh = undecorated ? 0 : s->config.theme.handle_height;
+  uint32_t bottom_h = (hh > bw) ? hh : bw;
+  uint32_t extents[4] = {bw, bw, th + bw, bottom_h};
   xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, win,
                       atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4,
                       extents);
@@ -924,9 +926,13 @@ void wm_client_apply_state_set(server_t *s, handle_t h,
 
 static int wm_get_resize_dir(server_t *s, client_hot_t *hot, int16_t x,
                              int16_t y) {
-  uint16_t bw = s->config.theme.border_width;
-  uint16_t th = s->config.theme.title_height;
-  uint16_t hh = s->config.theme.handle_height;
+  uint16_t bw =
+      (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
+  uint16_t th =
+      (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+  uint16_t hh = (hot->flags & CLIENT_FLAG_UNDECORATED)
+                    ? 0
+                    : s->config.theme.handle_height;
 
   uint16_t bottom_h = (hh > bw) ? hh : bw;
 

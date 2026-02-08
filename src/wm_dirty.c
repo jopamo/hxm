@@ -482,7 +482,9 @@ bool wm_flush_dirty(server_t *s, uint64_t now) {
         client_w_calc = frame_w;
         client_h_calc = frame_h;
       } else {
-        uint16_t hh = s->config.theme.handle_height;
+        uint16_t hh = (hot->flags & CLIENT_FLAG_UNDECORATED)
+                          ? 0
+                          : s->config.theme.handle_height;
         uint16_t bottom_h = (hh > bw) ? hh : bw;
         frame_w += 2 * bw;
         frame_h += th + bottom_h;
@@ -551,7 +553,9 @@ bool wm_flush_dirty(server_t *s, uint64_t now) {
                              client_values);
 
         // Set _NET_FRAME_EXTENTS
-        uint16_t hh = s->config.theme.handle_height;
+        uint16_t hh = (hot->flags & CLIENT_FLAG_UNDECORATED)
+                          ? 0
+                          : s->config.theme.handle_height;
         uint16_t bottom_h = (hh > bw) ? hh : bw;
         uint32_t extents[4] = {bw, bw, th + bw, bottom_h};
         if ((hot->flags & CLIENT_FLAG_UNDECORATED) ||
