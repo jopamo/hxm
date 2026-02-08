@@ -230,6 +230,7 @@ void client_manage_start(server_t *s, xcb_window_t win) {
       {atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 5},
       {atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 4},
       {atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 1},
+      {atoms._NET_WM_BYPASS_COMPOSITOR, XCB_ATOM_CARDINAL, 1},
   };
 
   hot->pending_replies = 2 + (uint8_t)ARRAY_LEN(props);
@@ -336,6 +337,31 @@ static void client_apply_rules(server_t *s, handle_t h) {
         hot->focus_override = r->focus;
       if (r->placement != PLACEMENT_DEFAULT)
         hot->placement = (uint8_t)r->placement;
+
+      if (r->bypass_compositor != -1) {
+        if (r->bypass_compositor == 0) {
+          hot->bypass_compositor_valid = false;
+          hot->bypass_compositor = 0;
+          xcb_delete_property(s->conn, hot->xid,
+                              atoms._NET_WM_BYPASS_COMPOSITOR);
+          if (hot->frame != XCB_NONE) {
+            xcb_delete_property(s->conn, hot->frame,
+                                atoms._NET_WM_BYPASS_COMPOSITOR);
+          }
+        } else {
+          uint32_t val = (uint32_t)r->bypass_compositor;
+          hot->bypass_compositor_valid = true;
+          hot->bypass_compositor = val;
+          xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid,
+                              atoms._NET_WM_BYPASS_COMPOSITOR,
+                              XCB_ATOM_CARDINAL, 32, 1, &val);
+          if (hot->frame != XCB_NONE) {
+            xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame,
+                                atoms._NET_WM_BYPASS_COMPOSITOR,
+                                XCB_ATOM_CARDINAL, 32, 1, &val);
+          }
+        }
+      }
     }
   }
 
@@ -523,6 +549,12 @@ void client_finish_manage(server_t *s, handle_t h) {
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame,
                         atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 32, 1,
                         &hot->window_opacity);
+  }
+
+  if (hot->bypass_compositor_valid) {
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame,
+                        atoms._NET_WM_BYPASS_COMPOSITOR, XCB_ATOM_CARDINAL, 32,
+                        1, &hot->bypass_compositor);
   }
 
   // Set _NET_WM_ALLOWED_ACTIONS before mapping

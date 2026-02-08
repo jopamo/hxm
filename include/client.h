@@ -81,7 +81,9 @@ typedef enum client_dirty {
   DIRTY_FRAME_ALL = 1u << 10,
   DIRTY_FRAME_TITLE = 1u << 11,
   DIRTY_FRAME_BUTTONS = 1u << 12,
-  DIRTY_FRAME_BORDER = 1u << 13
+  DIRTY_FRAME_BORDER = 1u << 13,
+
+  DIRTY_BYPASS_COMPOSITOR = 1u << 14
 } client_dirty_t;
 
 /* Client lifecycle state */
@@ -291,6 +293,9 @@ typedef struct client_hot {
 
   bool window_opacity_valid;
   uint32_t window_opacity;
+
+  bool bypass_compositor_valid;
+  uint32_t bypass_compositor;
 
   bool fullscreen_monitors_valid;
   uint32_t fullscreen_monitors[4];

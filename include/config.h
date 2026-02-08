@@ -90,6 +90,8 @@ typedef enum placement_policy {
  * - desktop: -2 don't change, -1 sticky, >=0 target desktop
  * - layer: -1 don't change, else stack_layer_t value (defined elsewhere)
  * - focus: -1 don't change, 0 no, 1 yes
+ * - bypass_compositor: -1 don't change, 0 unset/allow, 1/2 set value for
+ *   _NET_WM_BYPASS_COMPOSITOR
  */
 typedef struct app_rule {
   char *class_match;
@@ -102,6 +104,7 @@ typedef struct app_rule {
   int32_t desktop;
   int32_t layer;
   int8_t focus;
+  int8_t bypass_compositor;
 
   placement_policy_t placement;
 } app_rule_t;

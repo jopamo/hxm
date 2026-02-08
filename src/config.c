@@ -328,6 +328,7 @@ static void parse_rule(config_t *config, const char *val) {
   r->desktop = -2;
   r->layer = -1;
   r->focus = -1;
+  r->bypass_compositor = -1;
 
   char *p = match_part;
   while (p && *p) {
@@ -413,6 +414,21 @@ static void parse_rule(config_t *config, const char *val) {
           r->placement = PLACEMENT_CENTER;
         else if (strcasecmp(v, "mouse") == 0)
           r->placement = PLACEMENT_MOUSE;
+      } else if (strcasecmp(k, "bypass_compositor") == 0) {
+        if (strcasecmp(v, "yes") == 0 || strcasecmp(v, "true") == 0 ||
+            strcmp(v, "1") == 0) {
+          r->bypass_compositor = 1;
+        } else if (strcasecmp(v, "no") == 0 || strcasecmp(v, "false") == 0 ||
+                   strcmp(v, "0") == 0) {
+          r->bypass_compositor = 0;
+        } else {
+          int n = atoi(v);
+          if (n < 0)
+            n = 0;
+          if (n > 2)
+            n = 2;
+          r->bypass_compositor = (int8_t)n;
+        }
       }
     }
     p = comma ? comma + 1 : NULL;

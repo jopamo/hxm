@@ -826,7 +826,7 @@ void wm_handle_property_notify(server_t *s, handle_t h,
   } else if (ev->atom == atoms._GTK_FRAME_EXTENTS) {
     hot->dirty |= DIRTY_HINTS;
   } else if (ev->atom == atoms._NET_WM_BYPASS_COMPOSITOR) {
-    LOG_INFO("Client %lx changed _NET_WM_BYPASS_COMPOSITOR", h);
+    hot->dirty |= DIRTY_BYPASS_COMPOSITOR;
   }
 }
 

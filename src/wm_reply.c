@@ -1468,6 +1468,38 @@ void wm_handle_reply(server_t *s, const cookie_slot_t *slot, void *reply,
         }
       }
 
+    } else if (atom == atoms._NET_WM_BYPASS_COMPOSITOR) {
+      if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
+        uint32_t val = *(uint32_t *)xcb_get_property_value(r);
+        if (val == 0) {
+          if (hot->bypass_compositor_valid) {
+            hot->bypass_compositor_valid = false;
+            hot->bypass_compositor = 0;
+            if (hot->frame != XCB_NONE) {
+              xcb_delete_property(s->conn, hot->frame,
+                                  atoms._NET_WM_BYPASS_COMPOSITOR);
+            }
+          }
+        } else {
+          if (!hot->bypass_compositor_valid || hot->bypass_compositor != val) {
+            hot->bypass_compositor = val;
+            hot->bypass_compositor_valid = true;
+            if (hot->frame != XCB_NONE) {
+              xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame,
+                                  atoms._NET_WM_BYPASS_COMPOSITOR,
+                                  XCB_ATOM_CARDINAL, 32, 1, &val);
+            }
+          }
+        }
+      } else if (hot->bypass_compositor_valid) {
+        hot->bypass_compositor_valid = false;
+        hot->bypass_compositor = 0;
+        if (hot->frame != XCB_NONE) {
+          xcb_delete_property(s->conn, hot->frame,
+                              atoms._NET_WM_BYPASS_COMPOSITOR);
+        }
+      }
+
     } else if (atom == atoms._NET_WM_ICON_GEOMETRY) {
       if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 16) {
         uint32_t *val = (uint32_t *)xcb_get_property_value(r);

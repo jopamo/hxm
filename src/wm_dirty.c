@@ -688,6 +688,20 @@ bool wm_flush_dirty(server_t *s, uint64_t now) {
       hot->dirty &= ~DIRTY_OPACITY;
     }
 
+    if (hot->dirty & DIRTY_BYPASS_COMPOSITOR) {
+      flushed = true;
+      uint32_t c = xcb_get_property(s->conn, 0, hot->xid,
+                                    atoms._NET_WM_BYPASS_COMPOSITOR,
+                                    XCB_ATOM_CARDINAL, 0, 1)
+                       .sequence;
+      cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h,
+                      ((uint64_t)hot->xid << 32) |
+                          atoms._NET_WM_BYPASS_COMPOSITOR,
+                      s->txn_id, wm_handle_reply);
+
+      hot->dirty &= ~DIRTY_BYPASS_COMPOSITOR;
+    }
+
     if (hot->dirty & DIRTY_DESKTOP) {
       flushed = true;
       uint32_t desktop = hot->sticky ? 0xFFFFFFFFu : (uint32_t)hot->desktop;
