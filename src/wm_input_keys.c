@@ -42,169 +42,183 @@ static const uint16_t IGNORED_MODS[] = {0,
 #endif
 
 uint32_t wm_clean_mods(uint16_t state) {
-    // Mask out NumLock, ScrollLock, and CapsLock for comparison
-    return state & ~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2 | XCB_MOD_MASK_5);
+  // Mask out NumLock, ScrollLock, and CapsLock for comparison
+  return state & ~(XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2 | XCB_MOD_MASK_5);
 }
 
 #ifndef TEST_WM_INPUT_KEYS
 static void spawn(const char* cmd) {
-    if (!cmd) return;
+  if (!cmd)
+    return;
 
-    // Double fork to avoid zombies if SIGCHLD isn't trapped globally
-    pid_t pid = fork();
-    if (pid == 0) {
-        if (fork() == 0) {
-            setsid();
-            char* args[] = {"/bin/sh", "-c", (char*)cmd, NULL};
-            execvp(args[0], args);
-            // Use _exit to avoid flushing parent stdio buffers
-            perror("spawn execvp failed");
-            _exit(127);
-        }
-        _exit(0);
+  // Double fork to avoid zombies if SIGCHLD isn't trapped globally
+  pid_t pid = fork();
+  if (pid == 0) {
+    if (fork() == 0) {
+      setsid();
+      char* args[] = {"/bin/sh", "-c", (char*)cmd, NULL};
+      execvp(args[0], args);
+      // Use _exit to avoid flushing parent stdio buffers
+      perror("spawn execvp failed");
+      _exit(127);
     }
-    // Wait for the intermediate child
-    if (pid > 0) {
-        waitpid(pid, NULL, 0);
-    }
+    _exit(0);
+  }
+  // Wait for the intermediate child
+  if (pid > 0) {
+    waitpid(pid, NULL, 0);
+  }
 }
 #endif
 
 // Helper predicate for focus cycling
 static bool is_focusable(client_hot_t* c, server_t* s) {
-    if (c->state != STATE_MAPPED) return false;
+  if (c->state != STATE_MAPPED)
+    return false;
 
-    // Respect "show desktop" temporary hides
-    if (s->showing_desktop && c->show_desktop_hidden) return false;
+  // Respect "show desktop" temporary hides
+  if (s->showing_desktop && c->show_desktop_hidden)
+    return false;
 
-    // Must be on current desktop or sticky
-    if (c->desktop != (int32_t)s->current_desktop && !c->sticky) return false;
+  // Must be on current desktop or sticky
+  if (c->desktop != (int32_t)s->current_desktop && !c->sticky)
+    return false;
 
-    // Reject un-focusable types
-    switch (c->type) {
-        case WINDOW_TYPE_DOCK:
-        case WINDOW_TYPE_NOTIFICATION:
-        case WINDOW_TYPE_DESKTOP:
-        case WINDOW_TYPE_MENU:
-        case WINDOW_TYPE_DROPDOWN_MENU:
-        case WINDOW_TYPE_POPUP_MENU:
-        case WINDOW_TYPE_TOOLTIP:
-        case WINDOW_TYPE_COMBO:
-        case WINDOW_TYPE_DND:
-            return false;
-        default:
-            return true;
-    }
+  // Reject un-focusable types
+  switch (c->type) {
+    case WINDOW_TYPE_DOCK:
+    case WINDOW_TYPE_NOTIFICATION:
+    case WINDOW_TYPE_DESKTOP:
+    case WINDOW_TYPE_MENU:
+    case WINDOW_TYPE_DROPDOWN_MENU:
+    case WINDOW_TYPE_POPUP_MENU:
+    case WINDOW_TYPE_TOOLTIP:
+    case WINDOW_TYPE_COMBO:
+    case WINDOW_TYPE_DND:
+      return false;
+    default:
+      return true;
+  }
 }
 
 void wm_switcher_step(server_t* s, int dir);
 
 void wm_switcher_start(server_t* s, int dir) {
-    if (!s) return;
+  if (!s)
+    return;
 
-    if (s->switcher_active) {
-        wm_switcher_step(s, dir);
-        return;
-    }
+  if (s->switcher_active) {
+    wm_switcher_step(s, dir);
+    return;
+  }
 
-    s->switcher_active = true;
-    s->switcher_origin = s->focused_client;
+  s->switcher_active = true;
+  s->switcher_origin = s->focused_client;
 
-    menu_show_switcher(s, s->switcher_origin);
-    if (!s->menu.visible || !s->menu.is_switcher) {
-        s->switcher_active = false;
-        return;
-    }
+  menu_show_switcher(s, s->switcher_origin);
+  if (!s->menu.visible || !s->menu.is_switcher) {
+    s->switcher_active = false;
+    return;
+  }
 
-    if (s->menu.selected_index < 0) {
-        wm_switcher_step(s, 0);
-    } else {
-        wm_switcher_step(s, dir);
-    }
+  if (s->menu.selected_index < 0) {
+    wm_switcher_step(s, 0);
+  }
+  else {
+    wm_switcher_step(s, dir);
+  }
 }
 
 void wm_switcher_step(server_t* s, int dir) {
-    if (!s || !s->switcher_active) return;
-    menu_switcher_step(s, dir);
+  if (!s || !s->switcher_active)
+    return;
+  menu_switcher_step(s, dir);
 }
 
 static void switcher_activate_client(server_t* s, handle_t h) {
-    if (!s || h == HANDLE_INVALID) return;
+  if (!s || h == HANDLE_INVALID)
+    return;
 
-    client_hot_t* hot = server_chot(s, h);
-    if (!hot) return;
+  client_hot_t* hot = server_chot(s, h);
+  if (!hot)
+    return;
 
-    if (!hot->sticky && hot->desktop >= 0 && (uint32_t)hot->desktop != s->current_desktop) {
-        wm_switch_workspace(s, (uint32_t)hot->desktop);
-    }
+  if (!hot->sticky && hot->desktop >= 0 && (uint32_t)hot->desktop != s->current_desktop) {
+    wm_switch_workspace(s, (uint32_t)hot->desktop);
+  }
 
-    if (hot->state == STATE_UNMAPPED) {
-        wm_client_restore(s, h);
-    }
+  if (hot->state == STATE_UNMAPPED) {
+    wm_client_restore(s, h);
+  }
 
-    wm_set_focus(s, h);
-    stack_raise(s, h);
+  wm_set_focus(s, h);
+  stack_raise(s, h);
 }
 
 void wm_switcher_commit(server_t* s) {
-    if (!s || !s->switcher_active) return;
+  if (!s || !s->switcher_active)
+    return;
 
-    handle_t selected = menu_switcher_selected_client(s);
-    menu_hide(s);
-    s->switcher_active = false;
-    s->switcher_origin = HANDLE_INVALID;
+  handle_t selected = menu_switcher_selected_client(s);
+  menu_hide(s);
+  s->switcher_active = false;
+  s->switcher_origin = HANDLE_INVALID;
 
-    switcher_activate_client(s, selected);
+  switcher_activate_client(s, selected);
 }
 
 void wm_switcher_cancel(server_t* s) {
-    if (!s || !s->switcher_active) return;
+  if (!s || !s->switcher_active)
+    return;
 
-    handle_t origin = s->switcher_origin;
+  handle_t origin = s->switcher_origin;
 
-    menu_hide(s);
-    s->switcher_active = false;
-    s->switcher_origin = HANDLE_INVALID;
+  menu_hide(s);
+  s->switcher_active = false;
+  s->switcher_origin = HANDLE_INVALID;
 
-    if (origin != HANDLE_INVALID) {
-        wm_set_focus(s, origin);
-    }
+  if (origin != HANDLE_INVALID) {
+    wm_set_focus(s, origin);
+  }
 }
 
 void wm_cycle_focus(server_t* s, bool forward) {
-    if (list_empty(&s->focus_history)) return;
+  if (list_empty(&s->focus_history))
+    return;
 
-    list_node_t* start_node = &s->focus_history;
+  list_node_t* start_node = &s->focus_history;
 
-    // If we have a focused client, start searching from there
-    if (s->focused_client != HANDLE_INVALID) {
-        client_hot_t* focused = server_chot(s, s->focused_client);
-        if (focused) start_node = &focused->focus_node;
+  // If we have a focused client, start searching from there
+  if (s->focused_client != HANDLE_INVALID) {
+    client_hot_t* focused = server_chot(s, s->focused_client);
+    if (focused)
+      start_node = &focused->focus_node;
+  }
+
+  list_node_t* node = forward ? start_node->next : start_node->prev;
+
+  // Guard against infinite loop if no windows are focusable
+  int iterations = 0;
+  int max_iterations = (int)s->active_clients.length + 4;  // Sanity limit
+
+  while (node != start_node && iterations++ < max_iterations) {
+    // Skip the list head (sentinel)
+    if (node == &s->focus_history) {
+      node = forward ? node->next : node->prev;
+      if (node == start_node)
+        break;
     }
 
-    list_node_t* node = forward ? start_node->next : start_node->prev;
+    client_hot_t* c = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
 
-    // Guard against infinite loop if no windows are focusable
-    int iterations = 0;
-    int max_iterations = (int)s->active_clients.length + 4;  // Sanity limit
-
-    while (node != start_node && iterations++ < max_iterations) {
-        // Skip the list head (sentinel)
-        if (node == &s->focus_history) {
-            node = forward ? node->next : node->prev;
-            if (node == start_node) break;
-        }
-
-        client_hot_t* c = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
-
-        if (is_focusable(c, s)) {
-            wm_set_focus(s, c->self);
-            stack_raise(s, c->self);
-            return;
-        }
-
-        node = forward ? node->next : node->prev;
+    if (is_focusable(c, s)) {
+      wm_set_focus(s, c->self);
+      stack_raise(s, c->self);
+      return;
     }
+
+    node = forward ? node->next : node->prev;
+  }
 }
 
 #ifndef TEST_WM_INPUT_KEYS
@@ -218,168 +232,184 @@ void wm_cycle_focus(server_t* s, bool forward) {
  * all 8 combinations of (CapsLock | NumLock | ScrollLock).
  */
 void wm_setup_keys(server_t* s) {
-    if (s->keysyms) xcb_key_symbols_free(s->keysyms);
-    s->keysyms = xcb_key_symbols_alloc(s->conn);
-    if (!s->keysyms) return;
+  if (s->keysyms)
+    xcb_key_symbols_free(s->keysyms);
+  s->keysyms = xcb_key_symbols_alloc(s->conn);
+  if (!s->keysyms)
+    return;
 
-    xcb_ungrab_key(s->conn, XCB_GRAB_ANY, s->root, XCB_MOD_MASK_ANY);
+  xcb_ungrab_key(s->conn, XCB_GRAB_ANY, s->root, XCB_MOD_MASK_ANY);
 
-    for (size_t i = 0; i < s->config.key_bindings.length; i++) {
-        key_binding_t* b = s->config.key_bindings.items[i];
-        if (!b) continue;
+  for (size_t i = 0; i < s->config.key_bindings.length; i++) {
+    key_binding_t* b = s->config.key_bindings.items[i];
+    if (!b)
+      continue;
 
-        xcb_keycode_t* keycodes = xcb_key_symbols_get_keycode(s->keysyms, b->keysym);
-        if (!keycodes) continue;
+    xcb_keycode_t* keycodes = xcb_key_symbols_get_keycode(s->keysyms, b->keysym);
+    if (!keycodes)
+      continue;
 
-        for (xcb_keycode_t* k = keycodes; *k; k++) {
-            // Grab for all ignored modifier combinations
-            // This ensures the bind works even if CapsLock or NumLock is on
-            for (size_t m = 0; m < sizeof(IGNORED_MODS) / sizeof(IGNORED_MODS[0]); m++) {
-                xcb_grab_key(s->conn, 1, s->root, b->modifiers | IGNORED_MODS[m], *k, XCB_GRAB_MODE_ASYNC,
-                             XCB_GRAB_MODE_ASYNC);
-            }
-        }
-        free(keycodes);
+    for (xcb_keycode_t* k = keycodes; *k; k++) {
+      // Grab for all ignored modifier combinations
+      // This ensures the bind works even if CapsLock or NumLock is on
+      for (size_t m = 0; m < sizeof(IGNORED_MODS) / sizeof(IGNORED_MODS[0]); m++) {
+        xcb_grab_key(s->conn, 1, s->root, b->modifiers | IGNORED_MODS[m], *k, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
+      }
     }
+    free(keycodes);
+  }
 
-    // xcb_flush(s->conn);
+  // xcb_flush(s->conn);
 }
 #endif
 
 // Safer string-to-integer helper
 static int safe_atoi(const char* str) {
-    if (!str) return 0;
-    char* end;
-    long val = strtol(str, &end, 10);
-    if (end == str) return 0;
-    if (val < 0) return 0;
-    return (int)val;
+  if (!str)
+    return 0;
+  char* end;
+  long val = strtol(str, &end, 10);
+  if (end == str)
+    return 0;
+  if (val < 0)
+    return 0;
+  return (int)val;
 }
 
 void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
-    if (!s->keysyms) return;
+  if (!s->keysyms)
+    return;
 
-    xcb_keysym_t sym = xcb_key_symbols_get_keysym(s->keysyms, ev->detail, 0);
+  xcb_keysym_t sym = xcb_key_symbols_get_keysym(s->keysyms, ev->detail, 0);
 
-    // Menu logic takes precedence
-    if (s->menu.visible) {
-        menu_handle_key_press(s, ev);
-        return;
-    }
+  // Menu logic takes precedence
+  if (s->menu.visible) {
+    menu_handle_key_press(s, ev);
+    return;
+  }
 
-    uint32_t clean_state = wm_clean_mods(ev->state);
+  uint32_t clean_state = wm_clean_mods(ev->state);
 
-    LOG_DEBUG("Key press: detail=%u state=%u clean=%u sym=%x", ev->detail, ev->state, clean_state, sym);
+  LOG_DEBUG("Key press: detail=%u state=%u clean=%u sym=%x", ev->detail, ev->state, clean_state, sym);
 
-    // Linear scan of bindings
-    // Note: For large configs, a hash map lookup would be O(1)
-    for (size_t i = 0; i < s->config.key_bindings.length; i++) {
-        key_binding_t* b = s->config.key_bindings.items[i];
-        if (!b) continue;
+  // Linear scan of bindings
+  // Note: For large configs, a hash map lookup would be O(1)
+  for (size_t i = 0; i < s->config.key_bindings.length; i++) {
+    key_binding_t* b = s->config.key_bindings.items[i];
+    if (!b)
+      continue;
 
-        if (b->keysym != sym || (uint32_t)b->modifiers != clean_state) continue;
+    if (b->keysym != sym || (uint32_t)b->modifiers != clean_state)
+      continue;
 
-        LOG_INFO("Matched key binding action %d", b->action);
+    LOG_INFO("Matched key binding action %d", b->action);
 
-        switch (b->action) {
-            case ACTION_CLOSE:
-                if (s->focused_client != HANDLE_INVALID) client_close(s, s->focused_client);
-                break;
+    switch (b->action) {
+      case ACTION_CLOSE:
+        if (s->focused_client != HANDLE_INVALID)
+          client_close(s, s->focused_client);
+        break;
 
-            case ACTION_FOCUS_NEXT:
-                wm_switcher_start(s, 1);
-                break;
+      case ACTION_FOCUS_NEXT:
+        wm_switcher_start(s, 1);
+        break;
 
-            case ACTION_FOCUS_PREV:
-                wm_switcher_start(s, -1);
-                break;
+      case ACTION_FOCUS_PREV:
+        wm_switcher_start(s, -1);
+        break;
 
-            case ACTION_TERMINAL:
-                spawn("st || xterm || x-terminal-emulator");
-                break;
+      case ACTION_TERMINAL:
+        spawn("st || xterm || x-terminal-emulator");
+        break;
 
-            case ACTION_EXEC:
-                spawn(b->exec_cmd);
-                break;
+      case ACTION_EXEC:
+        spawn(b->exec_cmd);
+        break;
 
-            case ACTION_RESTART:
-                LOG_INFO("Triggering restart...");
-                g_restart_pending = 1;
-                break;
+      case ACTION_RESTART:
+        LOG_INFO("Triggering restart...");
+        g_restart_pending = 1;
+        break;
 
-            case ACTION_EXIT:
-                exit(0);
-                break;
+      case ACTION_EXIT:
+        exit(0);
+        break;
 
-            case ACTION_WORKSPACE:
-                if (b->exec_cmd) wm_switch_workspace(s, (uint32_t)safe_atoi(b->exec_cmd));
-                break;
+      case ACTION_WORKSPACE:
+        if (b->exec_cmd)
+          wm_switch_workspace(s, (uint32_t)safe_atoi(b->exec_cmd));
+        break;
 
-            case ACTION_WORKSPACE_PREV:
-                wm_switch_workspace_relative(s, -1);
-                break;
+      case ACTION_WORKSPACE_PREV:
+        wm_switch_workspace_relative(s, -1);
+        break;
 
-            case ACTION_WORKSPACE_NEXT:
-                wm_switch_workspace_relative(s, 1);
-                break;
+      case ACTION_WORKSPACE_NEXT:
+        wm_switch_workspace_relative(s, 1);
+        break;
 
-            case ACTION_MOVE_TO_WORKSPACE:
-                if (b->exec_cmd && s->focused_client != HANDLE_INVALID) {
-                    wm_client_move_to_workspace(s, s->focused_client, (uint32_t)safe_atoi(b->exec_cmd), false);
-                }
-                break;
-
-            case ACTION_MOVE_TO_WORKSPACE_FOLLOW:
-                if (b->exec_cmd && s->focused_client != HANDLE_INVALID) {
-                    wm_client_move_to_workspace(s, s->focused_client, (uint32_t)safe_atoi(b->exec_cmd), true);
-                }
-                break;
-
-            case ACTION_TOGGLE_STICKY:
-                if (s->focused_client != HANDLE_INVALID) wm_client_toggle_sticky(s, s->focused_client);
-                break;
-
-            case ACTION_MOVE:
-            case ACTION_RESIZE:
-                if (s->focused_client != HANDLE_INVALID) {
-                    client_hot_t* hot = server_chot(s, s->focused_client);
-                    if (!hot) break;
-
-                    if (b->action == ACTION_MOVE && !client_can_move(hot)) break;
-                    if (b->action == ACTION_RESIZE && !client_can_resize(hot)) break;
-
-                    int16_t root_x, root_y;
-
-                    if (b->action == ACTION_MOVE) {
-                        xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
-                        cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, s->focused_client, 0x100,
-                                        s->txn_id, wm_handle_reply);
-                    } else {
-                        // RESIZE: Warp to bottom right
-                        root_x = hot->server.x + hot->server.w;
-                        root_y = hot->server.y + hot->server.h;
-
-                        xcb_warp_pointer(s->conn, XCB_NONE, s->root, 0, 0, 0, 0, root_x, root_y);
-
-                        wm_start_interaction(s, s->focused_client, hot, false, RESIZE_BOTTOM | RESIZE_RIGHT, root_x,
-                                             root_y, XCB_CURRENT_TIME, true);
-                    }
-                }
-                break;
-
-            default:
-                break;
+      case ACTION_MOVE_TO_WORKSPACE:
+        if (b->exec_cmd && s->focused_client != HANDLE_INVALID) {
+          wm_client_move_to_workspace(s, s->focused_client, (uint32_t)safe_atoi(b->exec_cmd), false);
         }
-        // Break after finding the first matching binding (prevent duplicate triggers)
-        return;
+        break;
+
+      case ACTION_MOVE_TO_WORKSPACE_FOLLOW:
+        if (b->exec_cmd && s->focused_client != HANDLE_INVALID) {
+          wm_client_move_to_workspace(s, s->focused_client, (uint32_t)safe_atoi(b->exec_cmd), true);
+        }
+        break;
+
+      case ACTION_TOGGLE_STICKY:
+        if (s->focused_client != HANDLE_INVALID)
+          wm_client_toggle_sticky(s, s->focused_client);
+        break;
+
+      case ACTION_MOVE:
+      case ACTION_RESIZE:
+        if (s->focused_client != HANDLE_INVALID) {
+          client_hot_t* hot = server_chot(s, s->focused_client);
+          if (!hot)
+            break;
+
+          if (b->action == ACTION_MOVE && !client_can_move(hot))
+            break;
+          if (b->action == ACTION_RESIZE && !client_can_resize(hot))
+            break;
+
+          int16_t root_x, root_y;
+
+          if (b->action == ACTION_MOVE) {
+            xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
+            cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, s->focused_client, 0x100, s->txn_id, wm_handle_reply);
+          }
+          else {
+            // RESIZE: Warp to bottom right
+            root_x = hot->server.x + hot->server.w;
+            root_y = hot->server.y + hot->server.h;
+
+            xcb_warp_pointer(s->conn, XCB_NONE, s->root, 0, 0, 0, 0, root_x, root_y);
+
+            wm_start_interaction(s, s->focused_client, hot, false, RESIZE_BOTTOM | RESIZE_RIGHT, root_x, root_y, XCB_CURRENT_TIME, true);
+          }
+        }
+        break;
+
+      default:
+        break;
     }
+    // Break after finding the first matching binding (prevent duplicate
+    // triggers)
+    return;
+  }
 }
 
 void wm_handle_key_release(server_t* s, xcb_key_release_event_t* ev) {
-    if (!s || !s->switcher_active || !s->keysyms) return;
+  if (!s || !s->switcher_active || !s->keysyms)
+    return;
 
-    xcb_keysym_t sym = xcb_key_symbols_get_keysym(s->keysyms, ev->detail, 0);
-    if (sym == XK_Alt_L || sym == XK_Alt_R) {
-        wm_switcher_commit(s);
-    }
+  xcb_keysym_t sym = xcb_key_symbols_get_keysym(s->keysyms, ev->detail, 0);
+  if (sym == XK_Alt_L || sym == XK_Alt_R) {
+    wm_switcher_commit(s);
+  }
 }

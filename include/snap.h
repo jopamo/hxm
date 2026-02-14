@@ -14,9 +14,9 @@ extern "C" {
 #include "client.h"
 
 typedef struct snap_candidate {
-    bool active;
-    snap_edge_t edge;
-    rect_t rect;
+  bool active;
+  snap_edge_t edge;
+  rect_t rect;
 } snap_candidate_t;
 
 snap_candidate_t snap_compute_candidate(int px, int py, rect_t wa, int threshold_px);

@@ -17,7 +17,7 @@ void test_resize_handle_logic(void) {
   s.is_test = true;
   s.root_depth = 24;
   s.root_visual_type = xcb_get_visualtype(NULL, 0);
-  s.conn = (xcb_connection_t *)malloc(1); // Mock connection
+  s.conn = (xcb_connection_t*)malloc(1);  // Mock connection
   s.root = 1;
 
   // Init config
@@ -33,8 +33,7 @@ void test_resize_handle_logic(void) {
   }
 
   // Init slotmap
-  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t),
-                    sizeof(client_cold_t))) {
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) {
     fprintf(stderr, "Failed to init slotmap\n");
     exit(1);
   }
@@ -42,7 +41,7 @@ void test_resize_handle_logic(void) {
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   assert(h != HANDLE_INVALID);
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
 
   render_init(&hot->render_ctx);
 

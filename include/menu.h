@@ -24,7 +24,8 @@
  * - selected_index is -1 when nothing is selected
  *
  * Contracts:
- * - Callers should route relevant X events to menu_handle_* while menu.visible is true
+ * - Callers should route relevant X events to menu_handle_* while menu.visible
+ * is true
  * - Implementations should treat invalid handles as safe no-ops
  */
 
@@ -46,60 +47,52 @@ extern "C" {
 #include "render.h"
 
 /* Action type for menu items */
-typedef enum menu_action {
-    MENU_ACTION_NONE = 0,
-    MENU_ACTION_EXEC,
-    MENU_ACTION_RESTART,
-    MENU_ACTION_EXIT,
-    MENU_ACTION_RELOAD,
-    MENU_ACTION_RESTORE,
-    MENU_ACTION_SEPARATOR
-} menu_action_t;
+typedef enum menu_action { MENU_ACTION_NONE = 0, MENU_ACTION_EXEC, MENU_ACTION_RESTART, MENU_ACTION_EXIT, MENU_ACTION_RELOAD, MENU_ACTION_RESTORE, MENU_ACTION_SEPARATOR } menu_action_t;
 
 typedef struct menu_item_spec {
-    char* label;
-    menu_action_t action;
-    char* cmd;
-    char* icon_path;
+  char* label;
+  menu_action_t action;
+  char* cmd;
+  char* icon_path;
 } menu_item_spec_t;
 
 /* A single menu item */
 typedef struct menu_item {
-    char* label;
-    menu_action_t action;
+  char* label;
+  menu_action_t action;
 
-    /* Used by MENU_ACTION_EXEC */
-    char* cmd;
+  /* Used by MENU_ACTION_EXEC */
+  char* cmd;
 
-    /* Used by MENU_ACTION_RESTORE */
-    handle_t client;
+  /* Used by MENU_ACTION_RESTORE */
+  handle_t client;
 
-    /* Icon support */
-    char* icon_path;
-    cairo_surface_t* icon_surface; /* cached, owned by the menu item */
+  /* Icon support */
+  char* icon_path;
+  cairo_surface_t* icon_surface; /* cached, owned by the menu item */
 } menu_item_t;
 
 /* Menu instance state */
 typedef struct menu {
-    xcb_window_t window;
+  xcb_window_t window;
 
-    int16_t x, y;
-    uint16_t w, h;
+  int16_t x, y;
+  uint16_t w, h;
 
-    bool visible;
-    bool is_client_list;
-    bool is_switcher;
+  bool visible;
+  bool is_client_list;
+  bool is_switcher;
 
-    int32_t selected_index; /* -1 for none */
-    int32_t item_height;
+  int32_t selected_index; /* -1 for none */
+  int32_t item_height;
 
-    render_context_t render_ctx;
+  render_context_t render_ctx;
 
-    /* Vector of menu_item_t* */
-    small_vec_t items;
+  /* Vector of menu_item_t* */
+  small_vec_t items;
 
-    /* Parsed menu.conf entries (menu_item_spec_t*) */
-    small_vec_t config_items;
+  /* Parsed menu.conf entries (menu_item_spec_t*) */
+  small_vec_t config_items;
 } menu_t;
 
 typedef struct server server_t;
@@ -130,7 +123,9 @@ bool menu_switcher_step(server_t* s, int dir);
 handle_t menu_switcher_selected_client(const server_t* s);
 
 /* Optional helpers for callers */
-static inline bool menu_is_visible(const menu_t* m) { return m && m->visible; }
+static inline bool menu_is_visible(const menu_t* m) {
+  return m && m->visible;
+}
 
 #ifdef __cplusplus
 }

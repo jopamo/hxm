@@ -31,19 +31,19 @@ extern "C" {
 /* ---------------- Arena ---------------- */
 
 typedef struct arena_block {
-    struct arena_block* next;
-    size_t size;
-    size_t used;
-    unsigned char data[];
+  struct arena_block* next;
+  size_t size;
+  size_t used;
+  unsigned char data[];
 } arena_block_t;
 
 typedef struct arena {
-    arena_block_t* first;
-    arena_block_t* current;
-    size_t pos;
+  arena_block_t* first;
+  arena_block_t* current;
+  size_t pos;
 
-    /* Default block size for new allocations */
-    size_t block_size;
+  /* Default block size for new allocations */
+  size_t block_size;
 } arena_t;
 
 /* Initialize arena with a block size hint (0 => sensible default) */
@@ -71,10 +71,10 @@ void arena_destroy(arena_t* a);
 #endif
 
 typedef struct small_vec {
-    void** items;
-    size_t length;
-    size_t capacity;
-    void* inline_storage[SMALL_VEC_INLINE_CAP];
+  void** items;
+  size_t length;
+  size_t capacity;
+  void* inline_storage[SMALL_VEC_INLINE_CAP];
 } small_vec_t;
 
 /* Basic operations */
@@ -94,8 +94,12 @@ void* small_vec_get(const small_vec_t* v, size_t idx);
 void small_vec_remove_swap(small_vec_t* v, void* item);
 
 /* Convenience helpers */
-static inline size_t small_vec_len(const small_vec_t* v) { return v ? v->length : 0u; }
-static inline bool small_vec_empty(const small_vec_t* v) { return !v || v->length == 0u; }
+static inline size_t small_vec_len(const small_vec_t* v) {
+  return v ? v->length : 0u;
+}
+static inline bool small_vec_empty(const small_vec_t* v) {
+  return !v || v->length == 0u;
+}
 
 /* ---------------- Hash map ----------------
  *
@@ -111,16 +115,16 @@ static inline bool small_vec_empty(const small_vec_t* v) { return !v || v->lengt
  */
 
 typedef struct hash_map_entry {
-    uint64_t key;
-    void* value;
-    uint32_t hash;
+  uint64_t key;
+  void* value;
+  uint32_t hash;
 } hash_map_entry_t;
 
 typedef struct hash_map {
-    hash_map_entry_t* entries;
-    size_t capacity;
-    size_t size;
-    size_t max_load;
+  hash_map_entry_t* entries;
+  size_t capacity;
+  size_t size;
+  size_t max_load;
 } hash_map_t;
 
 /* Initialize empty map */
@@ -140,11 +144,17 @@ void* hash_map_get(const hash_map_t* map, uint64_t key);
 /* Remove key if present (returns true if removed) */
 bool hash_map_remove(hash_map_t* map, uint64_t key);
 
-static inline size_t hash_map_size(const hash_map_t* map) { return map ? map->size : 0u; }
-static inline bool hash_map_empty(const hash_map_t* map) { return !map || map->size == 0u; }
+static inline size_t hash_map_size(const hash_map_t* map) {
+  return map ? map->size : 0u;
+}
+static inline bool hash_map_empty(const hash_map_t* map) {
+  return !map || map->size == 0u;
+}
 
 /* expose capacity for diagnostics */
-static inline size_t hash_map_capacity(const hash_map_t* map) { return map ? map->capacity : 0u; }
+static inline size_t hash_map_capacity(const hash_map_t* map) {
+  return map ? map->capacity : 0u;
+}
 
 #ifdef __cplusplus
 }

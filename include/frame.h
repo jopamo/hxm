@@ -16,7 +16,8 @@
  * - frame_init_resources must be called once during server startup
  * - frame_cleanup_resources must be called once during server shutdown
  * - Passing HANDLE_INVALID is a no-op for functions that operate on a handle
- * - If the handle does not resolve to a live client, calls are no-ops and return safe defaults
+ * - If the handle does not resolve to a live client, calls are no-ops and
+ * return safe defaults
  */
 
 #ifndef FRAME_H
@@ -35,19 +36,14 @@ typedef struct server server_t;
 
 /* Redraw flags for the decoration subparts */
 typedef enum frame_redraw_mask {
-    FRAME_REDRAW_BORDER = 1u << 0,
-    FRAME_REDRAW_TITLE = 1u << 1,
-    FRAME_REDRAW_BUTTONS = 1u << 2,
-    FRAME_REDRAW_ALL = (FRAME_REDRAW_BORDER | FRAME_REDRAW_TITLE | FRAME_REDRAW_BUTTONS)
+  FRAME_REDRAW_BORDER = 1u << 0,
+  FRAME_REDRAW_TITLE = 1u << 1,
+  FRAME_REDRAW_BUTTONS = 1u << 2,
+  FRAME_REDRAW_ALL = (FRAME_REDRAW_BORDER | FRAME_REDRAW_TITLE | FRAME_REDRAW_BUTTONS)
 } frame_redraw_mask_t;
 
 /* Button identifiers returned by hit-testing */
-typedef enum frame_button {
-    FRAME_BUTTON_NONE = 0,
-    FRAME_BUTTON_CLOSE,
-    FRAME_BUTTON_MAXIMIZE,
-    FRAME_BUTTON_MINIMIZE
-} frame_button_t;
+typedef enum frame_button { FRAME_BUTTON_NONE = 0, FRAME_BUTTON_CLOSE, FRAME_BUTTON_MAXIMIZE, FRAME_BUTTON_MINIMIZE } frame_button_t;
 
 /* Server-global resource lifecycle */
 void frame_init_resources(server_t* s);
@@ -72,9 +68,13 @@ void frame_flush(server_t* s, handle_t h);
 frame_button_t frame_get_button_at(server_t* s, handle_t h, int16_t x, int16_t y);
 
 /* Helpers */
-static inline uint32_t frame_redraw_mask(frame_redraw_mask_t m) { return (uint32_t)m; }
+static inline uint32_t frame_redraw_mask(frame_redraw_mask_t m) {
+  return (uint32_t)m;
+}
 
-static inline int frame_redraw_mask_valid(uint32_t what) { return (what & ~(uint32_t)FRAME_REDRAW_ALL) == 0u; }
+static inline int frame_redraw_mask_valid(uint32_t what) {
+  return (what & ~(uint32_t)FRAME_REDRAW_ALL) == 0u;
+}
 
 #ifdef __cplusplus
 }

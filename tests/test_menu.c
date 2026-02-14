@@ -12,7 +12,7 @@
 #include "menu.h"
 #include "wm.h"
 
-void setup_server(server_t *s) {
+void setup_server(server_t* s) {
   memset(s, 0, sizeof(server_t));
   s->is_test = true;
   s->root_depth = 24;
@@ -29,11 +29,10 @@ void setup_server(server_t *s) {
   menu_init(s);
 
   // Load default menu config from source tree (tests run from build dir)
-  const char *candidates[] = {"data/menu.conf", "../data/menu.conf"};
+  const char* candidates[] = {"data/menu.conf", "../data/menu.conf"};
   bool loaded = false;
   for (size_t i = 0; i < HXM_ARRAY_LEN(candidates); i++) {
-    if (access(candidates[i], R_OK) == 0 &&
-        menu_load_config(s, candidates[i])) {
+    if (access(candidates[i], R_OK) == 0 && menu_load_config(s, candidates[i])) {
       loaded = true;
       break;
     }
@@ -51,8 +50,8 @@ void test_menu_basics(void) {
 
   // 2. Show menu
   menu_show(&s, 100, 100);
-  assert(s.menu.items.length == 25); // Matches data/menu.conf (15 apps, 3
-                                     // separators, 2 prefs, 4 monitors, 1 exit)
+  assert(s.menu.items.length == 25);  // Matches data/menu.conf (15 apps, 3
+                                      // separators, 2 prefs, 4 monitors, 1 exit)
   assert(s.menu.visible == true);
   assert(s.menu.x == 100);
   assert(s.menu.y == 100);
@@ -66,7 +65,7 @@ void test_menu_basics(void) {
 
   // (110 - 100) = 10. (110 - 100) = 10.
   // 10 - 4 = 6. 6 / 20 = 0.
-  assert(s.menu.selected_index == 0); // Should be selected
+  assert(s.menu.selected_index == 0);  // Should be selected
 
   // 4. Motion (Hover outside)
   menu_handle_pointer_motion(&s, 0, 0);
@@ -83,7 +82,7 @@ void test_menu_basics(void) {
   for (uint32_t i = 1; i < s.clients.cap; i++) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
-      client_hot_t *hot = server_chot(&s, h);
+      client_hot_t* hot = server_chot(&s, h);
       if (hot) {
         render_free(&hot->render_ctx);
         if (hot->icon_surface)
@@ -108,7 +107,7 @@ void test_menu_esc(void) {
 
   // Simulate Escape key press
   xcb_key_press_event_t ev = {0};
-  ev.detail = 9; // Usually Escape keycode
+  ev.detail = 9;  // Usually Escape keycode
 
   // We need to mock xcb_key_symbols_get_keysym to return XK_Escape
   // But since we are using stubs, let's just call wm_handle_key_press with a
@@ -126,7 +125,7 @@ void test_menu_esc(void) {
   for (uint32_t i = 1; i < s.clients.cap; i++) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
-      client_hot_t *hot = server_chot(&s, h);
+      client_hot_t* hot = server_chot(&s, h);
       if (hot) {
         render_free(&hot->render_ctx);
         if (hot->icon_surface)

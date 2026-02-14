@@ -63,20 +63,20 @@
 
 static int make_epoll_or_die(void);
 static void epoll_add_fd_or_die(int epfd, int fd);
-static void load_config_from_home(server_t *s);
-static void load_menu_config(server_t *s);
+static void load_config_from_home(server_t* s);
+static void load_menu_config(server_t* s);
 static void run_autostart(void);
-static void apply_reload(server_t *s);
-static void buckets_reset(event_buckets_t *b);
-static void event_ingest_one(server_t *s, xcb_generic_event_t *ev);
-static bool server_wait_for_events(server_t *s, int timeout_ms);
-static void server_apply_snap_config(server_t *s);
+static void apply_reload(server_t* s);
+static void buckets_reset(event_buckets_t* b);
+static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
+static bool server_wait_for_events(server_t* s, int timeout_ms);
+static void server_apply_snap_config(server_t* s);
 
 volatile sig_atomic_t g_shutdown_pending = 0;
 volatile sig_atomic_t g_restart_pending = 0;
 volatile sig_atomic_t g_reload_pending = 0;
 
-void server_init(server_t *s) {
+void server_init(server_t* s) {
   bool is_test = s->is_test;
   memset(s, 0, sizeof(*s));
   s->is_test = is_test;
@@ -88,7 +88,7 @@ void server_init(server_t *s) {
     exit(1);
   }
 
-  xcb_screen_t *screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+  xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
   s->root = screen->root;
   s->root_visual = screen->root_visual;
   s->root_visual_type = xcb_get_visualtype(s->conn, s->root_visual);
@@ -136,19 +136,17 @@ void server_init(server_t *s) {
 
   s->randr_supported = false;
   s->randr_event_base = 0;
-  const xcb_query_extension_reply_t *randr_ext =
-      xcb_get_extension_data(s->conn, &xcb_randr_id);
+  const xcb_query_extension_reply_t* randr_ext = xcb_get_extension_data(s->conn, &xcb_randr_id);
   if (randr_ext && randr_ext->present) {
     s->randr_supported = true;
     s->randr_event_base = randr_ext->first_event;
-    xcb_randr_query_version_cookie_t rc =
-        xcb_randr_query_version(s->conn, 1, 5);
-    xcb_randr_query_version_reply_t *rr =
-        xcb_randr_query_version_reply(s->conn, rc, NULL);
+    xcb_randr_query_version_cookie_t rc = xcb_randr_query_version(s->conn, 1, 5);
+    xcb_randr_query_version_reply_t* rr = xcb_randr_query_version_reply(s->conn, rc, NULL);
     if (!rr) {
       s->randr_supported = false;
       s->randr_event_base = 0;
-    } else {
+    }
+    else {
       free(rr);
     }
   }
@@ -163,13 +161,11 @@ void server_init(server_t *s) {
 
   // Restore current desktop
   s->current_desktop = 0;
-  xcb_get_property_cookie_t ck = xcb_get_property(
-      s->conn, 0, s->root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 0, 1);
-  xcb_get_property_reply_t *r = xcb_get_property_reply(s->conn, ck, NULL);
+  xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, s->root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 0, 1);
+  xcb_get_property_reply_t* r = xcb_get_property_reply(s->conn, ck, NULL);
   if (r) {
-    if (r->type == XCB_ATOM_CARDINAL && r->format == 32 &&
-        xcb_get_property_value_length(r) >= 4) {
-      uint32_t val = *(uint32_t *)xcb_get_property_value(r);
+    if (r->type == XCB_ATOM_CARDINAL && r->format == 32 && xcb_get_property_value_length(r) >= 4) {
+      uint32_t val = *(uint32_t*)xcb_get_property_value(r);
       if (val < s->desktop_count) {
         s->current_desktop = val;
       }
@@ -179,13 +175,11 @@ void server_init(server_t *s) {
 
   // Restore active window (focus)
   s->initial_focus = XCB_NONE;
-  ck = xcb_get_property(s->conn, 0, s->root, atoms._NET_ACTIVE_WINDOW,
-                        XCB_ATOM_WINDOW, 0, 1);
+  ck = xcb_get_property(s->conn, 0, s->root, atoms._NET_ACTIVE_WINDOW, XCB_ATOM_WINDOW, 0, 1);
   r = xcb_get_property_reply(s->conn, ck, NULL);
   if (r) {
-    if (r->type == XCB_ATOM_WINDOW && r->format == 32 &&
-        xcb_get_property_value_length(r) >= 4) {
-      s->initial_focus = *(xcb_window_t *)xcb_get_property_value(r);
+    if (r->type == XCB_ATOM_WINDOW && r->format == 32 && xcb_get_property_value_length(r) >= 4) {
+      s->initial_focus = *(xcb_window_t*)xcb_get_property_value(r);
       LOG_INFO("Restoring focus to window %u", s->initial_focus);
     }
     free(r);
@@ -198,8 +192,7 @@ void server_init(server_t *s) {
   wm_become(s);
   xcb_install_colormap(s->conn, s->default_colormap);
   if (s->randr_supported) {
-    xcb_randr_select_input(s->conn, s->root,
-                           XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
+    xcb_randr_select_input(s->conn, s->root, XCB_RANDR_NOTIFY_MASK_SCREEN_CHANGE);
   }
 
   // Adopt existing windows (must happen after we are the WM)
@@ -282,8 +275,7 @@ void server_init(server_t *s) {
   s->interaction_handle = HANDLE_INVALID;
 
   // Client storage (handles + hot/cold split)
-  if (!slotmap_init(&s->clients, 8192, sizeof(client_hot_t),
-                    sizeof(client_cold_t))) {
+  if (!slotmap_init(&s->clients, 8192, sizeof(client_hot_t), sizeof(client_cold_t))) {
     LOG_ERROR("client slotmap init failed");
     abort();
   }
@@ -298,15 +290,15 @@ void server_init(server_t *s) {
 
   // Default Icon
   if (access("assets/hxm-black.png", R_OK) == 0) {
-    s->default_icon =
-        cairo_image_surface_create_from_png("assets/hxm-black.png");
+    s->default_icon = cairo_image_surface_create_from_png("assets/hxm-black.png");
     if (cairo_surface_status(s->default_icon) != CAIRO_STATUS_SUCCESS) {
       if (s->default_icon)
         cairo_surface_destroy(s->default_icon);
       s->default_icon = NULL;
       LOG_WARN("Failed to load default icon assets/hxm-black.png");
     }
-  } else {
+  }
+  else {
     s->default_icon = NULL;
   }
 
@@ -320,15 +312,14 @@ void server_init(server_t *s) {
   LOG_INFO("Server initialized");
 }
 
-static void cleanup_client_visitor(void *hot, void *cold, handle_t h,
-                                   void *user) {
+static void cleanup_client_visitor(void* hot, void* cold, handle_t h, void* user) {
   (void)hot;
   (void)cold;
-  server_t *s = (server_t *)user;
+  server_t* s = (server_t*)user;
   client_unmanage(s, h);
 }
 
-void server_cleanup(server_t *s) {
+void server_cleanup(server_t* s) {
   if (s->default_icon) {
     cairo_surface_destroy(s->default_icon);
     s->default_icon = NULL;
@@ -399,9 +390,9 @@ void server_cleanup(server_t *s) {
 
   // Clean up pending states
   for (size_t i = 0; i < s->pending_unmanaged_states.capacity; i++) {
-    hash_map_entry_t *entry = &s->pending_unmanaged_states.entries[i];
+    hash_map_entry_t* entry = &s->pending_unmanaged_states.entries[i];
     if (entry->key != 0) {
-      small_vec_t *v = (small_vec_t *)entry->value;
+      small_vec_t* v = (small_vec_t*)entry->value;
       if (v) {
         for (size_t j = 0; j < v->length; j++) {
           free(v->items[j]);
@@ -447,9 +438,9 @@ static void epoll_add_fd_or_die(int epfd, int fd) {
 
 static void run_autostart(void) {
   char path[1024];
-  const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
-  const char *home = getenv("HOME");
-  const char *exec_path = NULL;
+  const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
+  const char* home = getenv("HOME");
+  const char* exec_path = NULL;
 
   // Check XDG_CONFIG_HOME
   if (xdg_config_home) {
@@ -484,17 +475,18 @@ static void run_autostart(void) {
       execl(exec_path, exec_path, NULL);
       LOG_ERROR("Failed to exec autostart script: %s", strerror(errno));
       exit(1);
-    } else if (pid < 0) {
+    }
+    else if (pid < 0) {
       LOG_ERROR("Failed to fork for autostart: %s", strerror(errno));
     }
   }
 }
 
-static void load_config_from_home(server_t *s) {
+static void load_config_from_home(server_t* s) {
   char path[1024];
   bool config_loaded = false;
-  const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
-  const char *home = getenv("HOME");
+  const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
+  const char* home = getenv("HOME");
 
   if (xdg_config_home) {
     snprintf(path, sizeof(path), "%s/hxm/hxm.conf", xdg_config_home);
@@ -534,11 +526,11 @@ static void load_config_from_home(server_t *s) {
   }
 }
 
-static void load_menu_config(server_t *s) {
+static void load_menu_config(server_t* s) {
   char path[1024];
   bool loaded = false;
-  const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
-  const char *home = getenv("HOME");
+  const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
+  const char* home = getenv("HOME");
 
   if (xdg_config_home) {
     snprintf(path, sizeof(path), "%s/hxm/menu.conf", xdg_config_home);
@@ -567,7 +559,7 @@ static void load_menu_config(server_t *s) {
   }
 }
 
-static void buckets_reset(event_buckets_t *b) {
+static void buckets_reset(event_buckets_t* b) {
   small_vec_clear(&b->map_requests);
   small_vec_clear(&b->unmap_notifies);
   small_vec_clear(&b->destroy_notifies);
@@ -609,7 +601,7 @@ static void buckets_reset(event_buckets_t *b) {
   b->coalesced = 0;
 }
 
-static void server_apply_snap_config(server_t *s) {
+static void server_apply_snap_config(server_t* s) {
   if (!s)
     return;
   s->snap_enabled = s->config.snap_enable;
@@ -630,7 +622,7 @@ static void server_apply_snap_config(server_t *s) {
   s->snap_preview_color = color;
 }
 
-void event_ingest(server_t *s, bool x_ready) {
+void event_ingest(server_t* s, bool x_ready) {
   buckets_reset(&s->buckets);
   arena_reset(&s->tick_arena);
 
@@ -644,7 +636,7 @@ void event_ingest(server_t *s, bool x_ready) {
   }
 
   while (count < MAX_EVENTS_PER_TICK) {
-    xcb_generic_event_t *ev = xcb_poll_for_queued_event(s->conn);
+    xcb_generic_event_t* ev = xcb_poll_for_queued_event(s->conn);
     if (!ev)
       break;
     uint64_t before = s->buckets.coalesced;
@@ -660,7 +652,7 @@ void event_ingest(server_t *s, bool x_ready) {
   }
 
   while (count < MAX_EVENTS_PER_TICK) {
-    xcb_generic_event_t *ev = xcb_poll_for_event(s->conn);
+    xcb_generic_event_t* ev = xcb_poll_for_event(s->conn);
     if (!ev)
       break;
     uint64_t before = s->buckets.coalesced;
@@ -673,36 +665,30 @@ void event_ingest(server_t *s, bool x_ready) {
   s->buckets.ingested = count;
 }
 
-static void event_ingest_one(server_t *s, xcb_generic_event_t *ev) {
+static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
   uint8_t type = ev->response_type & ~0x80;
   HXM_COUNTER_EVENT_SEEN(type);
 
-  if (s->damage_supported &&
-      type == (uint8_t)(s->damage_event_base + XCB_DAMAGE_NOTIFY)) {
-    xcb_damage_notify_event_t *e = (xcb_damage_notify_event_t *)ev;
-    dirty_region_t *region =
-        hash_map_get(&s->buckets.damage_regions, e->drawable);
+  if (s->damage_supported && type == (uint8_t)(s->damage_event_base + XCB_DAMAGE_NOTIFY)) {
+    xcb_damage_notify_event_t* e = (xcb_damage_notify_event_t*)ev;
+    dirty_region_t* region = hash_map_get(&s->buckets.damage_regions, e->drawable);
     if (region) {
-      dirty_region_union_rect(region, e->area.x, e->area.y, e->area.width,
-                              e->area.height);
+      dirty_region_union_rect(region, e->area.x, e->area.y, e->area.width, e->area.height);
       HXM_COUNTER_COALESCED_DROP(type);
       s->buckets.coalesced++;
-      TRACE_LOG("coalesce damage drawable=%u area=%dx%d+%d+%d", e->drawable,
-                e->area.width, e->area.height, e->area.x, e->area.y);
-    } else {
-      dirty_region_t *copy = arena_alloc(&s->tick_arena, sizeof(*copy));
-      *copy = dirty_region_make(e->area.x, e->area.y, e->area.width,
-                                e->area.height);
+      TRACE_LOG("coalesce damage drawable=%u area=%dx%d+%d+%d", e->drawable, e->area.width, e->area.height, e->area.x, e->area.y);
+    }
+    else {
+      dirty_region_t* copy = arena_alloc(&s->tick_arena, sizeof(*copy));
+      *copy = dirty_region_make(e->area.x, e->area.y, e->area.width, e->area.height);
       hash_map_insert(&s->buckets.damage_regions, e->drawable, copy);
     }
     free(ev);
     return;
   }
 
-  if (s->randr_supported &&
-      type == (uint8_t)(s->randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY)) {
-    xcb_randr_screen_change_notify_event_t *e =
-        (xcb_randr_screen_change_notify_event_t *)ev;
+  if (s->randr_supported && type == (uint8_t)(s->randr_event_base + XCB_RANDR_SCREEN_CHANGE_NOTIFY)) {
+    xcb_randr_screen_change_notify_event_t* e = (xcb_randr_screen_change_notify_event_t*)ev;
     if (s->buckets.randr_dirty) {
       HXM_COUNTER_COALESCED_DROP(type);
       s->buckets.coalesced++;
@@ -717,239 +703,228 @@ static void event_ingest_one(server_t *s, xcb_generic_event_t *ev) {
   }
 
   switch (type) {
-  case XCB_EXPOSE: {
-    xcb_expose_event_t *e = (xcb_expose_event_t *)ev;
-    dirty_region_t *region =
-        hash_map_get(&s->buckets.expose_regions, e->window);
-    if (region) {
-      dirty_region_union_rect(region, e->x, e->y, e->width, e->height);
-      HXM_COUNTER_COALESCED_DROP(type);
-      s->buckets.coalesced++;
-    } else {
-      dirty_region_t *copy = arena_alloc(&s->tick_arena, sizeof(*copy));
-      *copy = dirty_region_make(e->x, e->y, e->width, e->height);
-      hash_map_insert(&s->buckets.expose_regions, e->window, copy);
-    }
-    break;
-  }
-
-  case XCB_BUTTON_PRESS:
-  case XCB_BUTTON_RELEASE: {
-    size_t sz = (type == XCB_BUTTON_PRESS) ? sizeof(xcb_button_press_event_t)
-                                           : sizeof(xcb_button_release_event_t);
-    void *copy = arena_alloc(&s->tick_arena, sz);
-    memcpy(copy, ev, sz);
-    small_vec_push(&s->buckets.button_events, copy);
-    break;
-  }
-
-  case XCB_CLIENT_MESSAGE: {
-    xcb_client_message_event_t *e = (xcb_client_message_event_t *)ev;
-    TRACE_LOG("ingest client_message win=%u type=%u format=%u", e->window,
-              e->type, e->format);
-    void *copy = arena_alloc(&s->tick_arena, sizeof(*e));
-    memcpy(copy, e, sizeof(*e));
-    small_vec_push(&s->buckets.client_messages, copy);
-    break;
-  }
-
-  case XCB_KEY_PRESS: {
-    xcb_key_press_event_t *e = (xcb_key_press_event_t *)ev;
-    void *copy = arena_alloc(&s->tick_arena, sizeof(*e));
-    memcpy(copy, e, sizeof(*e));
-    small_vec_push(&s->buckets.key_presses, copy);
-    break;
-  }
-  case XCB_KEY_RELEASE: {
-    xcb_key_release_event_t *e = (xcb_key_release_event_t *)ev;
-    void *copy = arena_alloc(&s->tick_arena, sizeof(*e));
-    memcpy(copy, e, sizeof(*e));
-    small_vec_push(&s->buckets.key_releases, copy);
-    break;
-  }
-
-  case XCB_MAP_REQUEST: {
-    xcb_map_request_event_t *e = (xcb_map_request_event_t *)ev;
-    TRACE_LOG("ingest map_request win=%u parent=%u", e->window, e->parent);
-    void *copy = arena_alloc(&s->tick_arena, sizeof(*e));
-    memcpy(copy, e, sizeof(*e));
-    small_vec_push(&s->buckets.map_requests, copy);
-    break;
-  }
-
-  case XCB_MAP_NOTIFY: {
-    xcb_map_notify_event_t *e = (xcb_map_notify_event_t *)ev;
-    (void)e;
-    TRACE_LOG("ingest map_notify win=%u event=%u override=%u", e->window,
-              e->event, e->override_redirect);
-    break;
-  }
-
-  case XCB_COLORMAP_NOTIFY: {
-    xcb_colormap_notify_event_t *e = (xcb_colormap_notify_event_t *)ev;
-    wm_handle_colormap_notify(s, e);
-    break;
-  }
-
-  case XCB_REPARENT_NOTIFY: {
-    xcb_reparent_notify_event_t *e = (xcb_reparent_notify_event_t *)ev;
-    (void)e;
-    TRACE_LOG("ingest reparent_notify win=%u parent=%u x=%d y=%d override=%u",
-              e->window, e->parent, e->x, e->y, e->override_redirect);
-    break;
-  }
-
-  case XCB_UNMAP_NOTIFY: {
-    xcb_unmap_notify_event_t *e = (xcb_unmap_notify_event_t *)ev;
-    TRACE_LOG("ingest unmap_notify win=%u event=%u from_configure=%u",
-              e->window, e->event, e->from_configure);
-    void *copy = arena_alloc(&s->tick_arena, sizeof(*e));
-    memcpy(copy, e, sizeof(*e));
-    small_vec_push(&s->buckets.unmap_notifies, copy);
-    break;
-  }
-
-  case XCB_DESTROY_NOTIFY: {
-    xcb_destroy_notify_event_t *e = (xcb_destroy_notify_event_t *)ev;
-    TRACE_LOG("ingest destroy_notify win=%u event=%u", e->window, e->event);
-
-    hash_map_insert(&s->buckets.destroyed_windows, e->window, (void *)1);
-    hash_map_remove(&s->buckets.configure_requests, e->window);
-
-    void *copy = arena_alloc(&s->tick_arena, sizeof(*e));
-    memcpy(copy, e, sizeof(*e));
-    small_vec_push(&s->buckets.destroy_notifies, copy);
-    break;
-  }
-
-  case XCB_CONFIGURE_REQUEST: {
-    xcb_configure_request_event_t *e = (xcb_configure_request_event_t *)ev;
-
-    pending_config_t *existing =
-        hash_map_get(&s->buckets.configure_requests, e->window);
-    if (existing) {
-      TRACE_LOG("coalesce configure_request win=%u mask=0x%x", e->window,
-                e->value_mask);
-      if (e->value_mask & XCB_CONFIG_WINDOW_X)
-        existing->x = e->x;
-      if (e->value_mask & XCB_CONFIG_WINDOW_Y)
-        existing->y = e->y;
-      if (e->value_mask & XCB_CONFIG_WINDOW_WIDTH)
-        existing->width = e->width;
-      if (e->value_mask & XCB_CONFIG_WINDOW_HEIGHT)
-        existing->height = e->height;
-      if (e->value_mask & XCB_CONFIG_WINDOW_BORDER_WIDTH)
-        existing->border_width = e->border_width;
-      if (e->value_mask & XCB_CONFIG_WINDOW_SIBLING)
-        existing->sibling = e->sibling;
-      if (e->value_mask & XCB_CONFIG_WINDOW_STACK_MODE)
-        existing->stack_mode = e->stack_mode;
-
-      existing->mask |= e->value_mask;
-      HXM_COUNTER_COALESCED_DROP(type);
-      s->buckets.coalesced++;
-    } else {
-      TRACE_LOG("ingest configure_request win=%u mask=0x%x", e->window,
-                e->value_mask);
-      pending_config_t *pc = arena_alloc(&s->tick_arena, sizeof(*pc));
-      pc->window = e->window;
-      pc->x = e->x;
-      pc->y = e->y;
-      pc->width = e->width;
-      pc->height = e->height;
-      pc->border_width = e->border_width;
-      pc->sibling = e->sibling;
-      pc->stack_mode = e->stack_mode;
-      pc->mask = e->value_mask;
-      hash_map_insert(&s->buckets.configure_requests, e->window, pc);
-    }
-    break;
-  }
-
-  case XCB_CONFIGURE_NOTIFY: {
-    xcb_configure_notify_event_t *e = (xcb_configure_notify_event_t *)ev;
-    xcb_configure_notify_event_t *copy =
-        arena_alloc(&s->tick_arena, sizeof(*e));
-    memcpy(copy, e, sizeof(*e));
-
-    if (hash_map_get(&s->buckets.configure_notifies, e->window)) {
-      HXM_COUNTER_COALESCED_DROP(type);
-      s->buckets.coalesced++;
-      TRACE_LOG("coalesce configure_notify win=%u", e->window);
-    }
-    hash_map_insert(&s->buckets.configure_notifies, e->window, copy);
-    break;
-  }
-
-  case XCB_PROPERTY_NOTIFY: {
-    xcb_property_notify_event_t *e = (xcb_property_notify_event_t *)ev;
-
-    uint64_t key = ((uint64_t)e->window << 32) | (uint64_t)e->atom;
-    if (hash_map_get(&s->buckets.property_notifies, key)) {
-      HXM_COUNTER_COALESCED_DROP(type);
-      s->buckets.coalesced++;
-      TRACE_LOG("coalesce property_notify win=%u atom=%u (%s)", e->window,
-                e->atom, atom_name(e->atom));
+    case XCB_EXPOSE: {
+      xcb_expose_event_t* e = (xcb_expose_event_t*)ev;
+      dirty_region_t* region = hash_map_get(&s->buckets.expose_regions, e->window);
+      if (region) {
+        dirty_region_union_rect(region, e->x, e->y, e->width, e->height);
+        HXM_COUNTER_COALESCED_DROP(type);
+        s->buckets.coalesced++;
+      }
+      else {
+        dirty_region_t* copy = arena_alloc(&s->tick_arena, sizeof(*copy));
+        *copy = dirty_region_make(e->x, e->y, e->width, e->height);
+        hash_map_insert(&s->buckets.expose_regions, e->window, copy);
+      }
       break;
     }
 
-    TRACE_LOG("ingest property_notify win=%u atom=%u (%s) state=%u", e->window,
-              e->atom, atom_name(e->atom), e->state);
-    void *copy = arena_alloc(&s->tick_arena, sizeof(*e));
-    memcpy(copy, e, sizeof(*e));
-    hash_map_insert(&s->buckets.property_notifies, key, copy);
-    break;
-  }
-
-  case XCB_MOTION_NOTIFY: {
-    xcb_motion_notify_event_t *e = (xcb_motion_notify_event_t *)ev;
-    xcb_motion_notify_event_t *existing =
-        hash_map_get(&s->buckets.motion_notifies, e->event);
-    if (existing) {
-      HXM_COUNTER_COALESCED_DROP(type);
-      s->buckets.coalesced++;
-      *existing = *e;
+    case XCB_BUTTON_PRESS:
+    case XCB_BUTTON_RELEASE: {
+      size_t sz = (type == XCB_BUTTON_PRESS) ? sizeof(xcb_button_press_event_t) : sizeof(xcb_button_release_event_t);
+      void* copy = arena_alloc(&s->tick_arena, sz);
+      memcpy(copy, ev, sz);
+      small_vec_push(&s->buckets.button_events, copy);
       break;
     }
-    xcb_motion_notify_event_t *copy = arena_alloc(&s->tick_arena, sizeof(*e));
-    *copy = *e;
-    hash_map_insert(&s->buckets.motion_notifies, e->event, copy);
-    break;
-  }
 
-  case XCB_ENTER_NOTIFY: {
-    xcb_enter_notify_event_t *e = (xcb_enter_notify_event_t *)ev;
-    if (s->buckets.pointer_notify.enter_valid) {
-      HXM_COUNTER_COALESCED_DROP(type);
-      s->buckets.coalesced++;
+    case XCB_CLIENT_MESSAGE: {
+      xcb_client_message_event_t* e = (xcb_client_message_event_t*)ev;
+      TRACE_LOG("ingest client_message win=%u type=%u format=%u", e->window, e->type, e->format);
+      void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+      memcpy(copy, e, sizeof(*e));
+      small_vec_push(&s->buckets.client_messages, copy);
+      break;
     }
-    s->buckets.pointer_notify.enter = *e;
-    s->buckets.pointer_notify.enter_valid = true;
-    break;
-  }
 
-  case XCB_LEAVE_NOTIFY: {
-    xcb_leave_notify_event_t *e = (xcb_leave_notify_event_t *)ev;
-    if (s->buckets.pointer_notify.leave_valid) {
-      HXM_COUNTER_COALESCED_DROP(type);
-      s->buckets.coalesced++;
+    case XCB_KEY_PRESS: {
+      xcb_key_press_event_t* e = (xcb_key_press_event_t*)ev;
+      void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+      memcpy(copy, e, sizeof(*e));
+      small_vec_push(&s->buckets.key_presses, copy);
+      break;
     }
-    s->buckets.pointer_notify.leave = *e;
-    s->buckets.pointer_notify.leave_valid = true;
-    break;
-  }
+    case XCB_KEY_RELEASE: {
+      xcb_key_release_event_t* e = (xcb_key_release_event_t*)ev;
+      void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+      memcpy(copy, e, sizeof(*e));
+      small_vec_push(&s->buckets.key_releases, copy);
+      break;
+    }
 
-  case XCB_NO_EXPOSURE:
-  case XCB_CREATE_NOTIFY:
-  case XCB_FOCUS_IN:
-  case XCB_FOCUS_OUT:
-  case XCB_MAPPING_NOTIFY:
-    // These are noisy and we don't use them for anything right now
-    break;
+    case XCB_MAP_REQUEST: {
+      xcb_map_request_event_t* e = (xcb_map_request_event_t*)ev;
+      TRACE_LOG("ingest map_request win=%u parent=%u", e->window, e->parent);
+      void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+      memcpy(copy, e, sizeof(*e));
+      small_vec_push(&s->buckets.map_requests, copy);
+      break;
+    }
 
-  default:
-    HXM_COUNTER_EVENT_UNHANDLED(type);
-    break;
+    case XCB_MAP_NOTIFY: {
+      xcb_map_notify_event_t* e = (xcb_map_notify_event_t*)ev;
+      (void)e;
+      TRACE_LOG("ingest map_notify win=%u event=%u override=%u", e->window, e->event, e->override_redirect);
+      break;
+    }
+
+    case XCB_COLORMAP_NOTIFY: {
+      xcb_colormap_notify_event_t* e = (xcb_colormap_notify_event_t*)ev;
+      wm_handle_colormap_notify(s, e);
+      break;
+    }
+
+    case XCB_REPARENT_NOTIFY: {
+      xcb_reparent_notify_event_t* e = (xcb_reparent_notify_event_t*)ev;
+      (void)e;
+      TRACE_LOG("ingest reparent_notify win=%u parent=%u x=%d y=%d override=%u", e->window, e->parent, e->x, e->y, e->override_redirect);
+      break;
+    }
+
+    case XCB_UNMAP_NOTIFY: {
+      xcb_unmap_notify_event_t* e = (xcb_unmap_notify_event_t*)ev;
+      TRACE_LOG("ingest unmap_notify win=%u event=%u from_configure=%u", e->window, e->event, e->from_configure);
+      void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+      memcpy(copy, e, sizeof(*e));
+      small_vec_push(&s->buckets.unmap_notifies, copy);
+      break;
+    }
+
+    case XCB_DESTROY_NOTIFY: {
+      xcb_destroy_notify_event_t* e = (xcb_destroy_notify_event_t*)ev;
+      TRACE_LOG("ingest destroy_notify win=%u event=%u", e->window, e->event);
+
+      hash_map_insert(&s->buckets.destroyed_windows, e->window, (void*)1);
+      hash_map_remove(&s->buckets.configure_requests, e->window);
+
+      void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+      memcpy(copy, e, sizeof(*e));
+      small_vec_push(&s->buckets.destroy_notifies, copy);
+      break;
+    }
+
+    case XCB_CONFIGURE_REQUEST: {
+      xcb_configure_request_event_t* e = (xcb_configure_request_event_t*)ev;
+
+      pending_config_t* existing = hash_map_get(&s->buckets.configure_requests, e->window);
+      if (existing) {
+        TRACE_LOG("coalesce configure_request win=%u mask=0x%x", e->window, e->value_mask);
+        if (e->value_mask & XCB_CONFIG_WINDOW_X)
+          existing->x = e->x;
+        if (e->value_mask & XCB_CONFIG_WINDOW_Y)
+          existing->y = e->y;
+        if (e->value_mask & XCB_CONFIG_WINDOW_WIDTH)
+          existing->width = e->width;
+        if (e->value_mask & XCB_CONFIG_WINDOW_HEIGHT)
+          existing->height = e->height;
+        if (e->value_mask & XCB_CONFIG_WINDOW_BORDER_WIDTH)
+          existing->border_width = e->border_width;
+        if (e->value_mask & XCB_CONFIG_WINDOW_SIBLING)
+          existing->sibling = e->sibling;
+        if (e->value_mask & XCB_CONFIG_WINDOW_STACK_MODE)
+          existing->stack_mode = e->stack_mode;
+
+        existing->mask |= e->value_mask;
+        HXM_COUNTER_COALESCED_DROP(type);
+        s->buckets.coalesced++;
+      }
+      else {
+        TRACE_LOG("ingest configure_request win=%u mask=0x%x", e->window, e->value_mask);
+        pending_config_t* pc = arena_alloc(&s->tick_arena, sizeof(*pc));
+        pc->window = e->window;
+        pc->x = e->x;
+        pc->y = e->y;
+        pc->width = e->width;
+        pc->height = e->height;
+        pc->border_width = e->border_width;
+        pc->sibling = e->sibling;
+        pc->stack_mode = e->stack_mode;
+        pc->mask = e->value_mask;
+        hash_map_insert(&s->buckets.configure_requests, e->window, pc);
+      }
+      break;
+    }
+
+    case XCB_CONFIGURE_NOTIFY: {
+      xcb_configure_notify_event_t* e = (xcb_configure_notify_event_t*)ev;
+      xcb_configure_notify_event_t* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+      memcpy(copy, e, sizeof(*e));
+
+      if (hash_map_get(&s->buckets.configure_notifies, e->window)) {
+        HXM_COUNTER_COALESCED_DROP(type);
+        s->buckets.coalesced++;
+        TRACE_LOG("coalesce configure_notify win=%u", e->window);
+      }
+      hash_map_insert(&s->buckets.configure_notifies, e->window, copy);
+      break;
+    }
+
+    case XCB_PROPERTY_NOTIFY: {
+      xcb_property_notify_event_t* e = (xcb_property_notify_event_t*)ev;
+
+      uint64_t key = ((uint64_t)e->window << 32) | (uint64_t)e->atom;
+      if (hash_map_get(&s->buckets.property_notifies, key)) {
+        HXM_COUNTER_COALESCED_DROP(type);
+        s->buckets.coalesced++;
+        TRACE_LOG("coalesce property_notify win=%u atom=%u (%s)", e->window, e->atom, atom_name(e->atom));
+        break;
+      }
+
+      TRACE_LOG("ingest property_notify win=%u atom=%u (%s) state=%u", e->window, e->atom, atom_name(e->atom), e->state);
+      void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+      memcpy(copy, e, sizeof(*e));
+      hash_map_insert(&s->buckets.property_notifies, key, copy);
+      break;
+    }
+
+    case XCB_MOTION_NOTIFY: {
+      xcb_motion_notify_event_t* e = (xcb_motion_notify_event_t*)ev;
+      xcb_motion_notify_event_t* existing = hash_map_get(&s->buckets.motion_notifies, e->event);
+      if (existing) {
+        HXM_COUNTER_COALESCED_DROP(type);
+        s->buckets.coalesced++;
+        *existing = *e;
+        break;
+      }
+      xcb_motion_notify_event_t* copy = arena_alloc(&s->tick_arena, sizeof(*e));
+      *copy = *e;
+      hash_map_insert(&s->buckets.motion_notifies, e->event, copy);
+      break;
+    }
+
+    case XCB_ENTER_NOTIFY: {
+      xcb_enter_notify_event_t* e = (xcb_enter_notify_event_t*)ev;
+      if (s->buckets.pointer_notify.enter_valid) {
+        HXM_COUNTER_COALESCED_DROP(type);
+        s->buckets.coalesced++;
+      }
+      s->buckets.pointer_notify.enter = *e;
+      s->buckets.pointer_notify.enter_valid = true;
+      break;
+    }
+
+    case XCB_LEAVE_NOTIFY: {
+      xcb_leave_notify_event_t* e = (xcb_leave_notify_event_t*)ev;
+      if (s->buckets.pointer_notify.leave_valid) {
+        HXM_COUNTER_COALESCED_DROP(type);
+        s->buckets.coalesced++;
+      }
+      s->buckets.pointer_notify.leave = *e;
+      s->buckets.pointer_notify.leave_valid = true;
+      break;
+    }
+
+    case XCB_NO_EXPOSURE:
+    case XCB_CREATE_NOTIFY:
+    case XCB_FOCUS_IN:
+    case XCB_FOCUS_OUT:
+    case XCB_MAPPING_NOTIFY:
+      // These are noisy and we don't use them for anything right now
+      break;
+
+    default:
+      HXM_COUNTER_EVENT_UNHANDLED(type);
+      break;
   }
 
   free(ev);
@@ -960,7 +935,7 @@ static void log_unhandled_summary(void) {
   static rl_t rl = {0};
   uint64_t now = monotonic_time_ns();
   if (!rl_allow(&rl, now, 1000000000))
-    return; // 1s
+    return;  // 1s
 
   bool any = false;
   char buf[1024];
@@ -973,8 +948,7 @@ static void log_unhandled_summary(void) {
         pos += snprintf(buf + pos, sizeof(buf) - pos, "EV unhandled:");
         any = true;
       }
-      pos += snprintf(buf + pos, sizeof(buf) - pos, " %d=%lu", i,
-                      counters.events_unhandled[i]);
+      pos += snprintf(buf + pos, sizeof(buf) - pos, " %d=%lu", i, counters.events_unhandled[i]);
       counters.events_unhandled[i] = 0;
       if (pos >= (int)sizeof(buf) - 32)
         break;
@@ -987,23 +961,21 @@ static void log_unhandled_summary(void) {
 }
 #endif
 
-void event_process(server_t *s) {
+void event_process(server_t* s) {
 #if HXM_TRACE_LOGS
   static rl_t rl_process = {0};
   uint64_t now = monotonic_time_ns();
-  if (rl_allow(&rl_process, now, 1000000000)) { // 1s
-    TRACE_LOG("event_process buckets map=%zu unmap=%zu destroy=%zu client=%zu "
-              "configure=%zu property=%zu",
-              s->buckets.map_requests.length, s->buckets.unmap_notifies.length,
-              s->buckets.destroy_notifies.length,
-              s->buckets.client_messages.length,
-              hash_map_size(&s->buckets.configure_requests),
-              hash_map_size(&s->buckets.property_notifies));
+  if (rl_allow(&rl_process, now, 1000000000)) {  // 1s
+    TRACE_LOG(
+        "event_process buckets map=%zu unmap=%zu destroy=%zu client=%zu "
+        "configure=%zu property=%zu",
+        s->buckets.map_requests.length, s->buckets.unmap_notifies.length, s->buckets.destroy_notifies.length, s->buckets.client_messages.length, hash_map_size(&s->buckets.configure_requests),
+        hash_map_size(&s->buckets.property_notifies));
   }
 #endif
   // 1. lifecycle
   for (size_t i = 0; i < s->buckets.map_requests.length; i++) {
-    xcb_map_request_event_t *ev = s->buckets.map_requests.items[i];
+    xcb_map_request_event_t* ev = s->buckets.map_requests.items[i];
     if (hash_map_get(&s->buckets.destroyed_windows, ev->window))
       continue;
     TRACE_LOG("process map_request win=%u", ev->window);
@@ -1011,7 +983,7 @@ void event_process(server_t *s) {
   }
 
   for (size_t i = 0; i < s->buckets.unmap_notifies.length; i++) {
-    xcb_unmap_notify_event_t *ev = s->buckets.unmap_notifies.items[i];
+    xcb_unmap_notify_event_t* ev = s->buckets.unmap_notifies.items[i];
     if (hash_map_get(&s->buckets.destroyed_windows, ev->window))
       continue;
     TRACE_LOG("process unmap_notify win=%u event=%u", ev->window, ev->event);
@@ -1019,39 +991,42 @@ void event_process(server_t *s) {
   }
 
   for (size_t i = 0; i < s->buckets.destroy_notifies.length; i++) {
-    xcb_destroy_notify_event_t *ev = s->buckets.destroy_notifies.items[i];
+    xcb_destroy_notify_event_t* ev = s->buckets.destroy_notifies.items[i];
     TRACE_LOG("process destroy_notify win=%u event=%u", ev->window, ev->event);
     wm_handle_destroy_notify(s, ev);
   }
 
   // 2. keys (keybindings)
   for (size_t i = 0; i < s->buckets.key_presses.length; i++) {
-    xcb_key_press_event_t *ev = s->buckets.key_presses.items[i];
+    xcb_key_press_event_t* ev = s->buckets.key_presses.items[i];
     if (s->interaction_mode == INTERACTION_MENU) {
       menu_handle_key_press(s, ev);
-    } else {
+    }
+    else {
       wm_handle_key_press(s, ev);
     }
   }
   for (size_t i = 0; i < s->buckets.key_releases.length; i++) {
-    xcb_key_release_event_t *ev = s->buckets.key_releases.items[i];
+    xcb_key_release_event_t* ev = s->buckets.key_releases.items[i];
     wm_handle_key_release(s, ev);
   }
 
   // 3. buttons (menu, focus, move/resize)
   for (size_t i = 0; i < s->buckets.button_events.length; i++) {
-    xcb_generic_event_t *gev = s->buckets.button_events.items[i];
+    xcb_generic_event_t* gev = s->buckets.button_events.items[i];
     uint8_t type = gev->response_type & ~0x80;
     if (s->interaction_mode == INTERACTION_MENU) {
       if (type == XCB_BUTTON_PRESS)
-        menu_handle_button_press(s, (xcb_button_press_event_t *)gev);
+        menu_handle_button_press(s, (xcb_button_press_event_t*)gev);
       else if (type == XCB_BUTTON_RELEASE)
-        menu_handle_button_release(s, (xcb_button_release_event_t *)gev);
-    } else {
+        menu_handle_button_release(s, (xcb_button_release_event_t*)gev);
+    }
+    else {
       if (type == XCB_BUTTON_PRESS) {
-        wm_handle_button_press(s, (xcb_button_press_event_t *)gev);
-      } else if (type == XCB_BUTTON_RELEASE) {
-        wm_handle_button_release(s, (xcb_button_release_event_t *)gev);
+        wm_handle_button_press(s, (xcb_button_press_event_t*)gev);
+      }
+      else if (type == XCB_BUTTON_RELEASE) {
+        wm_handle_button_release(s, (xcb_button_release_event_t*)gev);
       }
     }
   }
@@ -1059,12 +1034,12 @@ void event_process(server_t *s) {
   // 4. expose (frames + menu)
   if (s->buckets.expose_regions.capacity > 0) {
     for (size_t i = 0; i < s->buckets.expose_regions.capacity; i++) {
-      hash_map_entry_t *entry = &s->buckets.expose_regions.entries[i];
+      hash_map_entry_t* entry = &s->buckets.expose_regions.entries[i];
       if (entry->key == 0)
         continue;
 
       xcb_window_t win = (xcb_window_t)entry->key;
-      dirty_region_t *region = (dirty_region_t *)entry->value;
+      dirty_region_t* region = (dirty_region_t*)entry->value;
       if (!region || !region->valid)
         continue;
 
@@ -1082,7 +1057,7 @@ void event_process(server_t *s) {
 
   // 5. client messages (EWMH/ICCCM)
   for (size_t i = 0; i < s->buckets.client_messages.length; i++) {
-    xcb_client_message_event_t *ev = s->buckets.client_messages.items[i];
+    xcb_client_message_event_t* ev = s->buckets.client_messages.items[i];
     TRACE_LOG("process client_message win=%u type=%u", ev->window, ev->type);
     wm_handle_client_message(s, ev);
   }
@@ -1096,17 +1071,18 @@ void event_process(server_t *s) {
   }
   if (s->buckets.motion_notifies.capacity > 0) {
     for (size_t i = 0; i < s->buckets.motion_notifies.capacity; i++) {
-      hash_map_entry_t *entry = &s->buckets.motion_notifies.entries[i];
+      hash_map_entry_t* entry = &s->buckets.motion_notifies.entries[i];
       if (entry->key == 0)
         continue;
 
-      xcb_motion_notify_event_t *ev = (xcb_motion_notify_event_t *)entry->value;
+      xcb_motion_notify_event_t* ev = (xcb_motion_notify_event_t*)entry->value;
       if (!ev)
         continue;
 
       if (s->interaction_mode == INTERACTION_MENU) {
         menu_handle_pointer_motion(s, ev->event_x, ev->event_y);
-      } else {
+      }
+      else {
         wm_handle_motion_notify(s, ev);
       }
     }
@@ -1115,11 +1091,11 @@ void event_process(server_t *s) {
   // 7. configure requests (coalesced)
   if (s->buckets.configure_requests.capacity > 0) {
     for (size_t i = 0; i < s->buckets.configure_requests.capacity; i++) {
-      hash_map_entry_t *entry = &s->buckets.configure_requests.entries[i];
+      hash_map_entry_t* entry = &s->buckets.configure_requests.entries[i];
       if (entry->key == 0)
         continue;
 
-      pending_config_t *ev = (pending_config_t *)entry->value;
+      pending_config_t* ev = (pending_config_t*)entry->value;
       handle_t h = server_get_client_by_window(s, ev->window);
 
       if (h == HANDLE_INVALID) {
@@ -1144,7 +1120,8 @@ void event_process(server_t *s) {
           values[j++] = (uint32_t)ev->stack_mode;
 
         xcb_configure_window(s->conn, ev->window, mask, values);
-      } else {
+      }
+      else {
         wm_handle_configure_request(s, h, ev);
       }
     }
@@ -1153,12 +1130,11 @@ void event_process(server_t *s) {
   // 8. configure notifies (coalesced)
   if (s->buckets.configure_notifies.capacity > 0) {
     for (size_t i = 0; i < s->buckets.configure_notifies.capacity; i++) {
-      hash_map_entry_t *entry = &s->buckets.configure_notifies.entries[i];
+      hash_map_entry_t* entry = &s->buckets.configure_notifies.entries[i];
       if (entry->key == 0)
         continue;
 
-      xcb_configure_notify_event_t *ev =
-          (xcb_configure_notify_event_t *)entry->value;
+      xcb_configure_notify_event_t* ev = (xcb_configure_notify_event_t*)entry->value;
       handle_t h = server_get_client_by_window(s, ev->window);
       if (h == HANDLE_INVALID)
         h = server_get_client_by_frame(s, ev->window);
@@ -1171,12 +1147,11 @@ void event_process(server_t *s) {
   // 9. property notifies (coalesced)
   if (s->buckets.property_notifies.capacity > 0) {
     for (size_t i = 0; i < s->buckets.property_notifies.capacity; i++) {
-      hash_map_entry_t *entry = &s->buckets.property_notifies.entries[i];
+      hash_map_entry_t* entry = &s->buckets.property_notifies.entries[i];
       if (entry->key == 0)
         continue;
 
-      xcb_property_notify_event_t *ev =
-          (xcb_property_notify_event_t *)entry->value;
+      xcb_property_notify_event_t* ev = (xcb_property_notify_event_t*)entry->value;
       // Fix 1: Ignore _NET_WORKAREA on root to prevent feedback loop
       if (ev->window == s->root && ev->atom == atoms._NET_WORKAREA)
         continue;
@@ -1194,19 +1169,19 @@ void event_process(server_t *s) {
   // 10. damage (coalesced)
   if (s->buckets.damage_regions.capacity > 0) {
     for (size_t i = 0; i < s->buckets.damage_regions.capacity; i++) {
-      hash_map_entry_t *entry = &s->buckets.damage_regions.entries[i];
+      hash_map_entry_t* entry = &s->buckets.damage_regions.entries[i];
       if (entry->key == 0)
         continue;
 
       xcb_window_t win = (xcb_window_t)entry->key;
-      dirty_region_t *region = (dirty_region_t *)entry->value;
+      dirty_region_t* region = (dirty_region_t*)entry->value;
       if (!region || !region->valid)
         continue;
 
       handle_t h = server_get_client_by_window(s, win);
       if (h == HANDLE_INVALID)
         continue;
-      client_hot_t *hot = server_chot(s, h);
+      client_hot_t* hot = server_chot(s, h);
       if (!hot)
         continue;
 
@@ -1219,13 +1194,10 @@ void event_process(server_t *s) {
 
   // 11. RandR (coalesced)
   if (s->buckets.randr_dirty) {
-    TRACE_LOG("process randr dirty width=%u height=%u", s->buckets.randr_width,
-              s->buckets.randr_height);
+    TRACE_LOG("process randr dirty width=%u height=%u", s->buckets.randr_width, s->buckets.randr_height);
     wm_update_monitors(s);
     uint32_t geometry[] = {s->buckets.randr_width, s->buckets.randr_height};
-    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root,
-                        atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32, 2,
-                        geometry);
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32, 2, geometry);
 
     rect_t wa;
     wm_compute_workarea(s, &wa);
@@ -1234,7 +1206,7 @@ void event_process(server_t *s) {
     if (!s->config.fullscreen_use_workarea) {
       for (size_t i = 0; i < s->active_clients.length; i++) {
         handle_t h = ptr_to_handle(s->active_clients.items[i]);
-        client_hot_t *hot = server_chot(s, h);
+        client_hot_t* hot = server_chot(s, h);
         if (!hot || hot->layer != LAYER_FULLSCREEN)
           continue;
         wm_get_monitor_geometry(s, hot, &hot->desired);
@@ -1246,23 +1218,23 @@ void event_process(server_t *s) {
   // 12. maintenance
 }
 
-void server_schedule_timer(server_t *s, int ms) {
+void server_schedule_timer(server_t* s, int ms) {
   if (s->timer_fd <= 0)
     return;
   struct itimerspec its;
   its.it_interval.tv_sec = 0;
-  its.it_interval.tv_nsec = 0; // One-shot
+  its.it_interval.tv_nsec = 0;  // One-shot
   its.it_value.tv_sec = ms / 1000;
   its.it_value.tv_nsec = (ms % 1000) * 1000000;
   if (ms > 0 && its.it_value.tv_sec == 0 && its.it_value.tv_nsec == 0) {
-    its.it_value.tv_nsec = 1; // Minimal positive value
+    its.it_value.tv_nsec = 1;  // Minimal positive value
   }
   if (timerfd_settime(s->timer_fd, 0, &its, NULL) < 0) {
     LOG_WARN("timerfd_settime failed: %s", strerror(errno));
   }
 }
 
-bool event_drain_cookies(server_t *s) {
+bool event_drain_cookies(server_t* s) {
   if (!s)
     return false;
 
@@ -1270,8 +1242,7 @@ bool event_drain_cookies(server_t *s) {
   for (int pass = 0; pass < 3; pass++) {
     size_t before_live = s->cookie_jar.live_count;
 
-    cookie_jar_drain(&s->cookie_jar, s->conn, s,
-                     COOKIE_JAR_MAX_REPLIES_PER_TICK);
+    cookie_jar_drain(&s->cookie_jar, s->conn, s, COOKIE_JAR_MAX_REPLIES_PER_TICK);
 
     bool cookies_progress = (s->cookie_jar.live_count != before_live);
     if (cookies_progress)
@@ -1284,15 +1255,15 @@ bool event_drain_cookies(server_t *s) {
   return any_progress;
 }
 
-static void apply_reload(server_t *s) {
+static void apply_reload(server_t* s) {
   LOG_INFO("Reloading configuration");
 
   config_t next_config;
   config_init_defaults(&next_config);
 
   char path[1024];
-  const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
-  const char *home = getenv("HOME");
+  const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
+  const char* home = getenv("HOME");
   bool loaded = false;
 
   if (xdg_config_home) {
@@ -1334,8 +1305,7 @@ static void apply_reload(server_t *s) {
   s->config = next_config;
   server_apply_snap_config(s);
 
-  uint32_t desired =
-      s->config.desktop_count ? s->config.desktop_count : s->desktop_count;
+  uint32_t desired = s->config.desktop_count ? s->config.desktop_count : s->desktop_count;
   if (desired == 0)
     desired = 1;
   if (desired != s->desktop_count) {
@@ -1345,15 +1315,13 @@ static void apply_reload(server_t *s) {
 
     for (size_t i = 0; i < s->active_clients.length; i++) {
       handle_t h = ptr_to_handle(s->active_clients.items[i]);
-      client_hot_t *hot = server_chot(s, h);
+      client_hot_t* hot = server_chot(s, h);
       if (!hot || hot->sticky)
         continue;
       if (hot->desktop >= (int32_t)s->desktop_count) {
         hot->desktop = (int32_t)s->current_desktop;
         uint32_t prop_val = (uint32_t)hot->desktop;
-        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid,
-                            atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
-                            &prop_val);
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 32, 1, &prop_val);
       }
     }
   }
@@ -1375,7 +1343,7 @@ static void apply_reload(server_t *s) {
 
   for (size_t i = 0; i < s->active_clients.length; i++) {
     handle_t h = ptr_to_handle(s->active_clients.items[i]);
-    client_hot_t *hot = server_chot(s, h);
+    client_hot_t* hot = server_chot(s, h);
     if (hot)
       hot->dirty |= DIRTY_FRAME_STYLE | DIRTY_GEOM;
   }
@@ -1383,7 +1351,7 @@ static void apply_reload(server_t *s) {
   wm_publish_desktop_props(s);
 }
 
-static void event_handle_signals(server_t *s) {
+static void event_handle_signals(server_t* s) {
   for (;;) {
     struct signalfd_siginfo fdsi;
     ssize_t s_size = read(s->signal_fd, &fdsi, sizeof(fdsi));
@@ -1397,41 +1365,41 @@ static void event_handle_signals(server_t *s) {
 
     int sig = (int)fdsi.ssi_signo;
     switch (sig) {
-    case SIGHUP:
-      LOG_INFO("Reload requested (signalfd)");
-      g_reload_pending = 1;
-      break;
-    case SIGINT:
-    case SIGTERM:
-      LOG_INFO("Shutting down (signalfd)");
-      g_shutdown_pending = 1;
-      break;
-    case SIGUSR1:
+      case SIGHUP:
+        LOG_INFO("Reload requested (signalfd)");
+        g_reload_pending = 1;
+        break;
+      case SIGINT:
+      case SIGTERM:
+        LOG_INFO("Shutting down (signalfd)");
+        g_shutdown_pending = 1;
+        break;
+      case SIGUSR1:
 #if HXM_DIAG
-      counters_dump();
+        counters_dump();
 #endif
-      break;
-    case SIGUSR2:
-      LOG_INFO("Restart requested (signalfd)");
-      g_restart_pending = 1;
-      break;
-    case SIGCHLD:
-      // Handle zombies if we fork processes
-      while (waitpid(-1, NULL, WNOHANG) > 0)
-        ;
-      break;
+        break;
+      case SIGUSR2:
+        LOG_INFO("Restart requested (signalfd)");
+        g_restart_pending = 1;
+        break;
+      case SIGCHLD:
+        // Handle zombies if we fork processes
+        while (waitpid(-1, NULL, WNOHANG) > 0)
+          ;
+        break;
     }
   }
 }
 
-static bool server_wait_for_events(server_t *s, int timeout_ms) {
+static bool server_wait_for_events(server_t* s, int timeout_ms) {
   if (s->epoll_fd < 0)
     return true;
 
   if (s->prefetched_event)
     return true;
 
-  xcb_generic_event_t *queued = xcb_poll_for_queued_event(s->conn);
+  xcb_generic_event_t* queued = xcb_poll_for_queued_event(s->conn);
   if (queued) {
     s->prefetched_event = queued;
     return true;
@@ -1470,9 +1438,11 @@ static bool server_wait_for_events(server_t *s, int timeout_ms) {
 
         if (evs[i].data.fd == s->xcb_fd) {
           x_ready = true;
-        } else if (evs[i].data.fd == s->signal_fd) {
+        }
+        else if (evs[i].data.fd == s->signal_fd) {
           event_handle_signals(s);
-        } else if (evs[i].data.fd == s->timer_fd) {
+        }
+        else if (evs[i].data.fd == s->timer_fd) {
           uint64_t expirations;
           if (read(s->timer_fd, &expirations, sizeof(expirations)) < 0) {
             // ignore error
@@ -1504,7 +1474,7 @@ static bool server_wait_for_events(server_t *s, int timeout_ms) {
   }
 }
 
-void server_run(server_t *s) {
+void server_run(server_t* s) {
   LOG_INFO("Starting event loop");
 
   static uint64_t last_flush_time = 0;
@@ -1523,11 +1493,11 @@ void server_run(server_t *s) {
       if (len != -1) {
         path[len] = '\0';
         // If the binary was replaced, readlink might append " (deleted)"
-        char *deleted_suffix = strstr(path, " (deleted)");
+        char* deleted_suffix = strstr(path, " (deleted)");
         if (deleted_suffix)
           *deleted_suffix = '\0';
 
-        char *args[] = {path, NULL};
+        char* args[] = {path, NULL};
 
         server_cleanup(s);
         execv(path, args);
@@ -1552,7 +1522,8 @@ void server_run(server_t *s) {
     if (!reload_applied) {
       if (s->x_poll_immediate) {
         x_ready = true;
-      } else {
+      }
+      else {
         x_ready = server_wait_for_events(s, next_timeout);
       }
     }
@@ -1576,8 +1547,7 @@ void server_run(server_t *s) {
 #if HXM_TRACE_LOGS
       static rl_t rl_wa = {0};
       if (rl_allow(&rl_wa, monotonic_time_ns(), 1000000000)) {
-        TRACE_LOG("publish_workarea debounced x=%d y=%d w=%u h=%u", wa.x, wa.y,
-                  wa.w, wa.h);
+        TRACE_LOG("publish_workarea debounced x=%d y=%d w=%u h=%u", wa.x, wa.y, wa.w, wa.h);
       }
 #endif
       wm_publish_workarea(s, &wa);
@@ -1589,19 +1559,19 @@ void server_run(server_t *s) {
     if (last_flush_time == 0)
       last_flush_time = flush_now;
     bool busy = s->x_poll_immediate;
-    if (s->pending_flush &&
-        (!busy || flush_now - last_flush_time >= 8000000)) { // 8ms ~ 125Hz
+    if (s->pending_flush && (!busy || flush_now - last_flush_time >= 8000000)) {  // 8ms ~ 125Hz
       xcb_flush(s->conn);
       s->pending_flush = false;
       last_flush_time = flush_now;
       HXM_COUNTER_X_FLUSH();
       next_timeout = -1;
-    } else {
-      uint64_t elapsed =
-          (flush_now >= last_flush_time) ? (flush_now - last_flush_time) : 0;
+    }
+    else {
+      uint64_t elapsed = (flush_now >= last_flush_time) ? (flush_now - last_flush_time) : 0;
       if (elapsed >= 8000000) {
         next_timeout = 0;
-      } else {
+      }
+      else {
         uint64_t rem = 8000000 - elapsed;
         next_timeout = (int)(rem / 1000000) + 1;
       }

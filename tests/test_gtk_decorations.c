@@ -13,12 +13,12 @@ extern xcb_atom_t stub_last_prop_atom;
 extern uint32_t stub_last_prop_len;
 extern uint8_t stub_last_prop_data[1024];
 
-static void cleanup_server(server_t *s) {
+static void cleanup_server(server_t* s) {
   for (uint32_t i = 1; i < s->clients.cap; i++) {
     if (!s->clients.hdr[i].live)
       continue;
     handle_t h = handle_make(i, s->clients.hdr[i].gen);
-    client_hot_t *hot = server_chot(s, h);
+    client_hot_t* hot = server_chot(s, h);
     if (!hot)
       continue;
     render_free(&hot->render_ctx);
@@ -40,14 +40,13 @@ void test_gtk_extents_toggle_decorations(void) {
   s.is_test = true;
   s.root_depth = 24;
   s.root_visual_type = xcb_get_visualtype(NULL, 0);
-  s.conn = (xcb_connection_t *)malloc(1);
+  s.conn = (xcb_connection_t*)malloc(1);
 
   config_init_defaults(&s.config);
   s.config.theme.border_width = 5;
   s.config.theme.title_height = 20;
 
-  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t),
-                    sizeof(client_cold_t))) {
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) {
     config_destroy(&s.config);
     free(s.conn);
     return;
@@ -57,7 +56,7 @@ void test_gtk_extents_toggle_decorations(void) {
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->frame = 456;
@@ -99,7 +98,7 @@ void test_gtk_extents_toggle_decorations(void) {
 
   assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
   assert(stub_last_prop_len == 4);
-  uint32_t *extents_check = (uint32_t *)stub_last_prop_data;
+  uint32_t* extents_check = (uint32_t*)stub_last_prop_data;
   assert(extents_check[0] == 0);
   assert(extents_check[1] == 0);
   assert(extents_check[2] == 0);
@@ -128,7 +127,7 @@ void test_gtk_extents_toggle_decorations(void) {
   uint16_t bottom = (hh > bw) ? hh : bw;
 
   assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
-  uint32_t *extents = (uint32_t *)stub_last_prop_data;
+  uint32_t* extents = (uint32_t*)stub_last_prop_data;
   assert(extents[0] == 5);
   assert(extents[1] == 5);
   assert(extents[2] == 25);
@@ -143,15 +142,14 @@ void test_gtk_configure_request_extents(void) {
   server_t s;
   memset(&s, 0, sizeof(s));
 
-  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t),
-                    sizeof(client_cold_t)))
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
   small_vec_init(&s.active_clients);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
   hot->self = h;
   hot->gtk_frame_extents_set = true;
   hot->gtk_extents.left = 8;
@@ -161,8 +159,7 @@ void test_gtk_configure_request_extents(void) {
 
   pending_config_t ev;
   memset(&ev, 0, sizeof(ev));
-  ev.mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-            XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+  ev.mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
   ev.x = 200;
   ev.y = 100;
   ev.width = 300;

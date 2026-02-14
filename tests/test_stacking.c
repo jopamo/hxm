@@ -21,263 +21,274 @@ extern uint32_t stub_last_prop_len;
 extern uint8_t stub_last_prop_data[1024];
 
 static bool init_server(server_t* s) {
-    memset(s, 0, sizeof(*s));
-    s->is_test = true;
-    s->conn = (xcb_connection_t*)malloc(1);
-    config_init_defaults(&s->config);
-    for (int i = 0; i < LAYER_COUNT; i++) small_vec_init(&s->layers[i]);
-    arena_init(&s->tick_arena, 4096);
-    list_init(&s->focus_history);
-    small_vec_init(&s->active_clients);
-    if (slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) return true;
-    free(s->conn);
-    return false;
+  memset(s, 0, sizeof(*s));
+  s->is_test = true;
+  s->conn = (xcb_connection_t*)malloc(1);
+  config_init_defaults(&s->config);
+  for (int i = 0; i < LAYER_COUNT; i++)
+    small_vec_init(&s->layers[i]);
+  arena_init(&s->tick_arena, 4096);
+  list_init(&s->focus_history);
+  small_vec_init(&s->active_clients);
+  if (slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
+    return true;
+  free(s->conn);
+  return false;
 }
 
 static void cleanup_server(server_t* s) {
-    for (uint32_t i = 1; i < s->clients.cap; i++) {
-        if (!s->clients.hdr[i].live) continue;
-        handle_t h = handle_make(i, s->clients.hdr[i].gen);
-        client_hot_t* hot = server_chot(s, h);
-        if (!hot) continue;
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface) cairo_surface_destroy(hot->icon_surface);
-    }
-    slotmap_destroy(&s->clients);
-    small_vec_destroy(&s->active_clients);
-    for (int i = 0; i < LAYER_COUNT; i++) {
-        small_vec_destroy(&s->layers[i]);
-    }
-    arena_destroy(&s->tick_arena);
-    config_destroy(&s->config);
-    free(s->conn);
+  for (uint32_t i = 1; i < s->clients.cap; i++) {
+    if (!s->clients.hdr[i].live)
+      continue;
+    handle_t h = handle_make(i, s->clients.hdr[i].gen);
+    client_hot_t* hot = server_chot(s, h);
+    if (!hot)
+      continue;
+    render_free(&hot->render_ctx);
+    if (hot->icon_surface)
+      cairo_surface_destroy(hot->icon_surface);
+  }
+  slotmap_destroy(&s->clients);
+  small_vec_destroy(&s->active_clients);
+  for (int i = 0; i < LAYER_COUNT; i++) {
+    small_vec_destroy(&s->layers[i]);
+  }
+  arena_destroy(&s->tick_arena);
+  config_destroy(&s->config);
+  free(s->conn);
 }
 
 static handle_t add_client(server_t* s, xcb_window_t xid, xcb_window_t frame, int layer) {
-    void *hot_ptr = NULL, *cold_ptr = NULL;
-    handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
-    client_hot_t* hot = (client_hot_t*)hot_ptr;
-    hot->self = h;
-    hot->xid = xid;
-    hot->frame = frame;
-    hot->layer = layer;
-    hot->base_layer = layer;
-    hot->state = STATE_MAPPED;
-    hot->stacking_index = -1;
-    hot->stacking_layer = -1;
-    list_init(&hot->transients_head);
-    list_init(&hot->transient_sibling);
-    list_init(&hot->focus_node);
-    small_vec_push(&s->active_clients, handle_to_ptr(h));
-    return h;
+  void *hot_ptr = NULL, *cold_ptr = NULL;
+  handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
+  hot->self = h;
+  hot->xid = xid;
+  hot->frame = frame;
+  hot->layer = layer;
+  hot->base_layer = layer;
+  hot->state = STATE_MAPPED;
+  hot->stacking_index = -1;
+  hot->stacking_layer = -1;
+  list_init(&hot->transients_head);
+  list_init(&hot->transient_sibling);
+  list_init(&hot->focus_node);
+  small_vec_push(&s->active_clients, handle_to_ptr(h));
+  return h;
 }
 
 static void assert_layer_order(const server_t* s, int layer, const handle_t* handles, size_t count) {
-    const small_vec_t* v = &s->layers[layer];
-    assert(v->length == count);
-    for (size_t i = 0; i < count; i++) {
-        assert((handle_t)(uintptr_t)v->items[i] == handles[i]);
-    }
+  const small_vec_t* v = &s->layers[layer];
+  assert(v->length == count);
+  for (size_t i = 0; i < count; i++) {
+    assert((handle_t)(uintptr_t)v->items[i] == handles[i]);
+  }
 }
 
 void test_stack_restack_single_and_sibling(void) {
-    server_t s;
-    if (!init_server(&s)) return;
+  server_t s;
+  if (!init_server(&s))
+    return;
 
-    handle_t ha = add_client(&s, 10, 110, LAYER_NORMAL);
-    client_hot_t* a = server_chot(&s, ha);
+  handle_t ha = add_client(&s, 10, 110, LAYER_NORMAL);
+  client_hot_t* a = server_chot(&s, ha);
 
-    stub_configure_window_count = 0;
-    stack_raise(&s, ha);
-    wm_flush_dirty(&s, monotonic_time_ns());
+  stub_configure_window_count = 0;
+  stack_raise(&s, ha);
+  wm_flush_dirty(&s, monotonic_time_ns());
 
-    assert(stub_configure_window_count == 1);
-    assert(stub_last_config_window == a->frame);
-    assert(stub_last_config_mask & XCB_CONFIG_WINDOW_STACK_MODE);
-    assert((stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING) == 0);
-    assert(stub_last_config_stack_mode == XCB_STACK_MODE_ABOVE);
-    assert(stub_last_config_sibling == 0);
+  assert(stub_configure_window_count == 1);
+  assert(stub_last_config_window == a->frame);
+  assert(stub_last_config_mask & XCB_CONFIG_WINDOW_STACK_MODE);
+  assert((stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING) == 0);
+  assert(stub_last_config_stack_mode == XCB_STACK_MODE_ABOVE);
+  assert(stub_last_config_sibling == 0);
 
-    handle_t hb = add_client(&s, 20, 120, LAYER_NORMAL);
-    client_hot_t* b = server_chot(&s, hb);
-    stack_raise(&s, hb);
-    wm_flush_dirty(&s, monotonic_time_ns());
+  handle_t hb = add_client(&s, 20, 120, LAYER_NORMAL);
+  client_hot_t* b = server_chot(&s, hb);
+  stack_raise(&s, hb);
+  wm_flush_dirty(&s, monotonic_time_ns());
 
-    {
-        handle_t order[] = {ha, hb};
-        assert_layer_order(&s, LAYER_NORMAL, order, 2);
-    }
-    assert(stub_last_config_window == b->frame);
-    assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
-    assert(stub_last_config_sibling == a->frame);
-    assert(stub_last_config_stack_mode == XCB_STACK_MODE_ABOVE);
+  {
+    handle_t order[] = {ha, hb};
+    assert_layer_order(&s, LAYER_NORMAL, order, 2);
+  }
+  assert(stub_last_config_window == b->frame);
+  assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
+  assert(stub_last_config_sibling == a->frame);
+  assert(stub_last_config_stack_mode == XCB_STACK_MODE_ABOVE);
 
-    stack_lower(&s, hb);
-    wm_flush_dirty(&s, monotonic_time_ns());
+  stack_lower(&s, hb);
+  wm_flush_dirty(&s, monotonic_time_ns());
 
-    {
-        handle_t order[] = {hb, ha};
-        assert_layer_order(&s, LAYER_NORMAL, order, 2);
-    }
-    assert(stub_last_config_window == b->frame);
-    assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
-    assert(stub_last_config_sibling == a->frame);
-    assert(stub_last_config_stack_mode == XCB_STACK_MODE_BELOW);
+  {
+    handle_t order[] = {hb, ha};
+    assert_layer_order(&s, LAYER_NORMAL, order, 2);
+  }
+  assert(stub_last_config_window == b->frame);
+  assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
+  assert(stub_last_config_sibling == a->frame);
+  assert(stub_last_config_stack_mode == XCB_STACK_MODE_BELOW);
 
-    printf("test_stack_restack_single_and_sibling passed\n");
+  printf("test_stack_restack_single_and_sibling passed\n");
 
-    cleanup_server(&s);
+  cleanup_server(&s);
 }
 
 void test_stack_cross_layer_sibling(void) {
-    server_t s;
-    if (!init_server(&s)) return;
+  server_t s;
+  if (!init_server(&s))
+    return;
 
-    handle_t h1 = add_client(&s, 10, 110, LAYER_NORMAL);
-    handle_t h2 = add_client(&s, 20, 120, LAYER_NORMAL);
-    stack_raise(&s, h1);
-    stack_raise(&s, h2);
+  handle_t h1 = add_client(&s, 10, 110, LAYER_NORMAL);
+  handle_t h2 = add_client(&s, 20, 120, LAYER_NORMAL);
+  stack_raise(&s, h1);
+  stack_raise(&s, h2);
 
-    handle_t h3 = add_client(&s, 30, 130, LAYER_ABOVE);
-    client_hot_t* c = server_chot(&s, h3);
-    client_hot_t* top = server_chot(&s, h2);
-    stack_raise(&s, h3);
-    wm_flush_dirty(&s, monotonic_time_ns());
+  handle_t h3 = add_client(&s, 30, 130, LAYER_ABOVE);
+  client_hot_t* c = server_chot(&s, h3);
+  client_hot_t* top = server_chot(&s, h2);
+  stack_raise(&s, h3);
+  wm_flush_dirty(&s, monotonic_time_ns());
 
-    assert(stub_last_config_window == c->frame);
-    assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
-    assert(stub_last_config_sibling == top->frame);
-    assert(stub_last_config_stack_mode == XCB_STACK_MODE_ABOVE);
+  assert(stub_last_config_window == c->frame);
+  assert(stub_last_config_mask & XCB_CONFIG_WINDOW_SIBLING);
+  assert(stub_last_config_sibling == top->frame);
+  assert(stub_last_config_stack_mode == XCB_STACK_MODE_ABOVE);
 
-    printf("test_stack_cross_layer_sibling passed\n");
+  printf("test_stack_cross_layer_sibling passed\n");
 
-    cleanup_server(&s);
+  cleanup_server(&s);
 }
 
 void test_stack_raise_transients_restack_count(void) {
-    server_t s;
-    if (!init_server(&s)) return;
+  server_t s;
+  if (!init_server(&s))
+    return;
 
-    handle_t hp = add_client(&s, 10, 110, LAYER_NORMAL);
-    handle_t ht1 = add_client(&s, 20, 120, LAYER_NORMAL);
-    handle_t ht2 = add_client(&s, 30, 130, LAYER_NORMAL);
+  handle_t hp = add_client(&s, 10, 110, LAYER_NORMAL);
+  handle_t ht1 = add_client(&s, 20, 120, LAYER_NORMAL);
+  handle_t ht2 = add_client(&s, 30, 130, LAYER_NORMAL);
 
-    client_hot_t* p = server_chot(&s, hp);
-    client_hot_t* t1 = server_chot(&s, ht1);
-    client_hot_t* t2 = server_chot(&s, ht2);
+  client_hot_t* p = server_chot(&s, hp);
+  client_hot_t* t1 = server_chot(&s, ht1);
+  client_hot_t* t2 = server_chot(&s, ht2);
 
-    t1->transient_for = hp;
-    list_insert(&t1->transient_sibling, p->transients_head.prev, &p->transients_head);
-    t2->transient_for = hp;
-    list_insert(&t2->transient_sibling, p->transients_head.prev, &p->transients_head);
+  t1->transient_for = hp;
+  list_insert(&t1->transient_sibling, p->transients_head.prev, &p->transients_head);
+  t2->transient_for = hp;
+  list_insert(&t2->transient_sibling, p->transients_head.prev, &p->transients_head);
 
-    stub_configure_window_count = 0;
-    stack_raise(&s, hp);
-    wm_flush_dirty(&s, monotonic_time_ns());
+  stub_configure_window_count = 0;
+  stack_raise(&s, hp);
+  wm_flush_dirty(&s, monotonic_time_ns());
 
-    assert(stub_configure_window_count == 3);
-    {
-        handle_t order[] = {hp, ht1, ht2};
-        assert_layer_order(&s, LAYER_NORMAL, order, 3);
-    }
+  assert(stub_configure_window_count == 3);
+  {
+    handle_t order[] = {hp, ht1, ht2};
+    assert_layer_order(&s, LAYER_NORMAL, order, 3);
+  }
 
-    printf("test_stack_raise_transients_restack_count passed\n");
+  printf("test_stack_raise_transients_restack_count passed\n");
 
-    cleanup_server(&s);
+  cleanup_server(&s);
 }
 
 void test_root_stacking_property_order(void) {
-    server_t s;
-    if (!init_server(&s)) return;
+  server_t s;
+  if (!init_server(&s))
+    return;
 
-    s.root = 1;
-    atoms._NET_CLIENT_LIST_STACKING = 400;
+  s.root = 1;
+  atoms._NET_CLIENT_LIST_STACKING = 400;
 
-    handle_t hb = add_client(&s, 10, 110, LAYER_BELOW);
-    handle_t hn1 = add_client(&s, 20, 120, LAYER_NORMAL);
-    handle_t hn2 = add_client(&s, 30, 130, LAYER_NORMAL);
-    handle_t ha = add_client(&s, 40, 140, LAYER_ABOVE);
+  handle_t hb = add_client(&s, 10, 110, LAYER_BELOW);
+  handle_t hn1 = add_client(&s, 20, 120, LAYER_NORMAL);
+  handle_t hn2 = add_client(&s, 30, 130, LAYER_NORMAL);
+  handle_t ha = add_client(&s, 40, 140, LAYER_ABOVE);
 
-    stack_raise(&s, hb);
-    stack_raise(&s, hn1);
-    stack_raise(&s, hn2);
-    stack_raise(&s, ha);
+  stack_raise(&s, hb);
+  stack_raise(&s, hn1);
+  stack_raise(&s, hn2);
+  stack_raise(&s, ha);
 
-    s.root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
-    stub_last_prop_atom = 0;
-    wm_flush_dirty(&s, monotonic_time_ns());
+  s.root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+  stub_last_prop_atom = 0;
+  wm_flush_dirty(&s, monotonic_time_ns());
 
-    assert(stub_last_prop_atom == atoms._NET_CLIENT_LIST_STACKING);
-    assert(stub_last_prop_len == 4);
-    uint32_t* wins = (uint32_t*)stub_last_prop_data;
-    assert(wins[0] == 10);
-    assert(wins[1] == 20);
-    assert(wins[2] == 30);
-    assert(wins[3] == 40);
+  assert(stub_last_prop_atom == atoms._NET_CLIENT_LIST_STACKING);
+  assert(stub_last_prop_len == 4);
+  uint32_t* wins = (uint32_t*)stub_last_prop_data;
+  assert(wins[0] == 10);
+  assert(wins[1] == 20);
+  assert(wins[2] == 30);
+  assert(wins[3] == 40);
 
-    printf("test_root_stacking_property_order passed\n");
+  printf("test_root_stacking_property_order passed\n");
 
-    cleanup_server(&s);
+  cleanup_server(&s);
 }
 
 void test_root_stacking_desktop_below_normal(void) {
-    server_t s;
-    if (!init_server(&s)) return;
+  server_t s;
+  if (!init_server(&s))
+    return;
 
-    s.root = 1;
-    atoms._NET_CLIENT_LIST_STACKING = 500;
+  s.root = 1;
+  atoms._NET_CLIENT_LIST_STACKING = 500;
 
-    handle_t hdesk = add_client(&s, 11, 111, LAYER_DESKTOP);
-    handle_t hbelow = add_client(&s, 22, 122, LAYER_BELOW);
-    handle_t hnormal = add_client(&s, 33, 133, LAYER_NORMAL);
+  handle_t hdesk = add_client(&s, 11, 111, LAYER_DESKTOP);
+  handle_t hbelow = add_client(&s, 22, 122, LAYER_BELOW);
+  handle_t hnormal = add_client(&s, 33, 133, LAYER_NORMAL);
 
-    stack_raise(&s, hdesk);
-    stack_raise(&s, hbelow);
-    stack_raise(&s, hnormal);
+  stack_raise(&s, hdesk);
+  stack_raise(&s, hbelow);
+  stack_raise(&s, hnormal);
 
-    s.root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
-    stub_last_prop_atom = 0;
-    wm_flush_dirty(&s, monotonic_time_ns());
+  s.root_dirty |= ROOT_DIRTY_CLIENT_LIST_STACKING;
+  stub_last_prop_atom = 0;
+  wm_flush_dirty(&s, monotonic_time_ns());
 
-    assert(stub_last_prop_atom == atoms._NET_CLIENT_LIST_STACKING);
-    assert(stub_last_prop_len == 3);
-    uint32_t* wins = (uint32_t*)stub_last_prop_data;
-    assert(wins[0] == 11);  // Desktop layer (wallpaper/root) at bottom
-    assert(wins[1] == 22);  // BELOW layer sits above desktop
-    assert(wins[2] == 33);  // Normal windows above BELOW
+  assert(stub_last_prop_atom == atoms._NET_CLIENT_LIST_STACKING);
+  assert(stub_last_prop_len == 3);
+  uint32_t* wins = (uint32_t*)stub_last_prop_data;
+  assert(wins[0] == 11);  // Desktop layer (wallpaper/root) at bottom
+  assert(wins[1] == 22);  // BELOW layer sits above desktop
+  assert(wins[2] == 33);  // Normal windows above BELOW
 
-    printf("test_root_stacking_desktop_below_normal passed\n");
+  printf("test_root_stacking_desktop_below_normal passed\n");
 
-    cleanup_server(&s);
+  cleanup_server(&s);
 }
 
 void test_focus_raise_on_focus(void) {
-    server_t s;
-    if (!init_server(&s)) return;
+  server_t s;
+  if (!init_server(&s))
+    return;
 
-    s.config.focus_raise = true;
+  s.config.focus_raise = true;
 
-    handle_t h1 = add_client(&s, 10, 110, LAYER_NORMAL);
-    handle_t h2 = add_client(&s, 20, 120, LAYER_NORMAL);
-    stack_raise(&s, h1);
-    stack_raise(&s, h2);
+  handle_t h1 = add_client(&s, 10, 110, LAYER_NORMAL);
+  handle_t h2 = add_client(&s, 20, 120, LAYER_NORMAL);
+  stack_raise(&s, h1);
+  stack_raise(&s, h2);
 
-    wm_set_focus(&s, h1);
-    wm_flush_dirty(&s, monotonic_time_ns());
+  wm_set_focus(&s, h1);
+  wm_flush_dirty(&s, monotonic_time_ns());
 
-    handle_t order[] = {h2, h1};
-    assert_layer_order(&s, LAYER_NORMAL, order, 2);
+  handle_t order[] = {h2, h1};
+  assert_layer_order(&s, LAYER_NORMAL, order, 2);
 
-    printf("test_focus_raise_on_focus passed\n");
-    cleanup_server(&s);
+  printf("test_focus_raise_on_focus passed\n");
+  cleanup_server(&s);
 }
 
 int main(void) {
-    test_stack_restack_single_and_sibling();
-    test_stack_cross_layer_sibling();
-    test_stack_raise_transients_restack_count();
-    test_root_stacking_property_order();
-    test_root_stacking_desktop_below_normal();
-    test_focus_raise_on_focus();
-    return 0;
+  test_stack_restack_single_and_sibling();
+  test_stack_cross_layer_sibling();
+  test_stack_raise_transients_restack_count();
+  test_root_stacking_property_order();
+  test_root_stacking_desktop_below_normal();
+  test_focus_raise_on_focus();
+  return 0;
 }

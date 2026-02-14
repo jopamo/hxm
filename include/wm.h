@@ -56,17 +56,17 @@ void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom);
 
 /* Client state set for _NET_WM_STATE style updates */
 typedef struct client_state_set {
-    bool fullscreen;
-    bool above;
-    bool below;
-    bool sticky;
-    bool urgent;
-    bool max_horz;
-    bool max_vert;
-    bool modal;
-    bool shaded;
-    bool skip_taskbar;
-    bool skip_pager;
+  bool fullscreen;
+  bool above;
+  bool below;
+  bool sticky;
+  bool urgent;
+  bool max_horz;
+  bool max_vert;
+  bool modal;
+  bool shaded;
+  bool skip_taskbar;
+  bool skip_pager;
 } client_state_set_t;
 
 /* Apply a full state-set to a client (authoritative desired state) */
@@ -136,7 +136,8 @@ void stack_move_to_layer(server_t* s, handle_t h);
 void stack_sync_to_xcb(server_t* s, handle_t h);
 
 /* Dirty flush:
- * Returns true if more work remains or if flush did work (implementation-specific)
+ * Returns true if more work remains or if flush did work
+ * (implementation-specific)
  */
 bool wm_flush_dirty(server_t* s, uint64_t now);
 

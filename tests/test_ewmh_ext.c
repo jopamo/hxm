@@ -21,7 +21,7 @@ void test_frame_extents(void) {
   s.is_test = true;
   s.root_depth = 24;
   s.root_visual_type = xcb_get_visualtype(NULL, 0);
-  s.conn = (xcb_connection_t *)malloc(1);
+  s.conn = (xcb_connection_t*)malloc(1);
   arena_init(&s.tick_arena, 4096);
 
   // Init config
@@ -32,8 +32,7 @@ void test_frame_extents(void) {
   // Init atoms
   atoms._NET_FRAME_EXTENTS = 200;
 
-  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t),
-                    sizeof(client_cold_t)))
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
   small_vec_init(&s.active_clients);
 
@@ -53,7 +52,7 @@ void test_frame_extents(void) {
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->state = STATE_NEW;
@@ -107,19 +106,19 @@ void test_frame_extents(void) {
     assert(stub_last_prop_window == 123);
     assert(stub_last_prop_type == XCB_ATOM_CARDINAL);
     assert(stub_last_prop_len == 4);
-    uint32_t *extents = (uint32_t *)stub_last_prop_data;
+    uint32_t* extents = (uint32_t*)stub_last_prop_data;
     uint16_t bw = s.config.theme.border_width;
     uint16_t hh = s.config.theme.handle_height;
     uint16_t bottom = (hh > bw) ? hh : bw;
     // bw=5, th=20 -> {5, 5, 25, bottom}
-    assert(extents[0] == 5);      // left
-    assert(extents[1] == 5);      // right
-    assert(extents[2] == 25);     // top
-    assert(extents[3] == bottom); // bottom
+    assert(extents[0] == 5);       // left
+    assert(extents[1] == 5);       // right
+    assert(extents[2] == 25);      // top
+    assert(extents[3] == bottom);  // bottom
     printf("test_frame_extents passed\n");
-  } else {
-    printf("test_frame_extents failed: Expected atom %u, got %u\n",
-           atoms._NET_FRAME_EXTENTS, stub_last_prop_atom);
+  }
+  else {
+    printf("test_frame_extents failed: Expected atom %u, got %u\n", atoms._NET_FRAME_EXTENTS, stub_last_prop_atom);
     assert(0);
   }
 
@@ -142,7 +141,7 @@ void test_allowed_actions(void) {
   s.is_test = true;
   s.root_depth = 24;
   s.root_visual_type = xcb_get_visualtype(NULL, 0);
-  s.conn = (xcb_connection_t *)malloc(1);
+  s.conn = (xcb_connection_t*)malloc(1);
   arena_init(&s.tick_arena, 4096);
 
   atoms._NET_WM_ALLOWED_ACTIONS = 300;
@@ -150,8 +149,7 @@ void test_allowed_actions(void) {
   atoms._NET_WM_ACTION_RESIZE = 302;
   atoms._NET_WM_STATE = 400;
 
-  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t),
-                    sizeof(client_cold_t)))
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
   small_vec_init(&s.active_clients);
 
@@ -161,7 +159,7 @@ void test_allowed_actions(void) {
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->state = STATE_MAPPED;
@@ -169,7 +167,7 @@ void test_allowed_actions(void) {
 
   // Case 1: Resizable window
   hot->hints.min_w = 0;
-  hot->hints.max_w = 0; // unlimited
+  hot->hints.max_w = 0;  // unlimited
   hot->dirty = DIRTY_STATE;
 
   // wm_flush_dirty will set WM_STATE and ALLOWED_ACTIONS.
@@ -184,7 +182,7 @@ void test_allowed_actions(void) {
   // Verify atoms presence
   // We can't easily iterate the raw data without casting, but we know it's
   // atoms (uint32_t)
-  uint32_t *acts = (uint32_t *)stub_last_prop_data;
+  uint32_t* acts = (uint32_t*)stub_last_prop_data;
   bool has_move = false;
   bool has_resize = false;
   for (uint32_t i = 0; i < stub_last_prop_len; i++) {
@@ -208,7 +206,7 @@ void test_allowed_actions(void) {
 
   assert(stub_last_prop_atom == atoms._NET_WM_ALLOWED_ACTIONS);
 
-  acts = (uint32_t *)stub_last_prop_data;
+  acts = (uint32_t*)stub_last_prop_data;
   has_move = false;
   has_resize = false;
   for (uint32_t i = 0; i < stub_last_prop_len; i++) {
@@ -218,7 +216,7 @@ void test_allowed_actions(void) {
       has_resize = true;
   }
   assert(has_move);
-  assert(!has_resize); // Should NOT have resize
+  assert(!has_resize);  // Should NOT have resize
 
   printf("test_allowed_actions passed\n");
 
@@ -239,7 +237,7 @@ void test_desktop_clamp_single(void) {
   s.is_test = true;
   s.root_depth = 24;
   s.root_visual_type = xcb_get_visualtype(NULL, 0);
-  s.conn = (xcb_connection_t *)malloc(1);
+  s.conn = (xcb_connection_t*)malloc(1);
   s.desktop_count = 1;
   s.current_desktop = 0;
   arena_init(&s.tick_arena, 4096);
@@ -247,8 +245,7 @@ void test_desktop_clamp_single(void) {
   atoms._NET_WM_DESKTOP = 500;
   atoms.WM_STATE = 501;
 
-  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t),
-                    sizeof(client_cold_t)))
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
   small_vec_init(&s.active_clients);
   list_init(&s.focus_history);
@@ -256,7 +253,7 @@ void test_desktop_clamp_single(void) {
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->frame = 456;
@@ -292,10 +289,9 @@ void test_desktop_clamp_single(void) {
   } stub_prop_calls[128];
 
   for (int i = 0; i < stub_prop_calls_len; i++) {
-    if (stub_prop_calls[i].window == 123 &&
-        stub_prop_calls[i].atom == atoms._NET_WM_DESKTOP) {
+    if (stub_prop_calls[i].window == 123 && stub_prop_calls[i].atom == atoms._NET_WM_DESKTOP) {
       found_desktop = true;
-      uint32_t *val = (uint32_t *)stub_prop_calls[i].data;
+      uint32_t* val = (uint32_t*)stub_prop_calls[i].data;
       assert(val[0] == 0);
     }
   }
@@ -322,22 +318,21 @@ void test_dirty_stack_relayer(void) {
   s.is_test = true;
   s.root_depth = 24;
   s.root_visual_type = xcb_get_visualtype(NULL, 0);
-  s.conn = (xcb_connection_t *)malloc(1);
+  s.conn = (xcb_connection_t*)malloc(1);
   s.root = 1;
   arena_init(&s.tick_arena, 4096);
 
   for (int i = 0; i < LAYER_COUNT; i++)
     small_vec_init(&s.layers[i]);
 
-  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t),
-                    sizeof(client_cold_t)))
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
   small_vec_init(&s.active_clients);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->frame = 456;

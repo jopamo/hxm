@@ -22,51 +22,59 @@
 
 #include "hxm.h"
 
-__attribute__((weak)) void* ds_malloc(size_t size) { return malloc(size); }
-__attribute__((weak)) void* ds_realloc(void* ptr, size_t size) { return realloc(ptr, size); }
-__attribute__((weak)) void* ds_calloc(size_t nmemb, size_t size) { return calloc(nmemb, size); }
+__attribute__((weak)) void* ds_malloc(size_t size) {
+  return malloc(size);
+}
+__attribute__((weak)) void* ds_realloc(void* ptr, size_t size) {
+  return realloc(ptr, size);
+}
+__attribute__((weak)) void* ds_calloc(size_t nmemb, size_t size) {
+  return calloc(nmemb, size);
+}
 
-// This file is intentionally standalone so allocators can be overridden in tests
-// via weak symbols (ds_malloc/ds_realloc/ds_calloc)
+// This file is intentionally standalone so allocators can be overridden in
+// tests via weak symbols (ds_malloc/ds_realloc/ds_calloc)
 
 /* -----------------------------
  * Arena allocator
  * ----------------------------- */
 
 void arena_init(struct arena* a, size_t block_size) {
-    // block_size is the default payload per block
-    // larger requests may allocate larger blocks
-    a->first = NULL;
-    a->current = NULL;
-    a->pos = 0;
-    a->block_size = block_size ? block_size : 4096;
+  // block_size is the default payload per block
+  // larger requests may allocate larger blocks
+  a->first = NULL;
+  a->current = NULL;
+  a->pos = 0;
+  a->block_size = block_size ? block_size : 4096;
 }
 
 static arena_block_t* arena_add_block(struct arena* a, size_t min_size) {
-    // Allocate a new block with at least min_size payload
-    size_t payload = a->block_size;
-    if (payload < min_size) payload = min_size;
+  // Allocate a new block with at least min_size payload
+  size_t payload = a->block_size;
+  if (payload < min_size)
+    payload = min_size;
 
-    size_t size = sizeof(arena_block_t) + payload;
-    arena_block_t* block = (arena_block_t*)ds_malloc(size);
-    if (!block) {
-        LOG_ERROR("arena allocation failed");
-        abort();
-    }
+  size_t size = sizeof(arena_block_t) + payload;
+  arena_block_t* block = (arena_block_t*)ds_malloc(size);
+  if (!block) {
+    LOG_ERROR("arena allocation failed");
+    abort();
+  }
 
-    block->next = NULL;
-    block->size = payload;
-    block->used = 0;
+  block->next = NULL;
+  block->size = payload;
+  block->used = 0;
 
-    if (a->current) {
-        a->current->next = block;
-    } else {
-        a->first = block;
-    }
+  if (a->current) {
+    a->current->next = block;
+  }
+  else {
+    a->first = block;
+  }
 
-    a->current = block;
-    a->pos = 0;
-    return block;
+  a->current = block;
+  a->pos = 0;
+  return block;
 }
 
 /*
@@ -77,78 +85,88 @@ static arena_block_t* arena_add_block(struct arena* a, size_t min_size) {
  * If the request doesn't fit, a new block is allocated and chained.
  */
 void* arena_alloc(struct arena* a, size_t size) {
-    if (!a) return NULL;
+  if (!a)
+    return NULL;
 
-    // Align to 8 bytes
-    size = (size + 7u) & ~7u;
+  // Align to 8 bytes
+  size = (size + 7u) & ~7u;
 
-    // Keep behavior predictable for callers that expect a non-NULL unique-ish pointer
-    if (size == 0) size = 8;
+  // Keep behavior predictable for callers that expect a non-NULL unique-ish
+  // pointer
+  if (size == 0)
+    size = 8;
 
-    if (!a->current) {
-        if (a->first) {
-            a->current = a->first;
-            a->pos = 0;
-        } else {
-            arena_add_block(a, size);
-        }
+  if (!a->current) {
+    if (a->first) {
+      a->current = a->first;
+      a->pos = 0;
     }
-
-    if (a->pos + size > a->current->size) {
-        if (a->current->next && size <= a->current->next->size) {
-            a->current = a->current->next;
-            a->pos = 0;
-        } else {
-            arena_add_block(a, size);
-        }
+    else {
+      arena_add_block(a, size);
     }
+  }
 
-    void* ptr = (void*)(a->current->data + a->pos);
-    a->pos += size;
-    a->current->used = a->pos;
-    return ptr;
+  if (a->pos + size > a->current->size) {
+    if (a->current->next && size <= a->current->next->size) {
+      a->current = a->current->next;
+      a->pos = 0;
+    }
+    else {
+      arena_add_block(a, size);
+    }
+  }
+
+  void* ptr = (void*)(a->current->data + a->pos);
+  a->pos += size;
+  a->current->used = a->pos;
+  return ptr;
 }
 
 char* arena_strndup(struct arena* a, const char* s, size_t n) {
-    // Copies up to n bytes and always NUL-terminates
-    if (!s) return NULL;
-    char* res = (char*)arena_alloc(a, n + 1);
-    memcpy(res, s, n);
-    res[n] = '\0';
-    return res;
+  // Copies up to n bytes and always NUL-terminates
+  if (!s)
+    return NULL;
+  char* res = (char*)arena_alloc(a, n + 1);
+  memcpy(res, s, n);
+  res[n] = '\0';
+  return res;
 }
 
-char* arena_strdup(struct arena* a, const char* s) { return arena_strndup(a, s, strlen(s)); }
+char* arena_strdup(struct arena* a, const char* s) {
+  return arena_strndup(a, s, strlen(s));
+}
 
 void arena_reset(struct arena* a) {
-    // Reset allocation cursor but keep memory around for reuse
-    if (!a) return;
+  // Reset allocation cursor but keep memory around for reuse
+  if (!a)
+    return;
 
-    a->current = a->first;
-    a->pos = 0;
+  a->current = a->first;
+  a->pos = 0;
 
-    arena_block_t* b = a->first;
-    while (b) {
-        b->used = 0;
-        b = b->next;
-    }
+  arena_block_t* b = a->first;
+  while (b) {
+    b->used = 0;
+    b = b->next;
+  }
 }
 
 void arena_destroy(struct arena* a) {
-    // Free all blocks
-    if (!a) return;
+  // Free all blocks
+  if (!a)
+    return;
 
-    arena_block_t* block = a->first;
-    while (block) {
-        arena_block_t* next = block->next;
-        free(block);
-        block = next;
-    }
+  arena_block_t* block = a->first;
+  while (block) {
+    arena_block_t* next = block->next;
+    free(block);
+    block = next;
+  }
 
-    a->first = NULL;
-    a->current = NULL;
-    a->pos = 0;
-    a->block_size = 0;
+  a->first = NULL;
+  a->current = NULL;
+  a->pos = 0;
+  a->block_size = 0;
 }
 
 /* -----------------------------
@@ -156,68 +174,76 @@ void arena_destroy(struct arena* a) {
  * ----------------------------- */
 
 void small_vec_init(small_vec_t* v) {
-    // Starts backed by inline storage and grows to heap as needed
-    v->items = v->inline_storage;
-    v->length = 0;
-    v->capacity = SMALL_VEC_INLINE_CAP;
+  // Starts backed by inline storage and grows to heap as needed
+  v->items = v->inline_storage;
+  v->length = 0;
+  v->capacity = SMALL_VEC_INLINE_CAP;
 }
 
 static void small_vec_grow(small_vec_t* v, size_t min_cap) {
-    // Grow capacity geometrically to keep amortized O(1) push
-    size_t new_cap = v->capacity ? v->capacity : SMALL_VEC_INLINE_CAP;
-    while (new_cap < min_cap) new_cap *= 2;
+  // Grow capacity geometrically to keep amortized O(1) push
+  size_t new_cap = v->capacity ? v->capacity : SMALL_VEC_INLINE_CAP;
+  while (new_cap < min_cap)
+    new_cap *= 2;
 
-    void** new_items;
-    if (v->items == v->inline_storage) {
-        new_items = (void**)ds_malloc(new_cap * sizeof(void*));
-        if (new_items) memcpy(new_items, v->inline_storage, v->length * sizeof(void*));
-    } else {
-        new_items = (void**)ds_realloc(v->items, new_cap * sizeof(void*));
-    }
+  void** new_items;
+  if (v->items == v->inline_storage) {
+    new_items = (void**)ds_malloc(new_cap * sizeof(void*));
+    if (new_items)
+      memcpy(new_items, v->inline_storage, v->length * sizeof(void*));
+  }
+  else {
+    new_items = (void**)ds_realloc(v->items, new_cap * sizeof(void*));
+  }
 
-    if (!new_items) {
-        LOG_ERROR("small_vec allocation failed");
-        abort();
-    }
+  if (!new_items) {
+    LOG_ERROR("small_vec allocation failed");
+    abort();
+  }
 
-    v->items = new_items;
-    v->capacity = new_cap;
+  v->items = new_items;
+  v->capacity = new_cap;
 }
 
 void small_vec_push(small_vec_t* v, void* item) {
-    if (v->length == v->capacity) {
-        small_vec_grow(v, v->capacity ? (v->capacity * 2) : SMALL_VEC_INLINE_CAP);
-    }
-    v->items[v->length++] = item;
+  if (v->length == v->capacity) {
+    small_vec_grow(v, v->capacity ? (v->capacity * 2) : SMALL_VEC_INLINE_CAP);
+  }
+  v->items[v->length++] = item;
 }
 
 void* small_vec_pop(small_vec_t* v) {
-    if (v->length == 0) return NULL;
-    return v->items[--v->length];
+  if (v->length == 0)
+    return NULL;
+  return v->items[--v->length];
 }
 
 void* small_vec_get(const small_vec_t* v, size_t idx) {
-    if (!v || idx >= v->length) return NULL;
-    return v->items[idx];
+  if (!v || idx >= v->length)
+    return NULL;
+  return v->items[idx];
 }
 
-void small_vec_clear(small_vec_t* v) { v->length = 0; }
+void small_vec_clear(small_vec_t* v) {
+  v->length = 0;
+}
 
 void small_vec_destroy(small_vec_t* v) {
-    if (v->items != v->inline_storage) free(v->items);
-    v->items = v->inline_storage;
-    v->length = 0;
-    v->capacity = SMALL_VEC_INLINE_CAP;
+  if (v->items != v->inline_storage)
+    free(v->items);
+  v->items = v->inline_storage;
+  v->length = 0;
+  v->capacity = SMALL_VEC_INLINE_CAP;
 }
 
 void small_vec_remove_swap(small_vec_t* v, void* item) {
-    // Unordered remove in O(n) time, O(1) move once found
-    for (size_t i = 0; i < v->length; i++) {
-        if (v->items[i] == item) {
-            v->items[i] = v->items[--v->length];
-            return;
-        }
+  // Unordered remove in O(n) time, O(1) move once found
+  for (size_t i = 0; i < v->length; i++) {
+    if (v->items[i] == item) {
+      v->items[i] = v->items[--v->length];
+      return;
     }
+  }
 }
 
 /* -----------------------------
@@ -225,171 +251,179 @@ void small_vec_remove_swap(small_vec_t* v, void* item) {
  * ----------------------------- */
 
 static inline uint32_t hash_key(uint64_t key) {
-    // MurmurHash3 finalizer, 64-bit key -> 32-bit hash
-    key ^= key >> 33;
-    key *= 0xff51afd7ed558ccdULL;
-    key ^= key >> 33;
-    key *= 0xc4ceb9fe1a85ec53ULL;
-    key ^= key >> 33;
-    return (uint32_t)key;
+  // MurmurHash3 finalizer, 64-bit key -> 32-bit hash
+  key ^= key >> 33;
+  key *= 0xff51afd7ed558ccdULL;
+  key ^= key >> 33;
+  key *= 0xc4ceb9fe1a85ec53ULL;
+  key ^= key >> 33;
+  return (uint32_t)key;
 }
 
-static inline size_t probe_next(size_t idx, size_t mask) { return (idx + 1) & mask; }
+static inline size_t probe_next(size_t idx, size_t mask) {
+  return (idx + 1) & mask;
+}
 
 static size_t round_up_pow2(size_t n) {
-    // Round n up to a power of two, minimum 16
-    // Capacity is always a power of two so we can mask instead of modulo
-    if (n < 16) return 16;
-    n--;
-    n |= n >> 1;
-    n |= n >> 2;
-    n |= n >> 4;
-    n |= n >> 8;
-    n |= n >> 16;
+  // Round n up to a power of two, minimum 16
+  // Capacity is always a power of two so we can mask instead of modulo
+  if (n < 16)
+    return 16;
+  n--;
+  n |= n >> 1;
+  n |= n >> 2;
+  n |= n >> 4;
+  n |= n >> 8;
+  n |= n >> 16;
 #if SIZE_MAX > 0xffffffffu
-    n |= n >> 32;
+  n |= n >> 32;
 #endif
-    n++;
-    return n;
+  n++;
+  return n;
 }
 
 static void hash_map_resize(hash_map_t* map, size_t new_capacity) {
-    // Rehash into new table
-    new_capacity = round_up_pow2(new_capacity);
+  // Rehash into new table
+  new_capacity = round_up_pow2(new_capacity);
 
-    hash_map_entry_t* new_entries = (hash_map_entry_t*)ds_calloc(new_capacity, sizeof(hash_map_entry_t));
-    if (!new_entries) {
-        LOG_ERROR("hash_map allocation failed");
-        abort();
+  hash_map_entry_t* new_entries = (hash_map_entry_t*)ds_calloc(new_capacity, sizeof(hash_map_entry_t));
+  if (!new_entries) {
+    LOG_ERROR("hash_map allocation failed");
+    abort();
+  }
+
+  if (map->entries && map->capacity) {
+    for (size_t i = 0; i < map->capacity; i++) {
+      hash_map_entry_t* entry = &map->entries[i];
+      if (entry->key != 0) {
+        size_t mask = new_capacity - 1;
+        size_t idx = entry->hash & mask;
+        while (new_entries[idx].key != 0)
+          idx = probe_next(idx, mask);
+        new_entries[idx] = *entry;
+      }
     }
+  }
 
-    if (map->entries && map->capacity) {
-        for (size_t i = 0; i < map->capacity; i++) {
-            hash_map_entry_t* entry = &map->entries[i];
-            if (entry->key != 0) {
-                size_t mask = new_capacity - 1;
-                size_t idx = entry->hash & mask;
-                while (new_entries[idx].key != 0) idx = probe_next(idx, mask);
-                new_entries[idx] = *entry;
-            }
-        }
-    }
-
-    free(map->entries);
-    map->entries = new_entries;
-    map->capacity = new_capacity;
-    // Load factor 0.75 keeps probe chains short without wasting too much space
-    map->max_load = (new_capacity * 3) / 4;
+  free(map->entries);
+  map->entries = new_entries;
+  map->capacity = new_capacity;
+  // Load factor 0.75 keeps probe chains short without wasting too much space
+  map->max_load = (new_capacity * 3) / 4;
 }
 
 void hash_map_init(hash_map_t* map) {
-    map->capacity = 0;
-    map->size = 0;
-    map->max_load = 0;
-    map->entries = NULL;
+  map->capacity = 0;
+  map->size = 0;
+  map->max_load = 0;
+  map->entries = NULL;
 }
 
 void hash_map_destroy(hash_map_t* map) {
-    free(map->entries);
-    map->entries = NULL;
-    map->capacity = 0;
-    map->size = 0;
-    map->max_load = 0;
+  free(map->entries);
+  map->entries = NULL;
+  map->capacity = 0;
+  map->size = 0;
+  map->max_load = 0;
 }
 
 bool hash_map_insert(hash_map_t* map, uint64_t key, void* value) {
-    // key=0 is reserved as the empty sentinel
-    assert(key != 0 && "key=0 is reserved for hash_map_t");
+  // key=0 is reserved as the empty sentinel
+  assert(key != 0 && "key=0 is reserved for hash_map_t");
 
-    if (map->capacity == 0 || map->size >= map->max_load) {
-        size_t new_cap = map->capacity ? (map->capacity * 2) : 16;
-        hash_map_resize(map, new_cap);
+  if (map->capacity == 0 || map->size >= map->max_load) {
+    size_t new_cap = map->capacity ? (map->capacity * 2) : 16;
+    hash_map_resize(map, new_cap);
+  }
+
+  uint32_t hash = hash_key(key);
+  size_t mask = map->capacity - 1;
+  size_t idx = hash & mask;
+
+  while (map->entries[idx].key != 0) {
+    if (map->entries[idx].key == key) {
+      // Replace existing
+      map->entries[idx].value = value;
+      return true;
     }
+    idx = probe_next(idx, mask);
+  }
 
-    uint32_t hash = hash_key(key);
-    size_t mask = map->capacity - 1;
-    size_t idx = hash & mask;
-
-    while (map->entries[idx].key != 0) {
-        if (map->entries[idx].key == key) {
-            // Replace existing
-            map->entries[idx].value = value;
-            return true;
-        }
-        idx = probe_next(idx, mask);
-    }
-
-    map->entries[idx].key = key;
-    map->entries[idx].value = value;
-    map->entries[idx].hash = hash;
-    map->size++;
-    return false;
+  map->entries[idx].key = key;
+  map->entries[idx].value = value;
+  map->entries[idx].hash = hash;
+  map->size++;
+  return false;
 }
 
 void* hash_map_get(const hash_map_t* map, uint64_t key) {
-    // Returns NULL if not found
-    assert(key != 0 && "key=0 is reserved for hash_map_t");
-    if (!map || map->capacity == 0) return NULL;
-
-    uint32_t hash = hash_key(key);
-    size_t mask = map->capacity - 1;
-    size_t idx = hash & mask;
-
-    while (map->entries[idx].key != 0) {
-        if (map->entries[idx].key == key) return map->entries[idx].value;
-        idx = probe_next(idx, mask);
-    }
-
+  // Returns NULL if not found
+  assert(key != 0 && "key=0 is reserved for hash_map_t");
+  if (!map || map->capacity == 0)
     return NULL;
+
+  uint32_t hash = hash_key(key);
+  size_t mask = map->capacity - 1;
+  size_t idx = hash & mask;
+
+  while (map->entries[idx].key != 0) {
+    if (map->entries[idx].key == key)
+      return map->entries[idx].value;
+    idx = probe_next(idx, mask);
+  }
+
+  return NULL;
 }
 
 bool hash_map_remove(hash_map_t* map, uint64_t key) {
-    assert(key != 0 && "key=0 is reserved for hash_map_t");
-    if (!map || map->capacity == 0) return false;
+  assert(key != 0 && "key=0 is reserved for hash_map_t");
+  if (!map || map->capacity == 0)
+    return false;
 
-    // Backshift deletion (Knuth Algorithm R) for linear probing:
-    // remove the target slot, then shift forward entries backward when their
-    // probe chain would have visited the hole
-    size_t mask = map->capacity - 1;
-    uint32_t hash = hash_key(key);
-    size_t idx = hash & mask;
+  // Backshift deletion (Knuth Algorithm R) for linear probing:
+  // remove the target slot, then shift forward entries backward when their
+  // probe chain would have visited the hole
+  size_t mask = map->capacity - 1;
+  uint32_t hash = hash_key(key);
+  size_t idx = hash & mask;
 
-    while (map->entries[idx].key != 0) {
-        if (map->entries[idx].key == key) {
-            size_t hole = idx;
-            size_t j = probe_next(idx, mask);
+  while (map->entries[idx].key != 0) {
+    if (map->entries[idx].key == key) {
+      size_t hole = idx;
+      size_t j = probe_next(idx, mask);
 
-            while (map->entries[j].key != 0) {
-                uint32_t h = map->entries[j].hash;
-                size_t home = h & mask;
+      while (map->entries[j].key != 0) {
+        uint32_t h = map->entries[j].hash;
+        size_t home = h & mask;
 
-                bool should_move;
-                if (home <= j) {
-                    should_move = (home <= hole && hole < j);
-                } else {
-                    // Home wrapped around end of table
-                    should_move = (hole < j) || (home <= hole);
-                }
-
-                if (should_move) {
-                    map->entries[hole] = map->entries[j];
-                    hole = j;
-                }
-
-                j = probe_next(j, mask);
-            }
-
-            // Clear final hole
-            map->entries[hole].key = 0;
-            map->entries[hole].value = NULL;
-            map->entries[hole].hash = 0;
-
-            map->size--;
-            return true;
+        bool should_move;
+        if (home <= j) {
+          should_move = (home <= hole && hole < j);
+        }
+        else {
+          // Home wrapped around end of table
+          should_move = (hole < j) || (home <= hole);
         }
 
-        idx = probe_next(idx, mask);
+        if (should_move) {
+          map->entries[hole] = map->entries[j];
+          hole = j;
+        }
+
+        j = probe_next(j, mask);
+      }
+
+      // Clear final hole
+      map->entries[hole].key = 0;
+      map->entries[hole].value = NULL;
+      map->entries[hole].hash = 0;
+
+      map->size--;
+      return true;
     }
 
-    return false;
+    idx = probe_next(idx, mask);
+  }
+
+  return false;
 }

@@ -58,8 +58,7 @@ static void print_tick_stats(void) {
   if (min == UINT64_MAX)
     min = 0;
 
-  printf("Tick duration: min=%" PRIu64 " avg=%" PRIu64 " max=%" PRIu64 " ns\n",
-         min, avg, max);
+  printf("Tick duration: min=%" PRIu64 " avg=%" PRIu64 " max=%" PRIu64 " ns\n", min, avg, max);
 }
 
 static void print_event_stats(void) {
@@ -81,8 +80,7 @@ static void print_event_stats(void) {
     if (!seen && !drop)
       continue;
 
-    printf("Event %3d: seen=%" PRIu64 " coalesced=%" PRIu64 "\n", i, seen,
-           drop);
+    printf("Event %3d: seen=%" PRIu64 " coalesced=%" PRIu64 "\n", i, seen, drop);
   }
 }
 
@@ -92,8 +90,7 @@ void counters_dump(void) {
   print_tick_stats();
 
   printf("X flushes: %" PRIu64 "\n", counters.x_flush_count);
-  printf("Config requests applied: %" PRIu64 "\n",
-         counters.config_requests_applied);
+  printf("Config requests applied: %" PRIu64 "\n", counters.config_requests_applied);
   printf("Restacks applied: %" PRIu64 "\n", counters.restacks_applied);
 
   print_event_stats();

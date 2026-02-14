@@ -36,21 +36,27 @@ extern "C" {
 _Static_assert(sizeof(handle_t) <= sizeof(uintptr_t), "handle_t must fit within uintptr_t for pointer round-trip");
 #endif
 
-static inline void* handle_to_ptr(handle_t h) { return (void*)(uintptr_t)h; }
+static inline void* handle_to_ptr(handle_t h) {
+  return (void*)(uintptr_t)h;
+}
 
-static inline handle_t ptr_to_handle(const void* p) { return (handle_t)(uintptr_t)p; }
+static inline handle_t ptr_to_handle(const void* p) {
+  return (handle_t)(uintptr_t)p;
+}
 
 /* Convenience helpers that map invalid <-> NULL
  * If HANDLE_INVALID is not 0, these still provide a stable mapping
  */
 static inline void* handle_to_ptr_nullable(handle_t h) {
-    if (h == HANDLE_INVALID) return NULL;
-    return (void*)(uintptr_t)h;
+  if (h == HANDLE_INVALID)
+    return NULL;
+  return (void*)(uintptr_t)h;
 }
 
 static inline handle_t ptr_to_handle_nullable(const void* p) {
-    if (!p) return HANDLE_INVALID;
-    return (handle_t)(uintptr_t)p;
+  if (!p)
+    return HANDLE_INVALID;
+  return (handle_t)(uintptr_t)p;
 }
 
 #ifdef __cplusplus

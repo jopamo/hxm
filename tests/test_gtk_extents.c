@@ -42,36 +42,34 @@ static void reset_config_captures(void) {
 
 typedef struct test_server {
   server_t s;
-  client_hot_t *created[16];
+  client_hot_t* created[16];
   size_t created_len;
 } test_server_t;
 
-static void test_server_init(test_server_t *ts) {
+static void test_server_init(test_server_t* ts) {
   memset(ts, 0, sizeof(*ts));
 
   ts->s.is_test = true;
-  ts->s.conn = (xcb_connection_t *)malloc(1);
+  ts->s.conn = (xcb_connection_t*)malloc(1);
   assert(ts->s.conn);
 
   config_init_defaults(&ts->s.config);
 
   small_vec_init(&ts->s.active_clients);
-  bool ok = slotmap_init(&ts->s.clients, 16, sizeof(client_hot_t),
-                         sizeof(client_cold_t));
+  bool ok = slotmap_init(&ts->s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t));
   assert(ok);
 }
 
-static client_hot_t *test_client_add(test_server_t *ts, xcb_window_t xid,
-                                     xcb_window_t frame) {
-  void *hot_ptr = NULL;
-  void *cold_ptr = NULL;
+static client_hot_t* test_client_add(test_server_t* ts, xcb_window_t xid, xcb_window_t frame) {
+  void* hot_ptr = NULL;
+  void* cold_ptr = NULL;
 
   handle_t h = slotmap_alloc(&ts->s.clients, &hot_ptr, &cold_ptr);
   assert(h != HANDLE_INVALID);
   assert(hot_ptr);
   assert(cold_ptr);
 
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
   memset(hot, 0, sizeof(*hot));
 
   hot->self = h;
@@ -93,10 +91,10 @@ static client_hot_t *test_client_add(test_server_t *ts, xcb_window_t xid,
   return hot;
 }
 
-static void test_server_destroy(test_server_t *ts) {
+static void test_server_destroy(test_server_t* ts) {
   // Free only what we created
   for (size_t i = 0; i < ts->created_len; i++) {
-    client_hot_t *hot = ts->created[i];
+    client_hot_t* hot = ts->created[i];
     if (!hot)
       continue;
 
@@ -113,8 +111,7 @@ static void test_server_destroy(test_server_t *ts) {
   ts->s.conn = NULL;
 }
 
-static void assert_call_eq(const stub_config_call_t *c, xcb_window_t win,
-                           int32_t x, int32_t y, uint32_t w, uint32_t h) {
+static void assert_call_eq(const stub_config_call_t* c, xcb_window_t win, int32_t x, int32_t y, uint32_t w, uint32_t h) {
   assert(c);
   assert(c->win == win);
   assert(c->x == x);
@@ -132,7 +129,7 @@ static void test_gtk_extents_inflation_order_and_state(void) {
   ts.s.config.theme.border_width = 5;
   ts.s.config.theme.title_height = 20;
 
-  client_hot_t *hot = test_client_add(&ts, 100, 200);
+  client_hot_t* hot = test_client_add(&ts, 100, 200);
 
   // Set GTK extents
   hot->gtk_frame_extents_set = true;
@@ -164,10 +161,8 @@ static void test_gtk_extents_inflation_order_and_state(void) {
   assert(stub_configure_window_count == 2);
   assert(stub_config_calls_len == 2);
 
-  assert_call_eq(&stub_config_calls[0], 200, exp_frame_x, exp_frame_y,
-                 exp_frame_w, exp_frame_h);
-  assert_call_eq(&stub_config_calls[1], 100, exp_client_x, exp_client_y,
-                 exp_client_w, exp_client_h);
+  assert_call_eq(&stub_config_calls[0], 200, exp_frame_x, exp_frame_y, exp_frame_w, exp_frame_h);
+  assert_call_eq(&stub_config_calls[1], 100, exp_client_x, exp_client_y, exp_client_w, exp_client_h);
 
   // Last call should be the client
   assert(stub_last_config_window == 100);
@@ -192,9 +187,9 @@ static void test_no_gtk_extents_no_inflation(void) {
   test_server_init(&ts);
 
   ts.s.config.theme.border_width = 5;
-  ts.s.config.theme.title_height = 20; // Explicitly set default
+  ts.s.config.theme.title_height = 20;  // Explicitly set default
 
-  client_hot_t *hot = test_client_add(&ts, 101, 201);
+  client_hot_t* hot = test_client_add(&ts, 101, 201);
 
   hot->gtk_frame_extents_set = false;
   memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
@@ -218,11 +213,8 @@ static void test_no_gtk_extents_no_inflation(void) {
   assert(stub_configure_window_count == 2);
   assert(stub_config_calls_len == 2);
 
-  assert_call_eq(&stub_config_calls[0], 201, exp_frame_x, exp_frame_y,
-                 exp_frame_w, exp_frame_h);
-  assert_call_eq(
-      &stub_config_calls[1], 101, (int32_t)ts.s.config.theme.border_width,
-      (int32_t)ts.s.config.theme.title_height, exp_client_w, exp_client_h);
+  assert_call_eq(&stub_config_calls[0], 201, exp_frame_x, exp_frame_y, exp_frame_w, exp_frame_h);
+  assert_call_eq(&stub_config_calls[1], 101, (int32_t)ts.s.config.theme.border_width, (int32_t)ts.s.config.theme.title_height, exp_client_w, exp_client_h);
 
   assert(hot->server.x == exp_frame_x);
   assert(hot->server.y == exp_frame_y);
@@ -238,7 +230,7 @@ static void test_not_dirty_no_configure(void) {
   test_server_t ts;
   test_server_init(&ts);
 
-  client_hot_t *hot = test_client_add(&ts, 102, 202);
+  client_hot_t* hot = test_client_add(&ts, 102, 202);
 
   hot->gtk_frame_extents_set = true;
   hot->gtk_extents.left = 7;
@@ -263,7 +255,7 @@ static void test_idempotent_second_flush_does_nothing(void) {
   test_server_t ts;
   test_server_init(&ts);
 
-  client_hot_t *hot = test_client_add(&ts, 103, 203);
+  client_hot_t* hot = test_client_add(&ts, 103, 203);
 
   hot->gtk_frame_extents_set = true;
   hot->gtk_extents.left = 1;
@@ -297,8 +289,8 @@ static void test_two_clients_both_configured(void) {
   ts.s.config.theme.border_width = 5;
   ts.s.config.theme.title_height = 20;
 
-  client_hot_t *a = test_client_add(&ts, 110, 210);
-  client_hot_t *b = test_client_add(&ts, 111, 211);
+  client_hot_t* a = test_client_add(&ts, 110, 210);
+  client_hot_t* b = test_client_add(&ts, 111, 211);
 
   a->desired.x = 10;
   a->desired.y = 20;
@@ -331,8 +323,8 @@ static void test_two_clients_both_configured(void) {
   bool found_b = false;
 
   for (int i = 0; i + 1 < stub_config_calls_len; i++) {
-    const stub_config_call_t *c0 = &stub_config_calls[i];
-    const stub_config_call_t *c1 = &stub_config_calls[i + 1];
+    const stub_config_call_t* c0 = &stub_config_calls[i];
+    const stub_config_call_t* c1 = &stub_config_calls[i + 1];
 
     if (!found_a && c0->win == 210 && c1->win == 110) {
       // Client A: Now CSD Window (Extents Respected)
@@ -361,8 +353,7 @@ static void test_two_clients_both_configured(void) {
       const uint32_t frame_w = 300 + 2 * bw;
       const uint32_t frame_h = 400 + ts.s.config.theme.title_height + bottom;
       assert_call_eq(c0, 211, fx, fy, frame_w, frame_h);
-      assert_call_eq(c1, 111, (int32_t)ts.s.config.theme.border_width,
-                     (int32_t)ts.s.config.theme.title_height, 300, 400);
+      assert_call_eq(c1, 111, (int32_t)ts.s.config.theme.border_width, (int32_t)ts.s.config.theme.title_height, 300, 400);
       found_b = true;
     }
   }

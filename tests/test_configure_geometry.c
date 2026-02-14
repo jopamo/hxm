@@ -34,9 +34,9 @@ typedef struct stub_config_call {
   uint32_t stack_mode;
 } stub_config_call_t;
 
-extern const stub_config_call_t *stub_config_call_at(int idx);
+extern const stub_config_call_t* stub_config_call_at(int idx);
 
-static void setup_server(server_t *s) {
+static void setup_server(server_t* s) {
   memset(s, 0, sizeof(*s));
   s->is_test = true;
   s->conn = xcb_connect(NULL, NULL);
@@ -62,13 +62,13 @@ static void setup_server(server_t *s) {
   arena_init(&s->tick_arena, 4096);
 }
 
-static void cleanup_server(server_t *s) {
+static void cleanup_server(server_t* s) {
   for (uint32_t i = 1; i < s->clients.cap; i++) {
     if (!s->clients.hdr[i].live)
       continue;
     handle_t h = handle_make(i, s->clients.hdr[i].gen);
-    client_hot_t *hot = server_chot(s, h);
-    client_cold_t *cold = server_ccold(s, h);
+    client_hot_t* hot = server_chot(s, h);
+    client_cold_t* cold = server_ccold(s, h);
     if (cold)
       arena_destroy(&cold->string_arena);
     if (hot) {
@@ -93,11 +93,11 @@ static void cleanup_server(server_t *s) {
   xcb_disconnect(s->conn);
 }
 
-static handle_t add_client(server_t *s, xcb_window_t win, xcb_window_t frame) {
+static handle_t add_client(server_t* s, xcb_window_t win, xcb_window_t frame) {
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
-  client_cold_t *cold = (client_cold_t *)cold_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
 
@@ -134,12 +134,11 @@ static void test_configure_request_applies_and_extents(void) {
   atoms._NET_FRAME_EXTENTS = 700;
 
   handle_t h = add_client(&s, 1001, 1101);
-  client_hot_t *hot = server_chot(&s, h);
+  client_hot_t* hot = server_chot(&s, h);
 
   pending_config_t pc = {0};
   pc.window = hot->xid;
-  pc.mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-            XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+  pc.mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
   pc.x = 30;
   pc.y = 40;
   pc.width = 140;
@@ -157,8 +156,8 @@ static void test_configure_request_applies_and_extents(void) {
   wm_flush_dirty(&s, monotonic_time_ns());
 
   assert(stub_config_calls_len >= 2);
-  const stub_config_call_t *frame_call = stub_config_call_at(0);
-  const stub_config_call_t *client_call = stub_config_call_at(1);
+  const stub_config_call_t* frame_call = stub_config_call_at(0);
+  const stub_config_call_t* client_call = stub_config_call_at(1);
 
   uint16_t bw = s.config.theme.border_width;
   uint16_t hh = s.config.theme.handle_height;
@@ -178,7 +177,7 @@ static void test_configure_request_applies_and_extents(void) {
 
   assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
   assert(stub_last_prop_len == 4);
-  uint32_t *extents = (uint32_t *)stub_last_prop_data;
+  uint32_t* extents = (uint32_t*)stub_last_prop_data;
   assert(extents[0] == bw);
   assert(extents[1] == bw);
   assert(extents[2] == s.config.theme.title_height + bw);
@@ -194,7 +193,7 @@ static void test_configure_request_mask_respects_existing(void) {
   xcb_stubs_reset();
 
   handle_t h = add_client(&s, 2001, 2101);
-  client_hot_t *hot = server_chot(&s, h);
+  client_hot_t* hot = server_chot(&s, h);
   hot->desired = (rect_t){5, 6, 80, 70};
 
   pending_config_t pc = {0};
@@ -219,7 +218,7 @@ static void test_configure_request_min_size_clamps(void) {
   xcb_stubs_reset();
 
   handle_t h = add_client(&s, 3001, 3101);
-  client_hot_t *hot = server_chot(&s, h);
+  client_hot_t* hot = server_chot(&s, h);
   hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
   hot->hints.min_w = 50;
   hot->hints.min_h = 20;
@@ -239,7 +238,7 @@ static void test_configure_request_min_size_clamps(void) {
   wm_flush_dirty(&s, monotonic_time_ns());
 
   assert(stub_config_calls_len >= 2);
-  const stub_config_call_t *client_call = stub_config_call_at(1);
+  const stub_config_call_t* client_call = stub_config_call_at(1);
   assert(client_call->win == hot->xid);
   assert(client_call->w >= 50);
   assert(client_call->h >= 20);
@@ -255,8 +254,8 @@ static void test_geometry_reply_tiny_fallback(void) {
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
-  client_cold_t *cold = (client_cold_t *)cold_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
 
@@ -301,15 +300,14 @@ static void test_synthetic_configure_notify_sent(void) {
   xcb_stubs_reset();
 
   handle_t h = add_client(&s, 3001, 3101);
-  client_hot_t *hot = server_chot(&s, h);
+  client_hot_t* hot = server_chot(&s, h);
 
   stub_send_event_count = 0;
   hot->dirty |= DIRTY_GEOM;
   wm_flush_dirty(&s, monotonic_time_ns());
 
   assert(stub_send_event_count == 1);
-  xcb_configure_notify_event_t *ev =
-      (xcb_configure_notify_event_t *)stub_last_event;
+  xcb_configure_notify_event_t* ev = (xcb_configure_notify_event_t*)stub_last_event;
   assert((ev->response_type & ~0x80) == XCB_CONFIGURE_NOTIFY);
   assert(ev->window == hot->xid);
 
@@ -323,14 +321,11 @@ static void test_configure_request_ignores_border_and_stack_fields(void) {
   xcb_stubs_reset();
 
   handle_t h = add_client(&s, 4001, 4101);
-  client_hot_t *hot = server_chot(&s, h);
+  client_hot_t* hot = server_chot(&s, h);
 
   pending_config_t pc = {0};
   pc.window = hot->xid;
-  pc.mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y |
-            XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT |
-            XCB_CONFIG_WINDOW_BORDER_WIDTH | XCB_CONFIG_WINDOW_SIBLING |
-            XCB_CONFIG_WINDOW_STACK_MODE;
+  pc.mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT | XCB_CONFIG_WINDOW_BORDER_WIDTH | XCB_CONFIG_WINDOW_SIBLING | XCB_CONFIG_WINDOW_STACK_MODE;
   pc.x = 12;
   pc.y = 24;
   pc.width = 180;
@@ -360,7 +355,7 @@ static void test_panel_configure_request_skips_min_constraints(void) {
   xcb_stubs_reset();
 
   handle_t h = add_client(&s, 5001, 5101);
-  client_hot_t *hot = server_chot(&s, h);
+  client_hot_t* hot = server_chot(&s, h);
   hot->type = WINDOW_TYPE_DOCK;
   hot->flags |= CLIENT_FLAG_UNDECORATED;
   hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
@@ -380,7 +375,7 @@ static void test_panel_configure_request_skips_min_constraints(void) {
   stub_config_calls_len = 0;
   wm_flush_dirty(&s, monotonic_time_ns());
 
-  const stub_config_call_t *client_call = stub_config_call_at(1);
+  const stub_config_call_t* client_call = stub_config_call_at(1);
   assert(client_call);
   assert(client_call->w == 10);
   assert(client_call->h == 5);
@@ -401,7 +396,7 @@ static void test_panel_clamps_to_monitor_bounds(void) {
   s.monitors[0].workarea = (rect_t){10, 10, 100, 100};
 
   handle_t h = add_client(&s, 6001, 6101);
-  client_hot_t *hot = server_chot(&s, h);
+  client_hot_t* hot = server_chot(&s, h);
   hot->type = WINDOW_TYPE_DESKTOP;
   hot->flags |= CLIENT_FLAG_UNDECORATED;
   hot->desired = (rect_t){150, 170, 80, 50};
@@ -410,7 +405,7 @@ static void test_panel_clamps_to_monitor_bounds(void) {
   stub_config_calls_len = 0;
   wm_flush_dirty(&s, monotonic_time_ns());
 
-  const stub_config_call_t *frame_call = stub_config_call_at(0);
+  const stub_config_call_t* frame_call = stub_config_call_at(0);
   assert(frame_call);
   assert(frame_call->x == 120);
   assert(frame_call->y == 150);

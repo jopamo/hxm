@@ -24,189 +24,204 @@
 #include "wm_internal.h"
 
 static bool wm_should_hide_for_show_desktop(const client_hot_t* hot) {
-    if (!hot) return false;
-    return hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
+  if (!hot)
+    return false;
+  return hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
 }
 
 static bool wm_client_should_be_visible_now(const server_t* s, const client_hot_t* hot) {
-    if (!s || !hot) return false;
-    return hot->sticky || (hot->desktop == (int32_t)s->current_desktop);
+  if (!s || !hot)
+    return false;
+  return hot->sticky || (hot->desktop == (int32_t)s->current_desktop);
 }
 
 void wm_set_showing_desktop(server_t* s, bool show) {
-    if (!s) return;
-    if (s->showing_desktop == show) return;
-    s->showing_desktop = show;
-    TRACE_LOG("showing_desktop set=%d", show);
+  if (!s)
+    return;
+  if (s->showing_desktop == show)
+    return;
+  s->showing_desktop = show;
+  TRACE_LOG("showing_desktop set=%d", show);
 
-    s->root_dirty |= ROOT_DIRTY_SHOWING_DESKTOP;
+  s->root_dirty |= ROOT_DIRTY_SHOWING_DESKTOP;
 
-    if (show) {
-        for (size_t i = 0; i < s->active_clients.length; i++) {
-            handle_t h = ptr_to_handle(s->active_clients.items[i]);
-            client_hot_t* hot = server_chot(s, h);
-            if (!hot || hot->state != STATE_MAPPED) continue;
-            if (!wm_should_hide_for_show_desktop(hot)) continue;
-            hot->show_desktop_hidden = true;
-            TRACE_LOG("showing_desktop hide h=%lx xid=%u", h, hot->xid);
-            wm_client_iconify(s, h);
-        }
-        wm_set_focus(s, HANDLE_INVALID);
-    } else {
-        for (size_t i = 0; i < s->active_clients.length; i++) {
-            handle_t h = ptr_to_handle(s->active_clients.items[i]);
-            client_hot_t* hot = server_chot(s, h);
-            if (hot && hot->show_desktop_hidden) {
-                hot->show_desktop_hidden = false;
-                if (hot->state == STATE_UNMAPPED && wm_client_should_be_visible_now(s, hot)) {
-                    LOG_DEBUG("wm_desktop: Restoring client %lx from unmapped state", h);
-                    wm_client_restore(s, h);
-                }
-            }
-        }
-        s->root_dirty |= ROOT_DIRTY_VISIBILITY | ROOT_DIRTY_ACTIVE_WINDOW;
+  if (show) {
+    for (size_t i = 0; i < s->active_clients.length; i++) {
+      handle_t h = ptr_to_handle(s->active_clients.items[i]);
+      client_hot_t* hot = server_chot(s, h);
+      if (!hot || hot->state != STATE_MAPPED)
+        continue;
+      if (!wm_should_hide_for_show_desktop(hot))
+        continue;
+      hot->show_desktop_hidden = true;
+      TRACE_LOG("showing_desktop hide h=%lx xid=%u", h, hot->xid);
+      wm_client_iconify(s, h);
     }
+    wm_set_focus(s, HANDLE_INVALID);
+  }
+  else {
+    for (size_t i = 0; i < s->active_clients.length; i++) {
+      handle_t h = ptr_to_handle(s->active_clients.items[i]);
+      client_hot_t* hot = server_chot(s, h);
+      if (hot && hot->show_desktop_hidden) {
+        hot->show_desktop_hidden = false;
+        if (hot->state == STATE_UNMAPPED && wm_client_should_be_visible_now(s, hot)) {
+          LOG_DEBUG("wm_desktop: Restoring client %lx from unmapped state", h);
+          wm_client_restore(s, h);
+        }
+      }
+    }
+    s->root_dirty |= ROOT_DIRTY_VISIBILITY | ROOT_DIRTY_ACTIVE_WINDOW;
+  }
 }
 
 void wm_publish_desktop_props(server_t* s) {
-    xcb_connection_t* conn = s->conn;
-    xcb_window_t root = s->root;
+  xcb_connection_t* conn = s->conn;
+  xcb_window_t root = s->root;
 
-    if (s->desktop_count == 0) s->desktop_count = 1;
-    if (s->current_desktop >= s->desktop_count) s->current_desktop = 0;
+  if (s->desktop_count == 0)
+    s->desktop_count = 1;
+  if (s->current_desktop >= s->desktop_count)
+    s->current_desktop = 0;
 
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_NUMBER_OF_DESKTOPS, XCB_ATOM_CARDINAL, 32, 1,
-                        &s->desktop_count);
-    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32, 1,
-                        &s->current_desktop);
+  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_NUMBER_OF_DESKTOPS, XCB_ATOM_CARDINAL, 32, 1, &s->desktop_count);
+  xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_CURRENT_DESKTOP, XCB_ATOM_CARDINAL, 32, 1, &s->current_desktop);
 
-    xcb_window_t* vroots = calloc(s->desktop_count, sizeof(*vroots));
-    if (vroots) {
-        for (uint32_t i = 0; i < s->desktop_count; i++) {
-            vroots[i] = root;
+  xcb_window_t* vroots = calloc(s->desktop_count, sizeof(*vroots));
+  if (vroots) {
+    for (uint32_t i = 0; i < s->desktop_count; i++) {
+      vroots[i] = root;
+    }
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_VIRTUAL_ROOTS, XCB_ATOM_WINDOW, 32, s->desktop_count, vroots);
+    free(vroots);
+  }
+
+  bool publish_names = s->config.desktop_names && s->config.desktop_names_count > 0;
+  if (!publish_names) {
+    xcb_get_property_cookie_t ck = xcb_get_property(conn, 0, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 0, 1024);
+    // Sync boundary: infrequent desktop updates, avoid overwriting external
+    // names.
+    xcb_get_property_reply_t* r = xcb_get_property_reply(conn, ck, NULL);
+    if (!r || xcb_get_property_value_length(r) == 0) {
+      publish_names = true;
+    }
+    if (r)
+      free(r);
+  }
+
+  if (publish_names) {
+    uint32_t name_count = s->desktop_count;
+    size_t name_bytes = 0;
+    for (uint32_t i = 0; i < name_count; i++) {
+      const char* name = NULL;
+      char fallback[32];
+      if (s->config.desktop_names && i < s->config.desktop_names_count) {
+        name = s->config.desktop_names[i];
+      }
+      if (!name) {
+        if (s->config.desktop_names && s->config.desktop_names_count > 0) {
+          name = "";
         }
-        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_VIRTUAL_ROOTS, XCB_ATOM_WINDOW, 32,
-                            s->desktop_count, vroots);
-        free(vroots);
+        else {
+          snprintf(fallback, sizeof(fallback), "%u", i + 1);
+          name = fallback;
+        }
+      }
+      name_bytes += strlen(name) + 1;
     }
 
-    bool publish_names = s->config.desktop_names && s->config.desktop_names_count > 0;
-    if (!publish_names) {
-        xcb_get_property_cookie_t ck =
-            xcb_get_property(conn, 0, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 0, 1024);
-        // Sync boundary: infrequent desktop updates, avoid overwriting external names.
-        xcb_get_property_reply_t* r = xcb_get_property_reply(conn, ck, NULL);
-        if (!r || xcb_get_property_value_length(r) == 0) {
-            publish_names = true;
+    char* buf = malloc(name_bytes);
+    if (buf) {
+      size_t offset = 0;
+      for (uint32_t i = 0; i < name_count; i++) {
+        const char* name = NULL;
+        char fallback[32];
+        if (s->config.desktop_names && i < s->config.desktop_names_count) {
+          name = s->config.desktop_names[i];
         }
-        if (r) free(r);
-    }
-
-    if (publish_names) {
-        uint32_t name_count = s->desktop_count;
-        size_t name_bytes = 0;
-        for (uint32_t i = 0; i < name_count; i++) {
-            const char* name = NULL;
-            char fallback[32];
-            if (s->config.desktop_names && i < s->config.desktop_names_count) {
-                name = s->config.desktop_names[i];
-            }
-            if (!name) {
-                if (s->config.desktop_names && s->config.desktop_names_count > 0) {
-                    name = "";
-                } else {
-                    snprintf(fallback, sizeof(fallback), "%u", i + 1);
-                    name = fallback;
-                }
-            }
-            name_bytes += strlen(name) + 1;
+        if (!name) {
+          if (s->config.desktop_names && s->config.desktop_names_count > 0) {
+            name = "";
+          }
+          else {
+            snprintf(fallback, sizeof(fallback), "%u", i + 1);
+            name = fallback;
+          }
         }
-
-        char* buf = malloc(name_bytes);
-        if (buf) {
-            size_t offset = 0;
-            for (uint32_t i = 0; i < name_count; i++) {
-                const char* name = NULL;
-                char fallback[32];
-                if (s->config.desktop_names && i < s->config.desktop_names_count) {
-                    name = s->config.desktop_names[i];
-                }
-                if (!name) {
-                    if (s->config.desktop_names && s->config.desktop_names_count > 0) {
-                        name = "";
-                    } else {
-                        snprintf(fallback, sizeof(fallback), "%u", i + 1);
-                        name = fallback;
-                    }
-                }
-                size_t len = strlen(name) + 1;
-                memcpy(buf + offset, name, len);
-                offset += len;
-            }
-            xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 8,
-                                (uint32_t)name_bytes, buf);
-            free(buf);
-        }
+        size_t len = strlen(name) + 1;
+        memcpy(buf + offset, name, len);
+        offset += len;
+      }
+      xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 8, (uint32_t)name_bytes, buf);
+      free(buf);
     }
+  }
 
-    uint32_t* viewport = calloc(s->desktop_count * 2, sizeof(uint32_t));
-    if (viewport) {
-        xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_VIEWPORT, XCB_ATOM_CARDINAL, 32,
-                            s->desktop_count * 2, viewport);
-        free(viewport);
-    }
+  uint32_t* viewport = calloc(s->desktop_count * 2, sizeof(uint32_t));
+  if (viewport) {
+    xcb_change_property(conn, XCB_PROP_MODE_REPLACE, root, atoms._NET_DESKTOP_VIEWPORT, XCB_ATOM_CARDINAL, 32, s->desktop_count * 2, viewport);
+    free(viewport);
+  }
 }
 
 static void wa_shrink_left(rect_t* wa, int32_t new_left) {
-    if (!wa) return;
-    int32_t x = wa->x;
-    int32_t r = (int32_t)wa->x + (int32_t)wa->w;
-    if (new_left <= x) return;
-    if (new_left >= r) {
-        wa->x = (int16_t)new_left;
-        wa->w = 0;
-        return;
-    }
-    wa->w = (uint16_t)(r - new_left);
+  if (!wa)
+    return;
+  int32_t x = wa->x;
+  int32_t r = (int32_t)wa->x + (int32_t)wa->w;
+  if (new_left <= x)
+    return;
+  if (new_left >= r) {
     wa->x = (int16_t)new_left;
+    wa->w = 0;
+    return;
+  }
+  wa->w = (uint16_t)(r - new_left);
+  wa->x = (int16_t)new_left;
 }
 
 static void wa_shrink_right(rect_t* wa, int32_t new_right) {
-    if (!wa) return;
-    int32_t x = wa->x;
-    int32_t r = (int32_t)wa->x + (int32_t)wa->w;
-    if (new_right >= r) return;
-    if (new_right <= x) {
-        wa->w = 0;
-        return;
-    }
-    wa->w = (uint16_t)(new_right - x);
+  if (!wa)
+    return;
+  int32_t x = wa->x;
+  int32_t r = (int32_t)wa->x + (int32_t)wa->w;
+  if (new_right >= r)
+    return;
+  if (new_right <= x) {
+    wa->w = 0;
+    return;
+  }
+  wa->w = (uint16_t)(new_right - x);
 }
 
 static void wa_shrink_top(rect_t* wa, int32_t new_top) {
-    if (!wa) return;
-    int32_t y = wa->y;
-    int32_t b = (int32_t)wa->y + (int32_t)wa->h;
-    if (new_top <= y) return;
-    if (new_top >= b) {
-        wa->y = (int16_t)new_top;
-        wa->h = 0;
-        return;
-    }
-    wa->h = (uint16_t)(b - new_top);
+  if (!wa)
+    return;
+  int32_t y = wa->y;
+  int32_t b = (int32_t)wa->y + (int32_t)wa->h;
+  if (new_top <= y)
+    return;
+  if (new_top >= b) {
     wa->y = (int16_t)new_top;
+    wa->h = 0;
+    return;
+  }
+  wa->h = (uint16_t)(b - new_top);
+  wa->y = (int16_t)new_top;
 }
 
 static void wa_shrink_bottom(rect_t* wa, int32_t new_bottom) {
-    if (!wa) return;
-    int32_t y = wa->y;
-    int32_t b = (int32_t)wa->y + (int32_t)wa->h;
-    if (new_bottom >= b) return;
-    if (new_bottom <= y) {
-        wa->h = 0;
-        return;
-    }
-    wa->h = (uint16_t)(new_bottom - y);
+  if (!wa)
+    return;
+  int32_t y = wa->y;
+  int32_t b = (int32_t)wa->y + (int32_t)wa->h;
+  if (new_bottom >= b)
+    return;
+  if (new_bottom <= y) {
+    wa->h = 0;
+    return;
+  }
+  wa->h = (uint16_t)(new_bottom - y);
 }
 
 /*
@@ -217,248 +232,270 @@ static void wa_shrink_bottom(rect_t* wa, int32_t new_bottom) {
  * 1. Start with full monitor geometry.
  * 2. Iterate all mapped clients with _NET_WM_STRUT_PARTIAL.
  * 3. If a strut edge intersects a monitor edge, shrink the workarea.
- * 4. This is an O(N*M) operation, but N (struts) and M (monitors) are usually small.
+ * 4. This is an O(N*M) operation, but N (struts) and M (monitors) are usually
+ * small.
  */
 void wm_compute_workarea(server_t* s, rect_t* out) {
-    if (!s || !out) return;
+  if (!s || !out)
+    return;
 
-    uint32_t m_count = s->monitor_count;
-    monitor_t default_mon;
-    monitor_t* mons = s->monitors;
+  uint32_t m_count = s->monitor_count;
+  monitor_t default_mon;
+  monitor_t* mons = s->monitors;
 
-    xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
-    int32_t screen_w = (int32_t)screen->width_in_pixels;
-    int32_t screen_h = (int32_t)screen->height_in_pixels;
+  xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
+  int32_t screen_w = (int32_t)screen->width_in_pixels;
+  int32_t screen_h = (int32_t)screen->height_in_pixels;
 
-    if (m_count == 0) {
-        m_count = 1;
-        default_mon.geom.x = 0;
-        default_mon.geom.y = 0;
-        default_mon.geom.w = (uint16_t)screen_w;
-        default_mon.geom.h = (uint16_t)screen_h;
-        default_mon.workarea = default_mon.geom;
-        mons = &default_mon;
-    } else {
-        // 1. Initialize monitor workareas
-        for (uint32_t m = 0; m < m_count; m++) {
-            s->monitors[m].workarea = s->monitors[m].geom;
+  if (m_count == 0) {
+    m_count = 1;
+    default_mon.geom.x = 0;
+    default_mon.geom.y = 0;
+    default_mon.geom.w = (uint16_t)screen_w;
+    default_mon.geom.h = (uint16_t)screen_h;
+    default_mon.workarea = default_mon.geom;
+    mons = &default_mon;
+  }
+  else {
+    // 1. Initialize monitor workareas
+    for (uint32_t m = 0; m < m_count; m++) {
+      s->monitors[m].workarea = s->monitors[m].geom;
+    }
+  }
+
+  // 2. Iterate clients and subtract struts
+  for (size_t i = 0; i < s->active_clients.length; i++) {
+    handle_t h = ptr_to_handle(s->active_clients.items[i]);
+    client_hot_t* c = server_chot(s, h);
+    client_cold_t* cold = server_ccold(s, h);
+    if (!c || !cold)
+      continue;
+    bool has_strut = cold->strut_partial_active || cold->strut_full_active;
+    if (c->state != STATE_MAPPED && !has_strut)
+      continue;
+
+    // Apply strut to intersecting monitors
+    for (uint32_t m = 0; m < m_count; m++) {
+      monitor_t* mon = &mons[m];
+      int32_t ml = mon->geom.x;
+      int32_t mt = mon->geom.y;
+      int32_t mr = mon->geom.x + mon->geom.w;
+      int32_t mb = mon->geom.y + mon->geom.h;
+
+      if (cold->strut.left > 0) {
+        // Check if strut vertical range overlaps monitor
+        bool overlap = true;
+        if (cold->strut_partial_active) {
+          overlap = (cold->strut.left_start_y < (uint32_t)mb && cold->strut.left_end_y > (uint32_t)mt);
         }
-    }
-
-    // 2. Iterate clients and subtract struts
-    for (size_t i = 0; i < s->active_clients.length; i++) {
-        handle_t h = ptr_to_handle(s->active_clients.items[i]);
-        client_hot_t* c = server_chot(s, h);
-        client_cold_t* cold = server_ccold(s, h);
-        if (!c || !cold) continue;
-        bool has_strut = cold->strut_partial_active || cold->strut_full_active;
-        if (c->state != STATE_MAPPED && !has_strut) continue;
-
-        // Apply strut to intersecting monitors
-        for (uint32_t m = 0; m < m_count; m++) {
-            monitor_t* mon = &mons[m];
-            int32_t ml = mon->geom.x;
-            int32_t mt = mon->geom.y;
-            int32_t mr = mon->geom.x + mon->geom.w;
-            int32_t mb = mon->geom.y + mon->geom.h;
-
-            if (cold->strut.left > 0) {
-                // Check if strut vertical range overlaps monitor
-                bool overlap = true;
-                if (cold->strut_partial_active) {
-                    overlap = (cold->strut.left_start_y < (uint32_t)mb && cold->strut.left_end_y > (uint32_t)mt);
-                }
-                if (overlap) {
-                    int32_t new_l = (int32_t)cold->strut.left;
-                    if (new_l > ml) wa_shrink_left(&mon->workarea, new_l);
-                }
-            }
-            if (cold->strut.right > 0) {
-                int32_t r_edge = screen_w - (int32_t)cold->strut.right;
-                bool overlap = true;
-                if (cold->strut_partial_active) {
-                    overlap = (cold->strut.right_start_y < (uint32_t)mb && cold->strut.right_end_y > (uint32_t)mt);
-                }
-                if (overlap) {
-                    if (r_edge < mr) wa_shrink_right(&mon->workarea, r_edge);
-                }
-            }
-            if (cold->strut.top > 0) {
-                bool overlap = true;
-                if (cold->strut_partial_active) {
-                    overlap = (cold->strut.top_start_x < (uint32_t)mr && cold->strut.top_end_x > (uint32_t)ml);
-                }
-                if (overlap) {
-                    int32_t new_t = (int32_t)cold->strut.top;
-                    if (new_t > mt) wa_shrink_top(&mon->workarea, new_t);
-                }
-            }
-            if (cold->strut.bottom > 0) {
-                int32_t b_edge = screen_h - (int32_t)cold->strut.bottom;
-                bool overlap = true;
-                if (cold->strut_partial_active) {
-                    overlap = (cold->strut.bottom_start_x < (uint32_t)mr && cold->strut.bottom_end_x > (uint32_t)ml);
-                }
-                if (overlap) {
-                    if (b_edge < mb) wa_shrink_bottom(&mon->workarea, b_edge);
-                }
-            }
+        if (overlap) {
+          int32_t new_l = (int32_t)cold->strut.left;
+          if (new_l > ml)
+            wa_shrink_left(&mon->workarea, new_l);
         }
+      }
+      if (cold->strut.right > 0) {
+        int32_t r_edge = screen_w - (int32_t)cold->strut.right;
+        bool overlap = true;
+        if (cold->strut_partial_active) {
+          overlap = (cold->strut.right_start_y < (uint32_t)mb && cold->strut.right_end_y > (uint32_t)mt);
+        }
+        if (overlap) {
+          if (r_edge < mr)
+            wa_shrink_right(&mon->workarea, r_edge);
+        }
+      }
+      if (cold->strut.top > 0) {
+        bool overlap = true;
+        if (cold->strut_partial_active) {
+          overlap = (cold->strut.top_start_x < (uint32_t)mr && cold->strut.top_end_x > (uint32_t)ml);
+        }
+        if (overlap) {
+          int32_t new_t = (int32_t)cold->strut.top;
+          if (new_t > mt)
+            wa_shrink_top(&mon->workarea, new_t);
+        }
+      }
+      if (cold->strut.bottom > 0) {
+        int32_t b_edge = screen_h - (int32_t)cold->strut.bottom;
+        bool overlap = true;
+        if (cold->strut_partial_active) {
+          overlap = (cold->strut.bottom_start_x < (uint32_t)mr && cold->strut.bottom_end_x > (uint32_t)ml);
+        }
+        if (overlap) {
+          if (b_edge < mb)
+            wa_shrink_bottom(&mon->workarea, b_edge);
+        }
+      }
     }
+  }
 
-    // 3. Set output workarea to the primary monitor's workarea (first monitor)
-    if (s->monitor_count > 0) {
-        *out = s->monitors[0].workarea;
-    } else {
-        *out = default_mon.workarea;
-    }
+  // 3. Set output workarea to the primary monitor's workarea (first monitor)
+  if (s->monitor_count > 0) {
+    *out = s->monitors[0].workarea;
+  }
+  else {
+    *out = default_mon.workarea;
+  }
 }
 
 int wm_monitor_at_point(const server_t* s, int root_x, int root_y) {
-    if (!s || s->monitor_count == 0) return -1;
+  if (!s || s->monitor_count == 0)
+    return -1;
 
-    int best_idx = 0;
-    int best_dist_sq = INT32_MAX;
+  int best_idx = 0;
+  int best_dist_sq = INT32_MAX;
 
-    for (uint32_t i = 0; i < s->monitor_count; i++) {
-        const monitor_t* mon = &s->monitors[i];
-        int mx1 = mon->geom.x;
-        int my1 = mon->geom.y;
-        int mx2 = mon->geom.x + (int)mon->geom.w;
-        int my2 = mon->geom.y + (int)mon->geom.h;
+  for (uint32_t i = 0; i < s->monitor_count; i++) {
+    const monitor_t* mon = &s->monitors[i];
+    int mx1 = mon->geom.x;
+    int my1 = mon->geom.y;
+    int mx2 = mon->geom.x + (int)mon->geom.w;
+    int my2 = mon->geom.y + (int)mon->geom.h;
 
-        if (root_x >= mx1 && root_x < mx2 && root_y >= my1 && root_y < my2) {
-            return (int)i;
-        }
-
-        int cx = mx1 + (int)(mon->geom.w / 2);
-        int cy = my1 + (int)(mon->geom.h / 2);
-        int dx = root_x - cx;
-        int dy = root_y - cy;
-        int dist_sq = dx * dx + dy * dy;
-        if (dist_sq < best_dist_sq) {
-            best_dist_sq = dist_sq;
-            best_idx = (int)i;
-        }
+    if (root_x >= mx1 && root_x < mx2 && root_y >= my1 && root_y < my2) {
+      return (int)i;
     }
 
-    return best_idx;
+    int cx = mx1 + (int)(mon->geom.w / 2);
+    int cy = my1 + (int)(mon->geom.h / 2);
+    int dx = root_x - cx;
+    int dy = root_y - cy;
+    int dist_sq = dx * dx + dy * dy;
+    if (dist_sq < best_dist_sq) {
+      best_dist_sq = dist_sq;
+      best_idx = (int)i;
+    }
+  }
+
+  return best_idx;
 }
 
 void wm_switch_workspace(server_t* s, uint32_t new_desktop) {
-    if (s->desktop_count == 0) s->desktop_count = 1;
-    if (new_desktop >= s->desktop_count) return;
-    if (new_desktop == s->current_desktop) return;
+  if (s->desktop_count == 0)
+    s->desktop_count = 1;
+  if (new_desktop >= s->desktop_count)
+    return;
+  if (new_desktop == s->current_desktop)
+    return;
 
-    LOG_INFO("Switching workspace %u -> %u", s->current_desktop, new_desktop);
+  LOG_INFO("Switching workspace %u -> %u", s->current_desktop, new_desktop);
 
-    s->current_desktop = new_desktop;
+  s->current_desktop = new_desktop;
 
-    s->root_dirty |= ROOT_DIRTY_VISIBILITY | ROOT_DIRTY_CURRENT_DESKTOP;
+  s->root_dirty |= ROOT_DIRTY_VISIBILITY | ROOT_DIRTY_CURRENT_DESKTOP;
 
-    bool focused_visible = false;
-    if (s->focused_client != HANDLE_INVALID) {
-        client_hot_t* c = server_chot(s, s->focused_client);
-        if (c && (c->desktop == (int32_t)new_desktop || c->sticky)) focused_visible = true;
+  bool focused_visible = false;
+  if (s->focused_client != HANDLE_INVALID) {
+    client_hot_t* c = server_chot(s, s->focused_client);
+    if (c && (c->desktop == (int32_t)new_desktop || c->sticky))
+      focused_visible = true;
+  }
+
+  if (!focused_visible) {
+    handle_t new_focus = HANDLE_INVALID;
+    for (list_node_t* node = s->focus_history.next; node != &s->focus_history; node = node->next) {
+      client_hot_t* c = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
+      if (c->state == STATE_MAPPED && (c->desktop == (int32_t)new_desktop || c->sticky)) {
+        new_focus = c->self;
+        break;
+      }
     }
+    wm_set_focus(s, new_focus);
+  }
 
-    if (!focused_visible) {
-        handle_t new_focus = HANDLE_INVALID;
-        for (list_node_t* node = s->focus_history.next; node != &s->focus_history; node = node->next) {
-            client_hot_t* c = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
-            if (c->state == STATE_MAPPED && (c->desktop == (int32_t)new_desktop || c->sticky)) {
-                new_focus = c->self;
-                break;
-            }
-        }
-        wm_set_focus(s, new_focus);
-    }
-
-    s->root_dirty |= ROOT_DIRTY_ACTIVE_WINDOW;
+  s->root_dirty |= ROOT_DIRTY_ACTIVE_WINDOW;
 }
 
 void wm_switch_workspace_relative(server_t* s, int delta) {
-    if (s->desktop_count == 0) s->desktop_count = 1;
-    int32_t next = (int32_t)s->current_desktop + delta;
-    if (next < 0) next = (int32_t)s->desktop_count - 1;
-    if (next >= (int32_t)s->desktop_count) next = 0;
-    wm_switch_workspace(s, (uint32_t)next);
+  if (s->desktop_count == 0)
+    s->desktop_count = 1;
+  int32_t next = (int32_t)s->current_desktop + delta;
+  if (next < 0)
+    next = (int32_t)s->desktop_count - 1;
+  if (next >= (int32_t)s->desktop_count)
+    next = 0;
+  wm_switch_workspace(s, (uint32_t)next);
 }
 
 void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool follow) {
-    client_hot_t* c = server_chot(s, h);
-    if (!c) return;
+  client_hot_t* c = server_chot(s, h);
+  if (!c)
+    return;
 
-    if (c->sticky && (c->type == WINDOW_TYPE_DOCK || c->type == WINDOW_TYPE_DESKTOP) && desktop != 0xFFFFFFFF) {
-        desktop = 0xFFFFFFFF;
+  if (c->sticky && (c->type == WINDOW_TYPE_DOCK || c->type == WINDOW_TYPE_DESKTOP) && desktop != 0xFFFFFFFF) {
+    desktop = 0xFFFFFFFF;
+  }
+
+  if (desktop != 0xFFFFFFFF && desktop >= s->desktop_count) {
+    if (s->desktop_count == 1) {
+      desktop = 0;
     }
+    else {
+      return;
+    }
+  }
 
-    if (desktop != 0xFFFFFFFF && desktop >= s->desktop_count) {
-        if (s->desktop_count == 1) {
-            desktop = 0;
-        } else {
-            return;
+  int32_t new_desk = (desktop == 0xFFFFFFFF) ? -1 : (int32_t)desktop;
+
+  LOG_INFO("Moving client %u to desktop %d (follow=%d)", c->xid, new_desk, follow);
+
+  c->desktop = new_desk;
+  c->sticky = (new_desk == -1);
+
+  if (follow && !c->sticky) {
+    wm_switch_workspace(s, desktop);
+    wm_set_focus(s, h);
+  }
+  else if (c->state == STATE_MAPPED) {
+    s->root_dirty |= ROOT_DIRTY_VISIBILITY;
+
+    bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
+    if (!visible && s->focused_client == h) {
+      handle_t new_focus = HANDLE_INVALID;
+      for (list_node_t* node = s->focus_history.next; node != &s->focus_history; node = node->next) {
+        client_hot_t* hc = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
+        if (hc->state == STATE_MAPPED && (hc->desktop == (int32_t)s->current_desktop || hc->sticky)) {
+          new_focus = hc->self;
+          break;
         }
+      }
+      wm_set_focus(s, new_focus);
     }
+  }
 
-    int32_t new_desk = (desktop == 0xFFFFFFFF) ? -1 : (int32_t)desktop;
-
-    LOG_INFO("Moving client %u to desktop %d (follow=%d)", c->xid, new_desk, follow);
-
-    c->desktop = new_desk;
-    c->sticky = (new_desk == -1);
-
-    if (follow && !c->sticky) {
-        wm_switch_workspace(s, desktop);
-        wm_set_focus(s, h);
-    } else if (c->state == STATE_MAPPED) {
-        s->root_dirty |= ROOT_DIRTY_VISIBILITY;
-
-        bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
-        if (!visible && s->focused_client == h) {
-            handle_t new_focus = HANDLE_INVALID;
-            for (list_node_t* node = s->focus_history.next; node != &s->focus_history; node = node->next) {
-                client_hot_t* hc = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
-                if (hc->state == STATE_MAPPED && (hc->desktop == (int32_t)s->current_desktop || hc->sticky)) {
-                    new_focus = hc->self;
-                    break;
-                }
-            }
-            wm_set_focus(s, new_focus);
-        }
-    }
-
-    c->dirty |= DIRTY_STATE | DIRTY_DESKTOP;
-    s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING | ROOT_DIRTY_ACTIVE_WINDOW;
+  c->dirty |= DIRTY_STATE | DIRTY_DESKTOP;
+  s->root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING | ROOT_DIRTY_ACTIVE_WINDOW;
 }
 
 void wm_client_toggle_sticky(server_t* s, handle_t h) {
-    client_hot_t* c = server_chot(s, h);
-    if (!c) return;
+  client_hot_t* c = server_chot(s, h);
+  if (!c)
+    return;
 
-    c->sticky = !c->sticky;
-    if (c->sticky && (c->type == WINDOW_TYPE_DOCK || c->type == WINDOW_TYPE_DESKTOP)) {
-        c->desktop = -1;
-    }
+  c->sticky = !c->sticky;
+  if (c->sticky && (c->type == WINDOW_TYPE_DOCK || c->type == WINDOW_TYPE_DESKTOP)) {
+    c->desktop = -1;
+  }
 
-    LOG_INFO("Client %u sticky toggled to %d", c->xid, c->sticky);
+  LOG_INFO("Client %u sticky toggled to %d", c->xid, c->sticky);
 
-    if (c->state == STATE_MAPPED) {
-        s->root_dirty |= ROOT_DIRTY_VISIBILITY;
+  if (c->state == STATE_MAPPED) {
+    s->root_dirty |= ROOT_DIRTY_VISIBILITY;
 
-        bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
-        if (!visible && s->focused_client == h) {
-            handle_t new_focus = HANDLE_INVALID;
-            for (list_node_t* node = s->focus_history.next; node != &s->focus_history; node = node->next) {
-                client_hot_t* hc = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
-                if (hc->state == STATE_MAPPED && (hc->desktop == (int32_t)s->current_desktop || hc->sticky)) {
-                    new_focus = hc->self;
-                    break;
-                }
-            }
-            wm_set_focus(s, new_focus);
+    bool visible = c->sticky || (c->desktop == (int32_t)s->current_desktop);
+    if (!visible && s->focused_client == h) {
+      handle_t new_focus = HANDLE_INVALID;
+      for (list_node_t* node = s->focus_history.next; node != &s->focus_history; node = node->next) {
+        client_hot_t* hc = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
+        if (hc->state == STATE_MAPPED && (hc->desktop == (int32_t)s->current_desktop || hc->sticky)) {
+          new_focus = hc->self;
+          break;
         }
+      }
+      wm_set_focus(s, new_focus);
     }
+  }
 
-    c->dirty |= DIRTY_STATE | DIRTY_DESKTOP;
+  c->dirty |= DIRTY_STATE | DIRTY_DESKTOP;
 }

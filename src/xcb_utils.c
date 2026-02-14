@@ -128,111 +128,118 @@ static const char* atom_names[] = {
  * debugging where we typically see the same few atoms repeated.
  */
 const char* atom_name(xcb_atom_t atom) {
-    if (atom == XCB_ATOM_NONE) return "NONE";
+  if (atom == XCB_ATOM_NONE)
+    return "NONE";
 
-    const xcb_atom_t* values = (const xcb_atom_t*)&atoms;
-    size_t count = sizeof(atoms) / sizeof(xcb_atom_t);
-    for (size_t i = 0; i < count; i++) {
-        if (values[i] == atom) return atom_names[i];
-    }
+  const xcb_atom_t* values = (const xcb_atom_t*)&atoms;
+  size_t count = sizeof(atoms) / sizeof(xcb_atom_t);
+  for (size_t i = 0; i < count; i++) {
+    if (values[i] == atom)
+      return atom_names[i];
+  }
 
-    // Dynamic resolution cache (Thread Local for safety)
-    // We use a small MRU cache per thread to avoid locking.
-    static _Thread_local struct {
-        xcb_atom_t atom;
-        char name[64];
-    } cache[8];
-    static _Thread_local int next_slot = 0;
+  // Dynamic resolution cache (Thread Local for safety)
+  // We use a small MRU cache per thread to avoid locking.
+  static _Thread_local struct {
+    xcb_atom_t atom;
+    char name[64];
+  } cache[8];
+  static _Thread_local int next_slot = 0;
 
-    // Check cache
-    for (int i = 0; i < 8; i++) {
-        if (cache[i].atom == atom) return cache[i].name;
-    }
+  // Check cache
+  for (int i = 0; i < 8; i++) {
+    if (cache[i].atom == atom)
+      return cache[i].name;
+  }
 
-    if (!g_conn_ref) return "unknown";
-
-    // Resolve
-    // Note: xcb_get_atom_name is thread-safe as it writes a request to the XCB connection buffer.
-    // However, we rely on g_conn_ref being valid and stable (set at startup).
-    xcb_get_atom_name_cookie_t cookie = xcb_get_atom_name(g_conn_ref, atom);
-    xcb_get_atom_name_reply_t* reply = xcb_get_atom_name_reply(g_conn_ref, cookie, NULL);
-
-    if (reply) {
-        int len = xcb_get_atom_name_name_length(reply);
-        if (len > 63) len = 63;
-
-        int slot = next_slot;
-        next_slot = (next_slot + 1) % 8;
-
-        cache[slot].atom = atom;
-        memcpy(cache[slot].name, xcb_get_atom_name_name(reply), len);
-        cache[slot].name[len] = '\0';
-
-        free(reply);
-        return cache[slot].name;
-    }
-
+  if (!g_conn_ref)
     return "unknown";
+
+  // Resolve
+  // Note: xcb_get_atom_name is thread-safe as it writes a request to the XCB
+  // connection buffer. However, we rely on g_conn_ref being valid and stable
+  // (set at startup).
+  xcb_get_atom_name_cookie_t cookie = xcb_get_atom_name(g_conn_ref, atom);
+  xcb_get_atom_name_reply_t* reply = xcb_get_atom_name_reply(g_conn_ref, cookie, NULL);
+
+  if (reply) {
+    int len = xcb_get_atom_name_name_length(reply);
+    if (len > 63)
+      len = 63;
+
+    int slot = next_slot;
+    next_slot = (next_slot + 1) % 8;
+
+    cache[slot].atom = atom;
+    memcpy(cache[slot].name, xcb_get_atom_name_name(reply), len);
+    cache[slot].name[len] = '\0';
+
+    free(reply);
+    return cache[slot].name;
+  }
+
+  return "unknown";
 }
 
 void atoms_init(xcb_connection_t* conn) {
-    xcb_intern_atom_cookie_t cookies[sizeof(atom_names) / sizeof(atom_names[0])];
-    const size_t count = sizeof(atom_names) / sizeof(atom_names[0]);
-    g_conn_ref = conn;
+  xcb_intern_atom_cookie_t cookies[sizeof(atom_names) / sizeof(atom_names[0])];
+  const size_t count = sizeof(atom_names) / sizeof(atom_names[0]);
+  g_conn_ref = conn;
 
-    for (size_t i = 0; i < count; i++) {
-        cookies[i] = xcb_intern_atom(conn, 0, strlen(atom_names[i]), atom_names[i]);
-    }
+  for (size_t i = 0; i < count; i++) {
+    cookies[i] = xcb_intern_atom(conn, 0, strlen(atom_names[i]), atom_names[i]);
+  }
 
-    xcb_intern_atom_reply_t* reply;
-    xcb_atom_t* atom_ptr = (xcb_atom_t*)&atoms;
-    for (size_t i = 0; i < count; i++) {
-        reply = xcb_intern_atom_reply(conn, cookies[i], NULL);
-        if (reply) {
-            atom_ptr[i] = reply->atom;
-            free(reply);
-        } else {
-            LOG_WARN("Failed to intern atom %s", atom_names[i]);
-            atom_ptr[i] = XCB_ATOM_NONE;
-        }
+  xcb_intern_atom_reply_t* reply;
+  xcb_atom_t* atom_ptr = (xcb_atom_t*)&atoms;
+  for (size_t i = 0; i < count; i++) {
+    reply = xcb_intern_atom_reply(conn, cookies[i], NULL);
+    if (reply) {
+      atom_ptr[i] = reply->atom;
+      free(reply);
     }
+    else {
+      LOG_WARN("Failed to intern atom %s", atom_names[i]);
+      atom_ptr[i] = XCB_ATOM_NONE;
+    }
+  }
 }
 
 void atoms_print(void) {
 #if HXM_DIAG
-    LOG_INFO("Cached atoms:");
-    const char* const* name = atom_names;
-    xcb_atom_t* atom_ptr = (xcb_atom_t*)&atoms;
-    for (size_t i = 0; i < sizeof(atom_names) / sizeof(atom_names[0]); i++) {
-        LOG_INFO("  %s: %u", *name, *atom_ptr);
-        name++;
-        atom_ptr++;
-    }
+  LOG_INFO("Cached atoms:");
+  const char* const* name = atom_names;
+  xcb_atom_t* atom_ptr = (xcb_atom_t*)&atoms;
+  for (size_t i = 0; i < sizeof(atom_names) / sizeof(atom_names[0]); i++) {
+    LOG_INFO("  %s: %u", *name, *atom_ptr);
+    name++;
+    atom_ptr++;
+  }
 #endif
 }
 
 xcb_connection_t* xcb_connect_cached(void) {
-    xcb_connection_t* conn = xcb_connect(NULL, NULL);
-    if (xcb_connection_has_error(conn)) {
-        LOG_ERROR("Failed to connect to X server");
-        return NULL;
-    }
-    atoms_init(conn);
-    return conn;
+  xcb_connection_t* conn = xcb_connect(NULL, NULL);
+  if (xcb_connection_has_error(conn)) {
+    LOG_ERROR("Failed to connect to X server");
+    return NULL;
+  }
+  atoms_init(conn);
+  return conn;
 }
 
 __attribute__((weak)) xcb_visualtype_t* xcb_get_visualtype(xcb_connection_t* conn, xcb_visualid_t visual_id) {
-    xcb_screen_iterator_t screen_iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
-    for (; screen_iter.rem; xcb_screen_next(&screen_iter)) {
-        xcb_depth_iterator_t depth_iter = xcb_screen_allowed_depths_iterator(screen_iter.data);
-        for (; depth_iter.rem; xcb_depth_next(&depth_iter)) {
-            xcb_visualtype_iterator_t visual_iter = xcb_depth_visuals_iterator(depth_iter.data);
-            for (; visual_iter.rem; xcb_visualtype_next(&visual_iter)) {
-                if (visual_id == visual_iter.data->visual_id) {
-                    return visual_iter.data;
-                }
-            }
+  xcb_screen_iterator_t screen_iter = xcb_setup_roots_iterator(xcb_get_setup(conn));
+  for (; screen_iter.rem; xcb_screen_next(&screen_iter)) {
+    xcb_depth_iterator_t depth_iter = xcb_screen_allowed_depths_iterator(screen_iter.data);
+    for (; depth_iter.rem; xcb_depth_next(&depth_iter)) {
+      xcb_visualtype_iterator_t visual_iter = xcb_depth_visuals_iterator(depth_iter.data);
+      for (; visual_iter.rem; xcb_visualtype_next(&visual_iter)) {
+        if (visual_id == visual_iter.data->visual_id) {
+          return visual_iter.data;
         }
+      }
     }
-    return NULL;
+  }
+  return NULL;
 }

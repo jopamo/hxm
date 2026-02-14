@@ -7,7 +7,7 @@
 #include "client.h"
 #include "cookie_jar.h"
 #include "event.h"
-#include "src/wm_internal.h" // For wm_handle_reply prototype
+#include "src/wm_internal.h"  // For wm_handle_reply prototype
 #include "wm.h"
 #include "xcb_utils.h"
 
@@ -21,25 +21,24 @@ void test_tiny_window_expansion(void) {
   s.is_test = true;
   s.root_depth = 24;
   s.root_visual_type = xcb_get_visualtype(NULL, 0);
-  s.conn = (xcb_connection_t *)malloc(1);
+  s.conn = (xcb_connection_t*)malloc(1);
 
   // Setup basic config
   config_init_defaults(&s.config);
 
   // Initialize slotmap
-  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t),
-                    sizeof(client_cold_t))) {
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t))) {
     fprintf(stderr, "Failed to init slotmap\n");
     exit(1);
   }
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
-  client_hot_t *hot = (client_hot_t *)hot_ptr;
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->state = STATE_NEW;
-  hot->manage_phase = MANAGE_PHASE1; // We are in initial discovery
+  hot->manage_phase = MANAGE_PHASE1;  // We are in initial discovery
 
   // Initial geometry is 0 (uninitialized)
   hot->server.w = 0;
@@ -57,8 +56,8 @@ void test_tiny_window_expansion(void) {
   reply.root = 1;
   reply.x = 0;
   reply.y = 0;
-  reply.width = 1;  // TINY WINDOW
-  reply.height = 1; // TINY WINDOW
+  reply.width = 1;   // TINY WINDOW
+  reply.height = 1;  // TINY WINDOW
   reply.border_width = 0;
 
   cookie_slot_t slot;
@@ -78,9 +77,9 @@ void test_tiny_window_expansion(void) {
 
   if (hot->server.w >= 50 && hot->server.h >= 20) {
     printf("PASS: Tiny window WAS expanded (Policy confirmed)\n");
-  } else {
-    printf("FAIL: Tiny window was NOT expanded. Geometry: %dx%d\n",
-           hot->server.w, hot->server.h);
+  }
+  else {
+    printf("FAIL: Tiny window was NOT expanded. Geometry: %dx%d\n", hot->server.w, hot->server.h);
     assert(hot->server.w >= 50);
     assert(hot->server.h >= 20);
   }
