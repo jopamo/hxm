@@ -925,10 +925,12 @@ bool wm_flush_dirty(server_t *s, uint64_t now) {
     flushed = true;
     rect_t wa;
     wm_compute_workarea(s, &wa);
+#if HXM_TRACE_LOGS
     static rl_t rl_wa = {0};
     if (rl_allow(&rl_wa, now, 1000000000)) {
       TRACE_LOG("publish_workarea x=%d y=%d w=%u h=%u", wa.x, wa.y, wa.w, wa.h);
     }
+#endif
     wm_publish_workarea(s, &wa);
 
     s->root_dirty &= ~ROOT_DIRTY_WORKAREA;

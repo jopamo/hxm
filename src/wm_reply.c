@@ -1232,6 +1232,7 @@ void wm_handle_reply(server_t *s, const cookie_slot_t *slot, void *reply,
       client_update_effective_strut(cold);
 
       if (memcmp(&prev_effective, &cold->strut, sizeof(strut_t)) != 0) {
+#if HXM_TRACE_LOGS
         static rl_t rl_strut = {0};
         if (rl_allow(&rl_strut, monotonic_time_ns(), 1000000000)) {
           TRACE_LOG("strut_reply xid=%u atom=%s changed active=%d top=%u",
@@ -1239,6 +1240,7 @@ void wm_handle_reply(server_t *s, const cookie_slot_t *slot, void *reply,
                     is_partial ? "_NET_WM_STRUT_PARTIAL" : "_NET_WM_STRUT",
                     *active, cold->strut.top);
         }
+#endif
         s->workarea_dirty = true;
         s->root_dirty |= ROOT_DIRTY_WORKAREA;
       }
