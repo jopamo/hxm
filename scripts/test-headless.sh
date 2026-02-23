@@ -4,6 +4,11 @@ set -euo pipefail
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo_root=$(cd "$script_dir/.." && pwd)
 
+tmp_home=$(mktemp -d)
+export HOME="$tmp_home"
+export XDG_CONFIG_HOME="$tmp_home/.config"
+mkdir -p "$XDG_CONFIG_HOME/hxm"
+
 if ! command -v Xvfb >/dev/null 2>&1; then
   echo "SKIP: Xvfb not found" >&2
   exit 77
@@ -63,6 +68,7 @@ cleanup() {
     kill "$XVFB_PID"
     wait "$XVFB_PID" || true
   fi
+  rm -rf "$tmp_home"
 }
 trap cleanup EXIT
 

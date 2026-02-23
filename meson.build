@@ -636,6 +636,7 @@ ewmh_script = find_program('tests/ewmh/run_in_xvfb.sh', required: true)
 conky_script = find_program('tests/ewmh/run_conky_probe.sh', required: true)
 fail_on_skips_test_script = find_program('tests/test_fail_on_skips.sh', required: true)
 ci_workflow_test_script = find_program('tests/test_ci_workflow.py', required: true)
+integration_script_fallback_test_script = find_program('tests/test_integration_script_fallback.sh', required: true)
 sync_reply_allowlist_test_script = find_program('tests/test_sync_reply_allowlist.sh', required: true)
 
 script_env = environment()
@@ -652,6 +653,12 @@ test('fail_on_skips_checker', fail_on_skips_test_script,
 )
 
 test('ci_workflow', ci_workflow_test_script,
+  workdir: source_root,
+  is_parallel: true,
+  timeout: 30,
+)
+
+test('integration_script_fallback', integration_script_fallback_test_script,
   workdir: source_root,
   is_parallel: true,
   timeout: 30,

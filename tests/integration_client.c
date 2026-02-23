@@ -186,6 +186,29 @@ static bool wait_for_window_geometry_size(xcb_window_t win, uint16_t want_w, uin
   return false;
 }
 
+static bool wait_for_window_geometry_change_from(xcb_window_t win, uint16_t old_w, uint16_t old_h, uint32_t timeout_ms, uint16_t* out_w, uint16_t* out_h) {
+  uint64_t deadline = now_us() + (uint64_t)timeout_ms * 1000ull;
+  while (now_us() < deadline) {
+    xcb_get_geometry_reply_t* g = get_geometry(win);
+    if (g) {
+      bool changed = (g->width != old_w || g->height != old_h);
+      uint16_t got_w = g->width;
+      uint16_t got_h = g->height;
+      free(g);
+      if (changed) {
+        if (out_w)
+          *out_w = got_w;
+        if (out_h)
+          *out_h = got_h;
+        return true;
+      }
+    }
+    drain_events(32);
+    usleep(2000);
+  }
+  return false;
+}
+
 static bool choose_resize_target(uint16_t cur, uint16_t min, uint16_t max, uint16_t* out) {
   if (cur > min) {
     uint16_t step = (uint16_t)((cur - min >= 96) ? 96 : 1);
@@ -224,6 +247,64 @@ static bool randr_set_screen_size(uint16_t width, uint16_t height, uint32_t mm_w
     return false;
   }
   xflush();
+  return true;
+}
+
+static bool get_active_randr_monitor_size(uint16_t* out_w, uint16_t* out_h) {
+  xcb_randr_get_screen_resources_current_cookie_t res_ck = xcb_randr_get_screen_resources_current(c, root);
+  xcb_randr_get_screen_resources_current_reply_t* res = xcb_randr_get_screen_resources_current_reply(c, res_ck, NULL);
+  if (!res)
+    return false;
+
+  bool found = false;
+  int crtc_count = xcb_randr_get_screen_resources_current_crtcs_length(res);
+  xcb_randr_crtc_t* crtcs = xcb_randr_get_screen_resources_current_crtcs(res);
+  for (int i = 0; i < crtc_count; i++) {
+    xcb_randr_get_crtc_info_cookie_t info_ck = xcb_randr_get_crtc_info(c, crtcs[i], res->config_timestamp);
+    xcb_randr_get_crtc_info_reply_t* info = xcb_randr_get_crtc_info_reply(c, info_ck, NULL);
+    if (!info)
+      continue;
+    if (info->mode != XCB_NONE && info->width > 0 && info->height > 0) {
+      if (out_w)
+        *out_w = info->width;
+      if (out_h)
+        *out_h = info->height;
+      found = true;
+      free(info);
+      break;
+    }
+    free(info);
+  }
+
+  free(res);
+  return found;
+}
+
+static bool wait_for_randr_monitor_size_snapshot(uint16_t old_w, uint16_t old_h, uint32_t timeout_ms, uint16_t* out_w, uint16_t* out_h, bool* out_changed) {
+  uint64_t deadline = now_us() + (uint64_t)timeout_ms * 1000ull;
+  bool got_any = false;
+  uint16_t cur_w = old_w;
+  uint16_t cur_h = old_h;
+
+  while (now_us() < deadline) {
+    if (get_active_randr_monitor_size(&cur_w, &cur_h)) {
+      got_any = true;
+      if (cur_w != old_w || cur_h != old_h)
+        break;
+    }
+    drain_events(32);
+    usleep(2000);
+  }
+
+  if (!got_any)
+    return false;
+
+  if (out_w)
+    *out_w = cur_w;
+  if (out_h)
+    *out_h = cur_h;
+  if (out_changed)
+    *out_changed = (cur_w != old_w || cur_h != old_h);
   return true;
 }
 
@@ -1111,6 +1192,8 @@ static void test_randr_async_monitor_updates(void) {
     fail("RandR extension missing");
 
   uint32_t timeout_ms = test_timeout_ms(2500);
+  const uint16_t initial_w = 220;
+  const uint16_t initial_h = 140;
   xcb_window_t w = XCB_WINDOW_NONE;
   xcb_atom_t fs = XCB_ATOM_NONE;
 
@@ -1118,11 +1201,16 @@ static void test_randr_async_monitor_updates(void) {
   uint16_t orig_h = 0;
   uint16_t target_w = 0;
   uint16_t target_h = 0;
+  uint16_t old_monitor_w = 0;
+  uint16_t old_monitor_h = 0;
+  uint16_t expect_monitor_w = 0;
+  uint16_t expect_monitor_h = 0;
+  bool monitor_changed = false;
   bool resized = false;
   bool test_failed = false;
   char fail_msg[256] = {0};
 
-  w = create_window(220, 140);
+  w = create_window(initial_w, initial_h);
   map_window(w);
   require_eventual_reparent(w, timeout_ms, NULL);
   require_eventual_mapped(w, timeout_ms);
@@ -1146,8 +1234,16 @@ static void test_randr_async_monitor_updates(void) {
   orig_h = root_geom->height;
   free(root_geom);
 
-  if (!wait_for_window_geometry_size(w, orig_w, orig_h, timeout_ms)) {
-    snprintf(fail_msg, sizeof(fail_msg), "timed out waiting for initial fullscreen geometry=%ux%u", orig_w, orig_h);
+  uint16_t old_win_w = 0;
+  uint16_t old_win_h = 0;
+  if (!wait_for_window_geometry_change_from(w, initial_w, initial_h, timeout_ms, &old_win_w, &old_win_h)) {
+    snprintf(fail_msg, sizeof(fail_msg), "timed out waiting for fullscreen geometry to change from %ux%u", initial_w, initial_h);
+    test_failed = true;
+    goto cleanup;
+  }
+
+  if (!get_active_randr_monitor_size(&old_monitor_w, &old_monitor_h)) {
+    snprintf(fail_msg, sizeof(fail_msg), "failed to query initial RandR monitor geometry");
     test_failed = true;
     goto cleanup;
   }
@@ -1179,16 +1275,6 @@ static void test_randr_async_monitor_updates(void) {
     test_failed = true;
     goto cleanup;
   }
-
-  xcb_get_geometry_reply_t* g_before = get_geometry(w);
-  if (!g_before) {
-    snprintf(fail_msg, sizeof(fail_msg), "failed to read initial fullscreen geometry");
-    test_failed = true;
-    goto cleanup;
-  }
-  uint16_t old_win_w = g_before->width;
-  uint16_t old_win_h = g_before->height;
-  free(g_before);
 
   uint8_t err_code = 0;
   uint32_t target_mm_w = scale_mm_for_px(screen->width_in_millimeters, orig_w, target_w);
@@ -1235,16 +1321,49 @@ static void test_randr_async_monitor_updates(void) {
   }
   free(g_mid);
 
-  if (!wait_for_root_workarea_size(target_w, target_h, timeout_ms)) {
-    snprintf(fail_msg, sizeof(fail_msg), "timed out waiting for _NET_WORKAREA=%ux%u", target_w, target_h);
+  if (!wait_for_randr_monitor_size_snapshot(old_monitor_w, old_monitor_h, timeout_ms, &expect_monitor_w, &expect_monitor_h, &monitor_changed)) {
+    snprintf(fail_msg, sizeof(fail_msg), "failed to query post-resize RandR monitor geometry");
     test_failed = true;
     goto cleanup;
   }
 
-  if (!wait_for_window_geometry_size(w, target_w, target_h, timeout_ms)) {
-    snprintf(fail_msg, sizeof(fail_msg), "timed out waiting for fullscreen geometry=%ux%u", target_w, target_h);
-    test_failed = true;
-    goto cleanup;
+  if (monitor_changed) {
+    if (!wait_for_root_workarea_size(expect_monitor_w, expect_monitor_h, timeout_ms)) {
+      snprintf(fail_msg, sizeof(fail_msg), "timed out waiting for _NET_WORKAREA=%ux%u", expect_monitor_w, expect_monitor_h);
+      test_failed = true;
+      goto cleanup;
+    }
+
+    if (!wait_for_window_geometry_size(w, expect_monitor_w, expect_monitor_h, timeout_ms)) {
+      snprintf(fail_msg, sizeof(fail_msg), "timed out waiting for fullscreen geometry=%ux%u", expect_monitor_w, expect_monitor_h);
+      test_failed = true;
+      goto cleanup;
+    }
+  }
+  else {
+    if (!wait_for_root_workarea_size(old_work_w, old_work_h, timeout_ms)) {
+      snprintf(fail_msg, sizeof(fail_msg), "timed out waiting for stable _NET_WORKAREA=%ux%u", old_work_w, old_work_h);
+      test_failed = true;
+      goto cleanup;
+    }
+
+    if (!wait_for_window_geometry_size(w, old_win_w, old_win_h, timeout_ms)) {
+      snprintf(fail_msg, sizeof(fail_msg), "timed out waiting for stable fullscreen geometry=%ux%u", old_win_w, old_win_h);
+      test_failed = true;
+      goto cleanup;
+    }
+  }
+
+  if (!monitor_changed && (target_w != old_work_w || target_h != old_work_h)) {
+    // Guard against false positives: desktop geometry changed but monitor
+    // geometry did not, so workarea/fullscreen must stay tied to monitor data.
+    uint32_t verify_work_w = 0;
+    uint32_t verify_work_h = 0;
+    if (!get_root_workarea(NULL, NULL, &verify_work_w, &verify_work_h) || verify_work_w != old_work_w || verify_work_h != old_work_h) {
+      snprintf(fail_msg, sizeof(fail_msg), "workarea diverged from unchanged monitor geometry");
+      test_failed = true;
+      goto cleanup;
+    }
   }
 
 cleanup:
