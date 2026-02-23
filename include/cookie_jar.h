@@ -21,11 +21,10 @@
  * - Not thread-safe
  * - Callbacks must not call xcb_wait_for_reply / xcb_get_*_reply for the same
  * sequence
- * - The reply pointer passed to handler is owned by XCB and must be free()'d by
- * the handler (XCB replies are heap allocated; this is the conventional
- * contract)
- * - err pointer (if non-NULL) is owned by XCB and must be free()'d by the
- * handler
+ * - The reply pointer passed to handler is borrowed. It is owned by the
+ * cookie_jar drain path and is freed immediately after the handler returns.
+ * Handlers must not free(reply) and must not retain the pointer.
+ * - err pointer (if non-NULL) follows the same contract as reply.
  *
  * Implementation notes:
  * - COOKIE_JAR_CAP must be a power of two
@@ -79,8 +78,9 @@ struct cookie_slot;
  * - May be NULL if no error was reported
  *
  * Ownership:
- * - If reply is non-NULL, the handler must free(reply)
- * - If err is non-NULL, the handler must free(err)
+ * - reply/err are borrowed for the callback duration only
+ * - The cookie_jar drain path frees reply/err after handler returns
+ * - Handlers must not free() or retain reply/err
  */
 typedef void (*cookie_handler_fn)(struct server* s, const struct cookie_slot* slot, void* reply, xcb_generic_error_t* err);
 

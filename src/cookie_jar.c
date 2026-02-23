@@ -220,6 +220,7 @@ void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s
         if (local.handler)
           local.handler(s, &local, reply, err);
 
+        // Handler receives borrowed pointers; cleanup stays centralized here.
         if (reply)
           free(reply);
         if (err)
