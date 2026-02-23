@@ -60,10 +60,12 @@ if [ -z "$integration_client" ]; then
   fi
 fi
 
-# Pass a longer timeout to the C client if TSAN is active.
+# Pass a longer timeout to the C client when running under sanitizers.
 timeout_ms=5000
 if [[ -n "${TSAN_OPTIONS:-}" ]]; then
   timeout_ms=30000
+elif [[ -n "${ASAN_OPTIONS:-}" || -n "${UBSAN_OPTIONS:-}" ]]; then
+  timeout_ms=15000
 fi
 export HXM_TEST_TIMEOUT_MS="$timeout_ms"
 

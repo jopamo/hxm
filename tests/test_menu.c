@@ -40,6 +40,25 @@ void setup_server(server_t* s) {
   assert(loaded && "menu.conf not found for test");
 }
 
+static void teardown_server(server_t* s) {
+  menu_destroy(s);
+  config_destroy(&s->config);
+  for (uint32_t i = 1; i < s->clients.cap; i++) {
+    if (s->clients.hdr[i].live) {
+      handle_t h = handle_make(i, s->clients.hdr[i].gen);
+      client_hot_t* hot = server_chot(s, h);
+      if (hot) {
+        render_free(&hot->render_ctx);
+        if (hot->icon_surface)
+          cairo_surface_destroy(hot->icon_surface);
+      }
+    }
+  }
+  slotmap_destroy(&s->clients);
+  xcb_key_symbols_free(s->keysyms);
+  xcb_disconnect(s->conn);
+}
+
 void test_menu_basics(void) {
   server_t s;
   setup_server(&s);
@@ -76,26 +95,7 @@ void test_menu_basics(void) {
   assert(s.menu.visible == false);
 
   printf("test_menu_basics passed\n");
-
-  menu_destroy(&s);
-  config_destroy(&s.config);
-  for (uint32_t i = 1; i < s.clients.cap; i++) {
-    if (s.clients.hdr[i].live) {
-      handle_t h = handle_make(i, s.clients.hdr[i].gen);
-      client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
-      }
-    }
-  }
-  slotmap_destroy(&s.clients);
-  xcb_key_symbols_free(s.keysyms);
-  xcb_disconnect(s.conn);
-
-  pango_cairo_font_map_set_default(NULL);
-  FcFini();
+  teardown_server(&s);
 }
 
 void test_menu_esc(void) {
@@ -120,25 +120,7 @@ void test_menu_esc(void) {
   assert(s.menu.visible == false);
 
   printf("test_menu_esc passed\n");
-  menu_destroy(&s);
-  config_destroy(&s.config);
-  for (uint32_t i = 1; i < s.clients.cap; i++) {
-    if (s.clients.hdr[i].live) {
-      handle_t h = handle_make(i, s.clients.hdr[i].gen);
-      client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
-      }
-    }
-  }
-  slotmap_destroy(&s.clients);
-  xcb_key_symbols_free(s.keysyms);
-  xcb_disconnect(s.conn);
-
-  pango_cairo_font_map_set_default(NULL);
-  FcFini();
+  teardown_server(&s);
 }
 
 void test_menu_right_click_keeps_menu_visible(void) {
@@ -180,30 +162,20 @@ void test_menu_right_click_keeps_menu_visible(void) {
   assert(s.menu.visible == false);
 
   printf("test_menu_right_click_keeps_menu_visible passed\n");
-  menu_destroy(&s);
-  config_destroy(&s.config);
-  for (uint32_t i = 1; i < s.clients.cap; i++) {
-    if (s.clients.hdr[i].live) {
-      handle_t h = handle_make(i, s.clients.hdr[i].gen);
-      client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
-      }
-    }
-  }
-  slotmap_destroy(&s.clients);
-  xcb_key_symbols_free(s.keysyms);
-  xcb_disconnect(s.conn);
-
-  pango_cairo_font_map_set_default(NULL);
-  FcFini();
+  teardown_server(&s);
 }
 
 int main(void) {
   test_menu_basics();
   test_menu_esc();
   test_menu_right_click_keeps_menu_visible();
+
+  /*
+   * Release shared font-map/fontconfig globals once after all menu tests.
+   * This keeps sanitizer leak checks stable across libc/fontconfig variants.
+   */
+  pango_cairo_font_map_set_default(NULL);
+  FcFini();
+
   return 0;
 }
