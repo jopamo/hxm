@@ -619,11 +619,11 @@ test_repro_tiny_window = executable('test_repro_tiny_window',
 )
 test('repro_tiny_window', test_repro_tiny_window)
 
-bash = find_program('bash')
 source_root = meson.project_source_root()
-integration_script = join_paths(source_root, 'scripts', 'test-integration.sh')
-headless_script = join_paths(source_root, 'scripts', 'test-headless.sh')
-ewmh_script = join_paths(source_root, 'tests', 'ewmh', 'run_in_xvfb.sh')
+integration_script = find_program('scripts/test-integration.sh', required: true)
+headless_script = find_program('scripts/test-headless.sh', required: true)
+ewmh_script = find_program('tests/ewmh/run_in_xvfb.sh', required: true)
+conky_script = find_program('tests/ewmh/run_conky_probe.sh', required: true)
 
 script_env = environment()
 script_env.set('HXM_BIN', hxm.full_path())
@@ -632,8 +632,7 @@ script_env.set('DUMMY_CLIENT', dummy_client.full_path())
 script_env.set('CONKY_PROBE_BIN', conky_probe.full_path())
 script_env.set('CONKY_NORMAL_BIN', conky_normal_client.full_path())
 
-test('integration_script', bash,
-  args: [integration_script],
+test('integration_script', integration_script,
   env: script_env,
   workdir: source_root,
   is_parallel: false,
@@ -641,8 +640,7 @@ test('integration_script', bash,
   depends: [hxm, integration_client],
 )
 
-test('headless_script', bash,
-  args: [headless_script],
+test('headless_script', headless_script,
   env: script_env,
   workdir: source_root,
   is_parallel: false,
@@ -650,8 +648,7 @@ test('headless_script', bash,
   depends: [hxm, dummy_client],
 )
 
-test('ewmh_xvfb', bash,
-  args: [ewmh_script],
+test('ewmh_xvfb', ewmh_script,
   env: script_env,
   workdir: source_root,
   is_parallel: false,
@@ -659,10 +656,7 @@ test('ewmh_xvfb', bash,
   depends: [hxm],
 )
 
-conky_script = join_paths(source_root, 'tests', 'ewmh', 'run_conky_probe.sh')
-
-test('conky_xvfb', bash,
-  args: [conky_script],
+test('conky_xvfb', conky_script,
   env: script_env,
   workdir: source_root,
   is_parallel: false,
