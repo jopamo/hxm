@@ -1,0 +1,12 @@
+# Synchronous xcb *_reply allowlist for runtime interaction-path audit (B.2).
+# Format:
+#   path|symbol|count|rationale
+# Notes:
+# - `count` is the exact number of callsites expected in source.
+# - rationale must include a measurable bound via `bound<=...`.
+
+src/menu.c|xcb_grab_pointer_reply|3|HXM_DIAG-only grab-status probe in menu open flows; bound<=1 blocking reply per menu_show* path invocation until B.3 removes sync grabs.
+src/menu.c|xcb_grab_keyboard_reply|3|HXM_DIAG-only grab-status probe in menu open flows; bound<=1 blocking reply per menu_show* path invocation until B.3 removes sync grabs.
+src/wm.c|xcb_get_selection_owner_reply|2|Startup WM_S0 ownership checks only; bound<=12 blocking replies per wm_become attempt (not in hot event loop).
+src/wm.c|xcb_query_tree_reply|1|Startup window adoption snapshot only; bound<=1 blocking reply per wm_adopt_children run.
+src/wm_desktop.c|xcb_get_property_reply|1|Desktop-name preservation probe when publishing desktop props; bound<=1 blocking reply per wm_publish_desktop_props call.
