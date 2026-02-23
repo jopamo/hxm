@@ -14,11 +14,6 @@ if ! command -v Xvfb >/dev/null 2>&1; then
   exit 77
 fi
 
-if ! command -v xvfb-run >/dev/null 2>&1; then
-  echo "SKIP: xvfb-run not found" >&2
-  exit 77
-fi
-
 if ! command -v pkg-config >/dev/null 2>&1; then
   echo "SKIP: pkg-config not found" >&2
   exit 77
@@ -48,6 +43,14 @@ fi
 
 tmp_home=$(mktemp -d)
 cleanup() {
+  if [ -n "${hxm_pid:-}" ]; then
+    kill "$hxm_pid" >/dev/null 2>&1 || true
+    wait "$hxm_pid" >/dev/null 2>&1 || true
+  fi
+  if [ -n "${xvfb_pid:-}" ]; then
+    kill "$xvfb_pid" >/dev/null 2>&1 || true
+    wait "$xvfb_pid" >/dev/null 2>&1 || true
+  fi
   rm -rf "$tmp_home"
 }
 trap cleanup EXIT
@@ -60,15 +63,17 @@ desktop_count = 3
 desktop_names = one,two,three
 EOF
 
-echo "Running EWMH tests with xvfb-run..."
+echo "Running EWMH tests with Xvfb..."
 
 export HXM_BIN="$hxm_bin"
 export HXM_LOG_FILE="${HXM_LOG_FILE:-/dev/null}"
 export EWMH_CLIENT_BIN="$client_bin"
 export EWMH_SCRIPT_DIR="$script_dir"
 
-xvfb-run -a -s "-screen 0 1024x768x24 +extension RANDR" bash <<'EOF'
-set -e
+export DISPLAY=:99
+Xvfb :99 -screen 0 1024x768x24 +extension RANDR >/dev/null 2>&1 &
+xvfb_pid=$!
+sleep 0.2
 
 if [ "$("$EWMH_CLIENT_BIN" has-extension RANDR)" != "yes" ]; then
   echo "warning: RANDR extension not available on Xvfb" >&2
@@ -77,7 +82,6 @@ fi
 hxm_log_file="${HXM_LOG_FILE:-/dev/null}"
 "$HXM_BIN" >"$hxm_log_file" 2>&1 &
 hxm_pid=$!
-export hxm_pid
 
 # Wait for WM to be ready
 for _ in $(seq 1 100); do
@@ -89,10 +93,9 @@ for _ in $(seq 1 100); do
   sleep 0.05
 done
 
-if [ -z "$win" ] || [ "$win" = "0" ]; then
-   echo "WM did not publish _NET_SUPPORTING_WM_CHECK" >&2
-   kill $hxm_pid || true
-   exit 1
+if [ -z "${win:-}" ] || [ "$win" = "0" ]; then
+  echo "WM did not publish _NET_SUPPORTING_WM_CHECK" >&2
+  exit 1
 fi
 
 for _ in $(seq 1 100); do
@@ -102,24 +105,11 @@ for _ in $(seq 1 100); do
   sleep 0.05
 done
 
-# Run tests
-if ! "$EWMH_SCRIPT_DIR/test_desktops.sh" "$EWMH_CLIENT_BIN"; then
-   kill $hxm_pid || true
-   exit 1
-fi
-if ! "$EWMH_SCRIPT_DIR/test_strut_removal.sh" "$EWMH_CLIENT_BIN"; then
-   kill $hxm_pid || true
-   exit 1
-fi
-if ! "$EWMH_SCRIPT_DIR/test_state_remove.sh" "$EWMH_CLIENT_BIN"; then
-   kill $hxm_pid || true
-   exit 1
-fi
-if ! "$EWMH_SCRIPT_DIR/test_restart.sh" "$EWMH_CLIENT_BIN"; then
-   kill $hxm_pid || true
-   exit 1
-fi
+"$EWMH_SCRIPT_DIR/test_desktops.sh" "$EWMH_CLIENT_BIN"
+"$EWMH_SCRIPT_DIR/test_strut_removal.sh" "$EWMH_CLIENT_BIN"
+"$EWMH_SCRIPT_DIR/test_state_remove.sh" "$EWMH_CLIENT_BIN"
+"$EWMH_SCRIPT_DIR/test_restart.sh" "$EWMH_CLIENT_BIN"
 
-kill $hxm_pid
-wait $hxm_pid || true
-EOF
+kill "$hxm_pid" >/dev/null 2>&1 || true
+wait "$hxm_pid" >/dev/null 2>&1 || true
+hxm_pid=

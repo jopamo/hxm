@@ -138,13 +138,6 @@ void test_debug_dump_focus_history_guard(void) {
   teardown_server(&s);
 }
 
-void test_focus_on_map_integration(void) {
-  // Integration test: simulate client_finish_manage with a normal window
-  // and verify focus not set.
-  // This is more complex and requires full server setup.
-  // TODO: implement if needed.
-}
-
 int main(void) {
   test_should_focus_on_map();
   test_debug_dump_focus_history_guard();

@@ -282,15 +282,12 @@ static void test_6_6_randr_dirty_processing(void) {
   event_process(&s);
 
   assert(call_wm_update_monitors == 1);
-  assert(call_wm_compute_workarea == 1);
-  assert(call_wm_publish_workarea == 1);
+  assert(call_wm_compute_workarea == 0);
+  assert(call_wm_publish_workarea == 0);
 
-  // Check property change call (implied by wm_publish_workarea or explicit
-  // logic in event_process) event_process explicitly calls xcb_change_property
-  // for _NET_DESKTOP_GEOMETRY Let's check xcb stubs for that.
+  // event_process updates _NET_DESKTOP_GEOMETRY immediately while monitor-
+  // dependent workarea publication is deferred until async RandR replies.
   assert(stub_prop_calls_len > 0);
-  // We can iterate stub_prop_calls to find _NET_DESKTOP_GEOMETRY if we want,
-  // but method call counts are good proxies.
 
   printf("test_6_6_randr_dirty_processing passed\n");
   cleanup_server(&s);

@@ -1202,21 +1202,8 @@ void event_process(server_t* s) {
     wm_update_monitors(s);
     uint32_t geometry[] = {s->buckets.randr_width, s->buckets.randr_height};
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32, 2, geometry);
-
-    rect_t wa;
-    wm_compute_workarea(s, &wa);
-    wm_publish_workarea(s, &wa);
-
-    if (!s->config.fullscreen_use_workarea) {
-      for (size_t i = 0; i < s->active_clients.length; i++) {
-        handle_t h = ptr_to_handle(s->active_clients.items[i]);
-        client_hot_t* hot = server_chot(s, h);
-        if (!hot || hot->layer != LAYER_FULLSCREEN)
-          continue;
-        wm_get_monitor_geometry(s, hot, &hot->desired);
-        hot->dirty |= DIRTY_GEOM;
-      }
-    }
+    // Workarea/fullscreen updates are monitor-dependent and now happen when the
+    // async RandR snapshot is applied in wm_apply_monitor_snapshot().
   }
 
   // 12. maintenance
