@@ -170,6 +170,17 @@ static bool wait_for_root_workarea_size(uint32_t want_w, uint32_t want_h, uint32
   return false;
 }
 
+static bool wait_for_root_workarea(uint32_t* out_x, uint32_t* out_y, uint32_t* out_w, uint32_t* out_h, uint32_t timeout_ms) {
+  uint64_t deadline = now_us() + (uint64_t)timeout_ms * 1000ull;
+  while (now_us() < deadline) {
+    if (get_root_workarea(out_x, out_y, out_w, out_h))
+      return true;
+    drain_events(32);
+    usleep(2000);
+  }
+  return false;
+}
+
 static bool wait_for_window_geometry_size(xcb_window_t win, uint16_t want_w, uint16_t want_h, uint32_t timeout_ms) {
   uint64_t deadline = now_us() + (uint64_t)timeout_ms * 1000ull;
   while (now_us() < deadline) {
@@ -1270,7 +1281,7 @@ static void test_randr_async_monitor_updates(void) {
   uint32_t old_work_y = 0;
   uint32_t old_work_w = 0;
   uint32_t old_work_h = 0;
-  if (!get_root_workarea(&old_work_x, &old_work_y, &old_work_w, &old_work_h)) {
+  if (!wait_for_root_workarea(&old_work_x, &old_work_y, &old_work_w, &old_work_h, timeout_ms)) {
     snprintf(fail_msg, sizeof(fail_msg), "failed to read initial _NET_WORKAREA");
     test_failed = true;
     goto cleanup;
@@ -1296,7 +1307,7 @@ static void test_randr_async_monitor_updates(void) {
   uint32_t mid_work_y = 0;
   uint32_t mid_work_w = 0;
   uint32_t mid_work_h = 0;
-  if (!get_root_workarea(&mid_work_x, &mid_work_y, &mid_work_w, &mid_work_h)) {
+  if (!wait_for_root_workarea(&mid_work_x, &mid_work_y, &mid_work_w, &mid_work_h, timeout_ms)) {
     snprintf(fail_msg, sizeof(fail_msg), "failed to read transitional _NET_WORKAREA");
     test_failed = true;
     goto cleanup;
