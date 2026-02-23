@@ -159,8 +159,7 @@ void frame_flush(server_t* s, handle_t h) {
 
   uint16_t bw = s->config.theme.border_width;
   uint16_t th = s->config.theme.title_height;
-  uint16_t hh = s->config.theme.handle_height;
-  uint16_t bottom_h = (hh > bw) ? hh : bw;
+  uint16_t bottom_h = bw;
 
   uint16_t frame_w = hot->server.w + 2 * bw;
   uint16_t frame_h = hot->server.h + th + bottom_h;

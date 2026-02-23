@@ -118,8 +118,7 @@ static bool wm_is_above_in_layer(const server_t* s, const client_hot_t* a, const
 void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecorated) {
   uint32_t bw = undecorated ? 0 : s->config.theme.border_width;
   uint32_t th = undecorated ? 0 : s->config.theme.title_height;
-  uint32_t hh = undecorated ? 0 : s->config.theme.handle_height;
-  uint32_t bottom_h = (hh > bw) ? hh : bw;
+  uint32_t bottom_h = bw;
   uint32_t extents[4] = {bw, bw, th + bw, bottom_h};
   xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, win, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4, extents);
 }
@@ -845,9 +844,7 @@ void wm_client_apply_state_set(server_t* s, handle_t h, const client_state_set_t
 static int wm_get_resize_dir(server_t* s, client_hot_t* hot, int16_t x, int16_t y) {
   uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
   uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
-  uint16_t hh = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.handle_height;
-
-  uint16_t bottom_h = (hh > bw) ? hh : bw;
+  uint16_t bottom_h = bw;
 
   uint16_t frame_w = hot->server.w + 2 * bw;
   uint16_t frame_h = hot->server.h + th + bottom_h;
@@ -861,16 +858,6 @@ static int wm_get_resize_dir(server_t* s, client_hot_t* hot, int16_t x, int16_t 
     dir |= RESIZE_TOP;  // Top border (part of titlebar area technically)
   if (y >= frame_h - bw)
     dir |= RESIZE_BOTTOM;
-
-  // Handle area (bottom only)
-  if (hh > 0 && y >= frame_h - hh) {
-    dir |= RESIZE_BOTTOM;
-    uint16_t grip_w = hh * 2;
-    if (x < grip_w)
-      dir |= RESIZE_LEFT;
-    if (x >= frame_w - grip_w)
-      dir |= RESIZE_RIGHT;
-  }
 
   return dir;
 }

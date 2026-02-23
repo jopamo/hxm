@@ -459,8 +459,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         client_h_calc = frame_h;
       }
       else {
-        uint16_t hh = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.handle_height;
-        uint16_t bottom_h = (hh > bw) ? hh : bw;
+        uint16_t bottom_h = bw;
         frame_w += 2 * bw;
         frame_h += th + bottom_h;
         // client_w/h remain equal to desired (content size)
@@ -512,8 +511,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
 
         // Set _NET_FRAME_EXTENTS
-        uint16_t hh = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.handle_height;
-        uint16_t bottom_h = (hh > bw) ? hh : bw;
+        uint16_t bottom_h = bw;
         uint32_t extents[4] = {bw, bw, th + bw, bottom_h};
         if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
           extents[0] = 0;

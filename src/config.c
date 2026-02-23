@@ -76,7 +76,7 @@ void config_init_defaults(config_t* config) {
 
   config->theme.border_width = DEFAULT_BORDER_WIDTH;
   config->theme.title_height = DEFAULT_TITLE_HEIGHT;
-  config->theme.handle_height = 6;
+  config->theme.handle_height = 0;
   config->theme.label_margin = 2;
 
   config->desktop_count = DEFAULT_DESKTOP_COUNT;

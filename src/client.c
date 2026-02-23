@@ -412,8 +412,7 @@ void client_finish_manage(server_t* s, handle_t h) {
 
   uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
   uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
-  uint16_t hh = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.handle_height;
-  uint16_t bottom_h = (hh > bw) ? hh : bw;
+  uint16_t bottom_h = bw;
 
   // Use root visual/depth for frames to avoid client-visual artifacts (ex:
   // video overlays)

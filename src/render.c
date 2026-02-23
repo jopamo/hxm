@@ -307,15 +307,12 @@ void render_frame(xcb_connection_t* conn,
   appearance_t* title_bg = active ? &theme->window_active_title : &theme->window_inactive_title;
   uint32_t border_color_u32 = active ? theme->window_active_border_color : theme->window_inactive_border_color;
   uint32_t text_color_u32 = active ? theme->window_active_label_text_color : theme->window_inactive_label_text_color;
-  appearance_t* handle_bg = active ? &theme->window_active_handle : &theme->window_inactive_handle;
-  appearance_t* grip_bg = active ? &theme->window_active_grip : &theme->window_inactive_grip;
 
   rgba_t border = u32_to_rgba(border_color_u32);
   rgba_t text = u32_to_rgba(text_color_u32);
 
   int title_h = (int)theme->title_height;
   int border_w = (int)theme->border_width;
-  int handle_h = (int)theme->handle_height;
 
   // 1. Draw Background (Solid for the whole frame, title_bg for titlebar)
   cairo_set_source_rgba(cr, border.r, border.g, border.b, border.a);
@@ -327,32 +324,6 @@ void render_frame(xcb_connection_t* conn,
   cairo_clip(cr);
   draw_appearance(cr, w, title_h, title_bg);
   cairo_restore(cr);
-
-  // Draw Handle and Grips if handle_h > 0
-  if (handle_h > 0) {
-    int handle_y = h - handle_h;
-    int grip_w = handle_h * 2;  // Grips are usually wider than handle is high
-
-    // Draw Handle background
-    cairo_save(cr);
-    cairo_rectangle(cr, 0, handle_y, w, handle_h);
-    cairo_clip(cr);
-    draw_appearance(cr, w, handle_h, handle_bg);
-    cairo_restore(cr);
-
-    // Draw Grips
-    cairo_save(cr);
-    cairo_rectangle(cr, 0, handle_y, grip_w, handle_h);
-    cairo_clip(cr);
-    draw_appearance(cr, grip_w, handle_h, grip_bg);
-    cairo_restore(cr);
-
-    cairo_save(cr);
-    cairo_rectangle(cr, w - grip_w, handle_y, grip_w, handle_h);
-    cairo_clip(cr);
-    draw_appearance(cr, grip_w, handle_h, grip_bg);
-    cairo_restore(cr);
-  }
 
   int title_x_offset = border_w + 6;
 
@@ -429,13 +400,7 @@ void render_frame(xcb_connection_t* conn,
     cairo_stroke(cr);
   }
 
-  // 5. Draw Handle (Bottom bar)
-  // We need handle_height and handle_bg. For now we use some defaults or pass
-  // them. Let's assume title_bg is passed for now, but we should pass handle_bg
-  // too. Actually, I should probably update render_frame signature again to be
-  // more complete.
-
-  // For now, let's just draw the separator again with better precision
+  // 5. Draw titlebar separator
   cairo_set_source_rgba(cr, border.r, border.g, border.b, border.a);
   cairo_set_line_width(cr, 1.0);
   cairo_move_to(cr, 0, (double)title_h - 0.5);
