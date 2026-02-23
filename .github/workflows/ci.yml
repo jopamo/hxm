@@ -5,6 +5,34 @@ on:
   pull_request:
 
 jobs:
+  full_suite_xvfb:
+    runs-on: ubuntu-latest
+    container: fedora:rawhide
+    name: full-suite-xvfb
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          dnf -y update
+          xargs -r dnf -y install < scripts/deps-fedora.txt
+
+      - name: Configure
+        run: |
+          meson setup "build-full-suite" \
+            -D b_lto=false \
+            -D b_ndebug=false
+
+      - name: Build
+        run: meson compile -C "build-full-suite"
+
+      - name: Test
+        run: |
+          set -euo pipefail
+          meson test -C "build-full-suite" --print-errorlogs
+          python3 scripts/ci/fail_on_skips.py "build-full-suite/meson-logs/testlog.json"
+
   san:
     runs-on: ubuntu-latest
     container: fedora:rawhide

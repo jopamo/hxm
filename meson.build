@@ -635,6 +635,7 @@ headless_script = find_program('scripts/test-headless.sh', required: true)
 ewmh_script = find_program('tests/ewmh/run_in_xvfb.sh', required: true)
 conky_script = find_program('tests/ewmh/run_conky_probe.sh', required: true)
 fail_on_skips_test_script = find_program('tests/test_fail_on_skips.sh', required: true)
+ci_workflow_test_script = find_program('tests/test_ci_workflow.py', required: true)
 
 script_env = environment()
 script_env.set('HXM_BIN', hxm.full_path())
@@ -644,6 +645,12 @@ script_env.set('CONKY_PROBE_BIN', conky_probe.full_path())
 script_env.set('CONKY_NORMAL_BIN', conky_normal_client.full_path())
 
 test('fail_on_skips_checker', fail_on_skips_test_script,
+  workdir: source_root,
+  is_parallel: true,
+  timeout: 30,
+)
+
+test('ci_workflow', ci_workflow_test_script,
   workdir: source_root,
   is_parallel: true,
   timeout: 30,
