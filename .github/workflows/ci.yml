@@ -42,8 +42,11 @@ jobs:
           dnf -y update
           dnf -y install \
             clang llvm lld compiler-rt \
-            git meson ninja-build pkgconf-pkg-config \
-            libbpf-devel libxdp-devel
+            git meson ninja-build pkgconf-pkg-config python3 \
+            libbpf-devel libxdp-devel \
+            libxcb-devel xcb-util-devel xcb-util-wm-devel xcb-util-keysyms-devel \
+            cairo-devel pango-devel fontconfig-devel librsvg2-devel libyaml-devel libxkbcommon-devel \
+            xorg-x11-server-Xvfb xorg-x11-xauth conky
 
       - name: Configure
         run: |
