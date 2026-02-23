@@ -124,7 +124,9 @@ static inline bool list_is_linked(const list_node_t* node) {
   return node->next != node;
 }
 
+#ifndef HXM_OFFSETOF
 #define HXM_OFFSETOF(type, member) offsetof(type, member)
+#endif
 
 #ifndef container_of
 #define container_of(ptr, type, member) ((type*)((char*)(ptr) - HXM_OFFSETOF(type, member)))
