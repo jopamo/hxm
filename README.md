@@ -34,6 +34,16 @@ Visual effects are expected to be provided by an external compositor.
 Install hxm from your distribution if available, or build from source using the
 steps in `HACKING.md`.
 
+For local development and `meson test` parity with CI on Fedora, install the
+shared dependency list:
+
+```sh
+sudo dnf install $(tr '\n' ' ' < scripts/deps-fedora.txt)
+```
+
+This includes `Xvfb` and `conky`, which are required for the `ewmh_xvfb` and
+`conky_xvfb` test suites.
+
 Run hxm:
 
 ```sh

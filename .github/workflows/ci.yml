@@ -40,15 +40,7 @@ jobs:
       - name: Install dependencies
         run: |
           dnf -y update
-          dnf -y install \
-            clang llvm lld compiler-rt \
-            git meson ninja-build pkgconf-pkg-config \
-            libbpf-devel libxdp-devel \
-            python3 \
-            libxcb-devel xcb-util-devel xcb-util-wm-devel xcb-util-keysyms-devel \
-            cairo-devel pango-devel fontconfig-devel librsvg2-devel libyaml-devel \
-            libxkbcommon-devel \
-            xorg-x11-server-Xvfb xorg-x11-xauth
+          xargs -r dnf -y install < scripts/deps-fedora.txt
 
       - name: Configure
         run: |
@@ -71,4 +63,7 @@ jobs:
             meson test -C "build-${{ matrix.name }}" --print-errorlogs --num-processes 1
           else
             meson test -C "build-${{ matrix.name }}" --print-errorlogs
+          fi
+          if [ "${{ matrix.name }}" = "asan" ]; then
+            python3 scripts/ci/fail_on_skips.py "build-${{ matrix.name }}/meson-logs/testlog.json"
           fi

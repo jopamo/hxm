@@ -33,6 +33,16 @@ yaml_dep = dependency('yaml-0.1')
 
 # Optional dependencies
 xkbcommon_dep = dependency('xkbcommon', required: false)
+xvfb_prog = find_program('Xvfb', required: false)
+conky_prog = find_program('conky', required: false)
+
+if not xvfb_prog.found()
+  warning('Xvfb not found; X11 integration tests will skip. Install test dependencies from scripts/deps-fedora.txt.')
+endif
+
+if not conky_prog.found()
+  warning('conky not found; conky_xvfb test will skip. Install test dependencies from scripts/deps-fedora.txt.')
+endif
 
 # Feature detection
 have_epoll = cc.has_function('epoll_create1', prefix: '#include <sys/epoll.h>')
@@ -624,6 +634,7 @@ integration_script = find_program('scripts/test-integration.sh', required: true)
 headless_script = find_program('scripts/test-headless.sh', required: true)
 ewmh_script = find_program('tests/ewmh/run_in_xvfb.sh', required: true)
 conky_script = find_program('tests/ewmh/run_conky_probe.sh', required: true)
+fail_on_skips_test_script = find_program('tests/test_fail_on_skips.sh', required: true)
 
 script_env = environment()
 script_env.set('HXM_BIN', hxm.full_path())
@@ -631,6 +642,12 @@ script_env.set('INTEGRATION_CLIENT', integration_client.full_path())
 script_env.set('DUMMY_CLIENT', dummy_client.full_path())
 script_env.set('CONKY_PROBE_BIN', conky_probe.full_path())
 script_env.set('CONKY_NORMAL_BIN', conky_normal_client.full_path())
+
+test('fail_on_skips_checker', fail_on_skips_test_script,
+  workdir: source_root,
+  is_parallel: true,
+  timeout: 30,
+)
 
 test('integration_script', integration_script,
   env: script_env,
@@ -673,3 +690,6 @@ install_data('data/hxm.conf', install_dir: get_option('sysconfdir') / 'hxm')
 summary('Build type', get_option('buildtype'))
 summary('Install prefix', get_option('prefix'))
 summary('Compiler', cc.get_id())
+summary('Xvfb found (required for Xvfb tests)', xvfb_prog.found())
+summary('conky found (required for conky_xvfb)', conky_prog.found())
+summary('Test dependency manifest', 'scripts/deps-fedora.txt')
