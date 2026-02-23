@@ -141,8 +141,69 @@ void test_menu_esc(void) {
   FcFini();
 }
 
+void test_menu_right_click_keeps_menu_visible(void) {
+  server_t s;
+  setup_server(&s);
+
+  menu_show(&s, 100, 100);
+  assert(s.menu.visible == true);
+
+  // Right-click outside should not dismiss the menu.
+  xcb_button_press_event_t press_outside = {0};
+  press_outside.detail = 3;
+  press_outside.root_x = 0;
+  press_outside.root_y = 0;
+  menu_handle_button_press(&s, &press_outside);
+  assert(s.menu.visible == true);
+
+  xcb_button_release_event_t release_outside = {0};
+  release_outside.detail = 3;
+  release_outside.root_x = 0;
+  release_outside.root_y = 0;
+  menu_handle_button_release(&s, &release_outside);
+  assert(s.menu.visible == true);
+
+  // Right-click release over an item should not activate/dismiss it.
+  xcb_button_release_event_t release_inside_item = {0};
+  release_inside_item.detail = 3;
+  release_inside_item.root_x = 110;
+  release_inside_item.root_y = 110;
+  menu_handle_button_release(&s, &release_inside_item);
+  assert(s.menu.visible == true);
+
+  // Left-click outside still dismisses.
+  xcb_button_press_event_t left_press_outside = {0};
+  left_press_outside.detail = 1;
+  left_press_outside.root_x = 0;
+  left_press_outside.root_y = 0;
+  menu_handle_button_press(&s, &left_press_outside);
+  assert(s.menu.visible == false);
+
+  printf("test_menu_right_click_keeps_menu_visible passed\n");
+  menu_destroy(&s);
+  config_destroy(&s.config);
+  for (uint32_t i = 1; i < s.clients.cap; i++) {
+    if (s.clients.hdr[i].live) {
+      handle_t h = handle_make(i, s.clients.hdr[i].gen);
+      client_hot_t* hot = server_chot(&s, h);
+      if (hot) {
+        render_free(&hot->render_ctx);
+        if (hot->icon_surface)
+          cairo_surface_destroy(hot->icon_surface);
+      }
+    }
+  }
+  slotmap_destroy(&s.clients);
+  xcb_key_symbols_free(s.keysyms);
+  xcb_disconnect(s.conn);
+
+  pango_cairo_font_map_set_default(NULL);
+  FcFini();
+}
+
 int main(void) {
   test_menu_basics();
   test_menu_esc();
+  test_menu_right_click_keeps_menu_visible();
   return 0;
 }

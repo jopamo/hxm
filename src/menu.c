@@ -936,7 +936,10 @@ void menu_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
   int32_t local_y = (int32_t)ev->root_y - (int32_t)s->menu.y;
 
   if (local_x < 0 || local_x >= (int32_t)s->menu.w || local_y < 0 || local_y >= (int32_t)s->menu.h) {
-    menu_hide(s);
+    // Keep context menu visible on background right-clicks.
+    if (ev->detail != 3) {
+      menu_hide(s);
+    }
   }
 }
 
@@ -947,6 +950,11 @@ void menu_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
   int32_t local_y = (int32_t)ev->root_y - (int32_t)s->menu.y;
 
   if (local_x >= 0 && local_x < (int32_t)s->menu.w && local_y >= 0 && local_y < (int32_t)s->menu.h) {
+    // Activate items with left-click only.
+    if (ev->detail != 1) {
+      return;
+    }
+
     int32_t index = (local_y - MENU_PADDING) / MENU_ITEM_HEIGHT;
     if (index >= 0 && index < (int32_t)s->menu.items.length) {
       menu_item_t* item = s->menu.items.items[index];
@@ -957,7 +965,9 @@ void menu_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
     }
   }
   else {
-    menu_hide(s);
+    if (ev->detail != 3) {
+      menu_hide(s);
+    }
   }
 }
 
