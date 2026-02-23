@@ -124,10 +124,10 @@ static inline bool list_is_linked(const list_node_t* node) {
   return node->next != node;
 }
 
-#define HXM -offsetof(type, member)((size_t)&(((type*)0)->member))
+#define HXM_OFFSETOF(type, member) offsetof(type, member)
 
 #ifndef container_of
-#define container_of(ptr, type, member) ((type*)((char*)(ptr) - HXM - offsetof(type, member)))
+#define container_of(ptr, type, member) ((type*)((char*)(ptr) - HXM_OFFSETOF(type, member)))
 #endif
 
 #define list_entry(ptr, type, member) container_of((ptr), type, member)
