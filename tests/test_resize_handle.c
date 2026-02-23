@@ -76,16 +76,13 @@ void test_resize_handle_logic(void) {
 
   // Dimensions:
   // Frame W = 200 + 2*5 = 210
-  // Frame H = 200 + 20 + MAX(5, 6) = 200 + 20 + 6 = 226
+  // Frame H = 200 + 20 + 5 = 225 (bottom edge uses border width)
+  //
+  // Bottom border area: y >= 225 - 5 = 220.
+  // Right border X: [210 - 5, 210) = [205, 210).
+  // Left border X: [0, 5).
 
-  // Bottom area: y >= 226 - 6 = 220.
-  // Border area: y >= 226 - 5 = 221.
-
-  // Grip width = 6 * 2 = 12.
-  // Right grip X: [210 - 12, 210] = [198, 210].
-  // Right border X: [210 - 5, 210] = [205, 210].
-
-  // Case 1: Click in Handle area (but not border) at Bottom Center
+  // Case 1: Click in Bottom border center
   // x = 100 (Center), y = 220.
   bev.event_x = 100;
   bev.event_y = 220;
@@ -94,36 +91,33 @@ void test_resize_handle_logic(void) {
 
   assert(s.interaction_mode == INTERACTION_RESIZE);
   assert(s.interaction_resize_dir == RESIZE_BOTTOM);
-  printf("Case 1 Passed: Bottom Handle Hit\n");
+  printf("Case 1 Passed: Bottom Border Hit\n");
 
   s.interaction_mode = INTERACTION_NONE;
   s.interaction_resize_dir = RESIZE_NONE;
 
-  // Case 2: Click in Bottom Right Grip (but not right border, not bottom
-  // border) x = 200 (198 <= 200 < 205). y = 220 (220 <= 220 < 221).
-  bev.event_x = 200;
+  // Case 2: Click in Bottom Right border corner
+  bev.event_x = 207;
   bev.event_y = 220;
 
   wm_handle_button_press(&s, &bev);
 
   assert(s.interaction_mode == INTERACTION_RESIZE);
   assert(s.interaction_resize_dir == (RESIZE_BOTTOM | RESIZE_RIGHT));
-  printf("Case 2 Passed: Bottom Right Grip Hit\n");
+  printf("Case 2 Passed: Bottom Right Border Hit\n");
 
   s.interaction_mode = INTERACTION_NONE;
   s.interaction_resize_dir = RESIZE_NONE;
 
-  // Case 3: Click in Bottom Left Grip (but not left border)
-  // Grip X: [0, 12]. Left border X: [0, 5].
-  // x = 8. y = 220.
-  bev.event_x = 8;
+  // Case 3: Click in Bottom Left border corner
+  bev.event_x = 2;
   bev.event_y = 220;
 
   wm_handle_button_press(&s, &bev);
 
   assert(s.interaction_mode == INTERACTION_RESIZE);
   assert(s.interaction_resize_dir == (RESIZE_BOTTOM | RESIZE_LEFT));
-  printf("Case 3 Passed: Bottom Left Grip Hit\n");
+  printf("Case 3 Passed: Bottom Left Border Hit\n");
 
   // Cleanup
   config_destroy(&s.config);

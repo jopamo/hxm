@@ -162,18 +162,20 @@ static void test_configure_request_applies_and_extents(void) {
   uint16_t bw = s.config.theme.border_width;
   uint16_t hh = s.config.theme.handle_height;
   uint16_t bottom = (hh > bw) ? hh : bw;
+  uint32_t expected_frame_w = 140u + 2u * (uint32_t)bw;
+  uint32_t expected_frame_h = 100u + (uint32_t)s.config.theme.title_height + (uint32_t)bottom;
 
   assert(frame_call->win == hot->frame);
   assert(frame_call->x == 30);
   assert(frame_call->y == 40);
-  assert(frame_call->w == 140 + 2 * bw);
-  assert(frame_call->h == 100 + s.config.theme.title_height + bottom);
+  assert(frame_call->w == expected_frame_w);
+  assert(frame_call->h == expected_frame_h);
 
   assert(client_call->win == hot->xid);
   assert(client_call->x == (int32_t)bw);
   assert(client_call->y == (int32_t)s.config.theme.title_height);
-  assert(client_call->w == 140);
-  assert(client_call->h == 100);
+  assert(client_call->w == 140u);
+  assert(client_call->h == 100u);
 
   assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
   assert(stub_last_prop_len == 4);
@@ -377,8 +379,8 @@ static void test_panel_configure_request_skips_min_constraints(void) {
 
   const stub_config_call_t* client_call = stub_config_call_at(1);
   assert(client_call);
-  assert(client_call->w == 10);
-  assert(client_call->h == 5);
+  assert(client_call->w == 10u);
+  assert(client_call->h == 5u);
 
   printf("test_panel_configure_request_skips_min_constraints passed\n");
   cleanup_server(&s);
