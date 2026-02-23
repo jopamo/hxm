@@ -420,7 +420,7 @@ parity_client = executable('parity_client',
 integration_client = executable('integration_client',
   'tests/integration_client.c',
   include_directories: incdir,
-  dependencies: [xcb_dep, xcb_icccm_dep],
+  dependencies: [xcb_dep, xcb_icccm_dep, xcb_randr_dep],
 )
 
 dummy_client = executable('dummy_client',
