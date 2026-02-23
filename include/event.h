@@ -176,6 +176,10 @@ typedef struct server {
   /* Monitor configuration */
   monitor_t* monitors;
   uint32_t monitor_count;
+  monitor_t* randr_pending_monitors;
+  uint32_t randr_pending_capacity;
+  uint32_t randr_pending_replies;
+  uint64_t randr_pending_generation;
 
   /* Workarea (computed minus struts/docks) */
   rect_t workarea;
@@ -211,6 +215,8 @@ typedef struct server {
   int16_t interaction_start_w, interaction_start_h;
 
   int16_t interaction_pointer_x, interaction_pointer_y;
+  int16_t pointer_root_x, pointer_root_y;
+  bool pointer_root_valid;
 
   /* Per-tick scratch arena */
   arena_t tick_arena;

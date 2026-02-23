@@ -348,6 +348,10 @@ void server_cleanup(server_t* s) {
     free(s->monitors);
     s->monitors = NULL;
   }
+  if (s->randr_pending_monitors) {
+    free(s->randr_pending_monitors);
+    s->randr_pending_monitors = NULL;
+  }
 
   if (s->signal_fd >= 0) {
     close(s->signal_fd);

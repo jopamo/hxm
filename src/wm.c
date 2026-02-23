@@ -52,6 +52,11 @@ enum {
   NET_WM_MOVERESIZE_CANCEL = 11,
 };
 
+static void wm_apply_monitor_snapshot(server_t* s, monitor_t* next_monitors, uint32_t active_count);
+static void wm_record_pointer_root(server_t* s, int16_t root_x, int16_t root_y);
+static void wm_handle_randr_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err);
+static void wm_handle_grab_pointer_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err);
+
 static void ignore_one_unmap(client_hot_t* hot) {
   if (!hot)
     return;
@@ -123,60 +128,177 @@ void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecor
   xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, win, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4, extents);
 }
 
-void wm_update_monitors(server_t* s) {
-  if (!s->conn)
+static void wm_record_pointer_root(server_t* s, int16_t root_x, int16_t root_y) {
+  if (!s)
+    return;
+  s->pointer_root_x = root_x;
+  s->pointer_root_y = root_y;
+  s->pointer_root_valid = true;
+}
+
+static void wm_clear_pending_randr(server_t* s) {
+  if (!s)
+    return;
+  if (s->randr_pending_monitors) {
+    free(s->randr_pending_monitors);
+    s->randr_pending_monitors = NULL;
+  }
+  s->randr_pending_capacity = 0;
+  s->randr_pending_replies = 0;
+}
+
+static void wm_finalize_pending_randr(server_t* s, uint64_t generation) {
+  if (!s || generation != s->randr_pending_generation)
     return;
 
+  monitor_t* next_monitors = s->randr_pending_monitors;
   uint32_t active_count = 0;
-  monitor_t* next_monitors = NULL;
+
+  if (next_monitors && s->randr_pending_capacity > 0) {
+    for (uint32_t i = 0; i < s->randr_pending_capacity; i++) {
+      monitor_t* m = &next_monitors[i];
+      if (m->geom.w == 0 || m->geom.h == 0)
+        continue;
+      if (active_count != i)
+        next_monitors[active_count] = *m;
+      active_count++;
+    }
+  }
+
+  s->randr_pending_monitors = NULL;
+  s->randr_pending_capacity = 0;
+  s->randr_pending_replies = 0;
+
+  wm_apply_monitor_snapshot(s, next_monitors, active_count);
+}
+
+static void wm_handle_randr_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
+  if (!s || !slot)
+    return;
+  if (slot->txn_id != s->randr_pending_generation)
+    return;
+
+  if (slot->type == COOKIE_RANDR_GET_SCREEN_RESOURCES) {
+    wm_clear_pending_randr(s);
+
+    if (err || !reply) {
+      LOG_WARN("RandR resources reply failed");
+      return;
+    }
+
+    xcb_randr_get_screen_resources_current_reply_t* res = (xcb_randr_get_screen_resources_current_reply_t*)reply;
+    int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res);
+    if (num_crtcs <= 0) {
+      wm_apply_monitor_snapshot(s, NULL, 0);
+      return;
+    }
+
+    s->randr_pending_monitors = calloc((size_t)num_crtcs, sizeof(monitor_t));
+    if (!s->randr_pending_monitors) {
+      LOG_ERROR("Failed to allocate pending monitor snapshot");
+      return;
+    }
+
+    s->randr_pending_capacity = (uint32_t)num_crtcs;
+    s->randr_pending_replies = (uint32_t)num_crtcs;
+
+    xcb_randr_crtc_t* crtcs = xcb_randr_get_screen_resources_current_crtcs(res);
+    for (int i = 0; i < num_crtcs; i++) {
+      xcb_randr_get_crtc_info_cookie_t ck = xcb_randr_get_crtc_info(s->conn, crtcs[i], res->config_timestamp);
+      if (ck.sequence == 0) {
+        s->randr_pending_replies--;
+        continue;
+      }
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_CRTC_INFO, HANDLE_INVALID, (uintptr_t)i, slot->txn_id, wm_handle_randr_reply);
+    }
+
+    if (s->randr_pending_replies == 0) {
+      wm_finalize_pending_randr(s, slot->txn_id);
+    }
+    return;
+  }
+
+  if (slot->type == COOKIE_RANDR_GET_CRTC_INFO) {
+    if (s->randr_pending_replies == 0)
+      return;
+
+    uint32_t idx = (uint32_t)slot->data;
+    if (!err && reply && s->randr_pending_monitors && idx < s->randr_pending_capacity) {
+      xcb_randr_get_crtc_info_reply_t* crtc = (xcb_randr_get_crtc_info_reply_t*)reply;
+      if (crtc->mode != XCB_NONE) {
+        monitor_t* m = &s->randr_pending_monitors[idx];
+        m->geom.x = crtc->x;
+        m->geom.y = crtc->y;
+        m->geom.w = crtc->width;
+        m->geom.h = crtc->height;
+        m->workarea = m->geom;
+      }
+    }
+
+    s->randr_pending_replies--;
+    if (s->randr_pending_replies == 0) {
+      wm_finalize_pending_randr(s, slot->txn_id);
+    }
+  }
+}
+
+static void wm_handle_grab_pointer_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
+  if (!s || !slot)
+    return;
+  if (slot->type != COOKIE_GRAB_POINTER)
+    return;
+
+  xcb_window_t frame = (xcb_window_t)slot->data;
+  if (s->interaction_mode == INTERACTION_NONE || s->interaction_window != frame)
+    return;
+
+  if (err || !reply) {
+    LOG_ERROR("grab_pointer async reply failed");
+    wm_cancel_interaction(s);
+    return;
+  }
+
+  xcb_grab_pointer_reply_t* r = (xcb_grab_pointer_reply_t*)reply;
+  if (r->status != XCB_GRAB_STATUS_SUCCESS) {
+    LOG_ERROR("grab_pointer failed status=%u on root=%u", r->status, s->root);
+    wm_cancel_interaction(s);
+    return;
+  }
+
+  LOG_INFO("grab_pointer success status=%u on root=%u", r->status, s->root);
+}
+
+void wm_update_monitors(server_t* s) {
+  if (!s || !s->conn)
+    return;
 
   if (!s->randr_supported) {
-    active_count = 1;
-    next_monitors = calloc(1, sizeof(monitor_t));
+    monitor_t* next_monitors = calloc(1, sizeof(monitor_t));
+    if (!next_monitors)
+      return;
     xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
     next_monitors[0].geom.x = 0;
     next_monitors[0].geom.y = 0;
     next_monitors[0].geom.w = (uint16_t)screen->width_in_pixels;
     next_monitors[0].geom.h = (uint16_t)screen->height_in_pixels;
     next_monitors[0].workarea = next_monitors[0].geom;
-  }
-  else {
-    xcb_randr_get_screen_resources_current_cookie_t r_c = xcb_randr_get_screen_resources_current(s->conn, s->root);
-    xcb_randr_get_screen_resources_current_reply_t* res = xcb_randr_get_screen_resources_current_reply(s->conn, r_c, NULL);
-
-    if (res) {
-      xcb_randr_crtc_t* crtcs = xcb_randr_get_screen_resources_current_crtcs(res);
-      int num_crtcs = xcb_randr_get_screen_resources_current_crtcs_length(res);
-
-      next_monitors = calloc((size_t)num_crtcs, sizeof(monitor_t));
-
-      for (int i = 0; i < num_crtcs; i++) {
-        xcb_randr_get_crtc_info_cookie_t c_c = xcb_randr_get_crtc_info(s->conn, crtcs[i], res->config_timestamp);
-        xcb_randr_get_crtc_info_reply_t* crtc = xcb_randr_get_crtc_info_reply(s->conn, c_c, NULL);
-
-        if (crtc) {
-          if (crtc->mode != XCB_NONE) {
-            next_monitors[active_count].geom.x = crtc->x;
-            next_monitors[active_count].geom.y = crtc->y;
-            next_monitors[active_count].geom.w = crtc->width;
-            next_monitors[active_count].geom.h = crtc->height;
-            next_monitors[active_count].workarea = next_monitors[active_count].geom;
-            active_count++;
-          }
-          free(crtc);
-        }
-      }
-      free(res);
-    }
+    wm_apply_monitor_snapshot(s, next_monitors, 1);
+    return;
   }
 
-  if (next_monitors) {
-    if (s->monitors)
-      free(s->monitors);
-    s->monitors = next_monitors;
-    s->monitor_count = active_count;
-    LOG_INFO("Monitor update: %u monitors detected", s->monitor_count);
+  if (!s->cookie_jar.slots)
+    return;
+
+  s->randr_pending_generation++;
+  wm_clear_pending_randr(s);
+
+  xcb_randr_get_screen_resources_current_cookie_t ck = xcb_randr_get_screen_resources_current(s->conn, s->root);
+  if (ck.sequence == 0) {
+    LOG_WARN("RandR resources request returned zero sequence; skipping async update");
+    return;
   }
+
+  cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_SCREEN_RESOURCES, HANDLE_INVALID, 0, s->randr_pending_generation, wm_handle_randr_reply);
 }
 
 void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
@@ -204,6 +326,37 @@ void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
     if (center_x >= m->geom.x && center_x < m->geom.x + (int)m->geom.w && center_y >= m->geom.y && center_y < m->geom.y + (int)m->geom.h) {
       *out_geom = m->geom;
       break;
+    }
+  }
+}
+
+static void wm_apply_monitor_snapshot(server_t* s, monitor_t* next_monitors, uint32_t active_count) {
+  if (!s)
+    return;
+
+  if (active_count == 0 && next_monitors) {
+    free(next_monitors);
+    next_monitors = NULL;
+  }
+
+  if (s->monitors)
+    free(s->monitors);
+
+  s->monitors = next_monitors;
+  s->monitor_count = active_count;
+  LOG_INFO("Monitor update: %u monitors detected", s->monitor_count);
+
+  s->workarea_dirty = true;
+  s->root_dirty |= ROOT_DIRTY_WORKAREA;
+
+  if (!s->config.fullscreen_use_workarea) {
+    for (size_t i = 0; i < s->active_clients.length; i++) {
+      handle_t h = ptr_to_handle(s->active_clients.items[i]);
+      client_hot_t* hot = server_chot(s, h);
+      if (!hot || hot->layer != LAYER_FULLSCREEN)
+        continue;
+      wm_get_monitor_geometry(s, hot, &hot->desired);
+      hot->dirty |= DIRTY_GEOM;
     }
   }
 }
@@ -957,25 +1110,8 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
   xcb_grab_pointer_cookie_t cookie = xcb_grab_pointer(s->conn, 0, s->root, XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_BUTTON_MOTION | XCB_EVENT_MASK_POINTER_MOTION, XCB_GRAB_MODE_ASYNC,
                                                       XCB_GRAB_MODE_ASYNC, XCB_NONE, cursor, time ? time : XCB_CURRENT_TIME);
 
-  xcb_grab_pointer_reply_t* reply = xcb_grab_pointer_reply(s->conn, cookie, NULL);
-  bool success = false;
-  if (reply) {
-    if (reply->status == XCB_GRAB_STATUS_SUCCESS) {
-      success = true;
-      LOG_INFO("grab_pointer success status=%u on root=%u", reply->status, s->root);
-    }
-    else {
-      LOG_ERROR("grab_pointer failed status=%u on root=%u", reply->status, s->root);
-    }
-    free(reply);
-  }
-  else {
-    LOG_ERROR("grab_pointer reply was NULL");
-  }
-
-  if (!success) {
-    wm_cancel_interaction(s);
-    return;
+  if (cookie.sequence != 0 && s->cookie_jar.slots) {
+    cookie_jar_push(&s->cookie_jar, cookie.sequence, COOKIE_GRAB_POINTER, HANDLE_INVALID, (uintptr_t)hot->frame, s->txn_id, wm_handle_grab_pointer_reply);
   }
 
   LOG_INFO("Started interactive %s for client %lx (dir=%d)", start_move ? "MOVE" : "RESIZE", h, resize_dir);
@@ -984,6 +1120,8 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
 // Mouse interaction
 
 void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
+  wm_record_pointer_root(s, ev->root_x, ev->root_y);
+
   if (s->interaction_mode == INTERACTION_MENU) {
     menu_handle_button_press(s, ev);
     return;
@@ -1103,6 +1241,8 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
 }
 
 void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
+  wm_record_pointer_root(s, ev->root_x, ev->root_y);
+
   if (s->interaction_mode == INTERACTION_MENU) {
     menu_handle_button_release(s, ev);
     return;
@@ -1133,6 +1273,8 @@ void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
 }
 
 void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
+  wm_record_pointer_root(s, ev->root_x, ev->root_y);
+
   if (s->interaction_mode == INTERACTION_MENU) {
     menu_handle_pointer_motion(s, ev->root_x, ev->root_y);
     return;
@@ -1949,6 +2091,9 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     int16_t root_x = (int16_t)ev->data.data32[0];
     int16_t root_y = (int16_t)ev->data.data32[1];
     bool is_keyboard = (direction == NET_WM_MOVERESIZE_SIZE_KEYBOARD || direction == NET_WM_MOVERESIZE_MOVE_KEYBOARD);
+    if (root_x != -1 && root_y != -1) {
+      wm_record_pointer_root(s, root_x, root_y);
+    }
     use_pointer_query |= (root_x == -1 || root_y == -1);
 
     TRACE_LOG("_NET_WM_MOVERESIZE h=%lx root=%d,%d use_query=%d", h, root_x, root_y, use_pointer_query);
@@ -1998,12 +2143,9 @@ void wm_place_window(server_t* s, handle_t h) {
     return;
   }
   else if (hot->placement == PLACEMENT_MOUSE) {
-    xcb_query_pointer_cookie_t cookie = xcb_query_pointer(s->conn, s->root);
-    xcb_query_pointer_reply_t* reply = xcb_query_pointer_reply(s->conn, cookie, NULL);
-    if (reply) {
-      hot->desired.x = (int16_t)(reply->root_x - hot->desired.w / 2);
-      hot->desired.y = (int16_t)(reply->root_y - hot->desired.h / 2);
-      free(reply);
+    if (s->pointer_root_valid) {
+      hot->desired.x = (int16_t)(s->pointer_root_x - hot->desired.w / 2);
+      hot->desired.y = (int16_t)(s->pointer_root_y - hot->desired.h / 2);
     }
   }
   else if (hot->transient_for != HANDLE_INVALID) {
