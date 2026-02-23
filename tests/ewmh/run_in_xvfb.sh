@@ -108,7 +108,7 @@ done
 "$EWMH_SCRIPT_DIR/test_desktops.sh" "$EWMH_CLIENT_BIN"
 "$EWMH_SCRIPT_DIR/test_strut_removal.sh" "$EWMH_CLIENT_BIN"
 "$EWMH_SCRIPT_DIR/test_state_remove.sh" "$EWMH_CLIENT_BIN"
-"$EWMH_SCRIPT_DIR/test_restart.sh" "$EWMH_CLIENT_BIN"
+"$EWMH_SCRIPT_DIR/test_restart.sh" "$EWMH_CLIENT_BIN" "$hxm_pid"
 
 kill "$hxm_pid" >/dev/null 2>&1 || true
 wait "$hxm_pid" >/dev/null 2>&1 || true

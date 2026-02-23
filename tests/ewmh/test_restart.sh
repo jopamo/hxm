@@ -2,6 +2,7 @@
 set -euo pipefail
 
 client="$1"
+hxm_pid="${2:?missing hxm pid}"
 out=$(mktemp)
 # Keep alive long enough for test
 "$client" create-window-and-sleep 20 >"$out" &
@@ -49,12 +50,6 @@ if [ "$val" != "1" ]; then
 fi
 
 echo "Window on desktop 1. Current desktop 1. Restarting hxm..."
-
-if [ -z "${hxm_pid:-}" ]; then
-  echo "hxm_pid not found"
-  kill "$client_pid" || true
-  exit 1
-fi
 
 kill -USR2 "$hxm_pid"
 sleep 2.0
