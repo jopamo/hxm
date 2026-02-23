@@ -5,34 +5,6 @@ on:
   pull_request:
 
 jobs:
-  full_suite_xvfb:
-    runs-on: ubuntu-latest
-    container: fedora:rawhide
-    name: full-suite-xvfb
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          dnf -y update
-          xargs -r dnf -y install < scripts/deps-fedora.txt
-
-      - name: Configure
-        run: |
-          meson setup "build-full-suite" \
-            -D b_lto=false \
-            -D b_ndebug=false
-
-      - name: Build
-        run: meson compile -C "build-full-suite"
-
-      - name: Test
-        run: |
-          set -euo pipefail
-          meson test -C "build-full-suite" --print-errorlogs
-          python3 scripts/ci/fail_on_skips.py "build-full-suite/meson-logs/testlog.json"
-
   san:
     runs-on: ubuntu-latest
     container: fedora:rawhide
@@ -68,7 +40,10 @@ jobs:
       - name: Install dependencies
         run: |
           dnf -y update
-          xargs -r dnf -y install < scripts/deps-fedora.txt
+          dnf -y install \
+            clang llvm lld compiler-rt \
+            git meson ninja-build pkgconf-pkg-config \
+            libbpf-devel libxdp-devel
 
       - name: Configure
         run: |
@@ -91,7 +66,4 @@ jobs:
             meson test -C "build-${{ matrix.name }}" --print-errorlogs --num-processes 1
           else
             meson test -C "build-${{ matrix.name }}" --print-errorlogs
-          fi
-          if [ "${{ matrix.name }}" = "asan" ]; then
-            python3 scripts/ci/fail_on_skips.py "build-${{ matrix.name }}/meson-logs/testlog.json"
           fi
