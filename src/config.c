@@ -588,6 +588,8 @@ bool config_load(config_t* config, const char* path) {
     }
   }
 
+  (void)line_num;
+
   free(line);
   fclose(f);
   LOG_INFO("Loaded config from %s", path);
@@ -694,6 +696,8 @@ bool theme_load(theme_t* theme, const char* path) {
       LOG_DEBUG("%s:%d: Unknown theme key: %s", path, line_num, key);
     }
   }
+
+  (void)line_num;
 
   free(line);
   fclose(f);

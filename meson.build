@@ -46,6 +46,7 @@ add_project_arguments('-Wpedantic', language: 'c')
 
 possible_cc_flags = [
   '-Wno-c2y-extensions',
+  '-Wno-error=c2y-extensions',
 ]
 add_project_arguments(cc.get_supported_arguments(possible_cc_flags), language: 'c')
 
