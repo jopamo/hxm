@@ -33,6 +33,7 @@ static const char* atom_names[] = {
     "WM_CHANGE_STATE",
     "_MOTIF_WM_HINTS",
     "_GTK_FRAME_EXTENTS",
+    "_KDE_NET_WM_FRAME_STRUT",
     "_NET_WM_SYNC_REQUEST",
 
     "_NET_SUPPORTED",

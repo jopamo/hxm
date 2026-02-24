@@ -289,6 +289,8 @@ static bool client_should_be_undecorated(const client_hot_t* hot) {
     return true;
   if (hot->motif_decorations_set)
     return hot->motif_undecorated;
+  if (hot->gtk_frame_extents_set)
+    return true;
   return false;
 }
 
@@ -754,7 +756,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             changed = true;
         }
       }
-      else if (atom == atoms._GTK_FRAME_EXTENTS) {
+      else if (atom == atoms._GTK_FRAME_EXTENTS || atom == atoms._KDE_NET_WM_FRAME_STRUT) {
         if (client_apply_gtk_frame_extents(s, slot->client, r)) {
           hot->dirty |= DIRTY_GEOM;
           if (client_apply_decoration_hints(hot))

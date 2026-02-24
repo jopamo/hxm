@@ -578,6 +578,9 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       c = xcb_get_property(s->conn, 0, hot->xid, atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 0, 4).sequence;
       cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._GTK_FRAME_EXTENTS, s->txn_id, wm_handle_reply);
 
+      c = xcb_get_property(s->conn, 0, hot->xid, atoms._KDE_NET_WM_FRAME_STRUT, XCB_ATOM_CARDINAL, 0, 4).sequence;
+      cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._KDE_NET_WM_FRAME_STRUT, s->txn_id, wm_handle_reply);
+
       hot->dirty &= ~DIRTY_HINTS;
     }
 

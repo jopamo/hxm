@@ -474,6 +474,7 @@ void wm_become(server_t* s) {
       atoms._NET_CLIENT_LIST_STACKING,
       atoms._NET_ACTIVE_WINDOW,
       atoms._GTK_FRAME_EXTENTS,
+      atoms._KDE_NET_WM_FRAME_STRUT,
       atoms._NET_WM_NAME,
       atoms._NET_WM_VISIBLE_NAME,
       atoms._NET_WM_ICON_NAME,
@@ -908,6 +909,9 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     hot->dirty |= DIRTY_HINTS;
   }
   else if (ev->atom == atoms._GTK_FRAME_EXTENTS) {
+    hot->dirty |= DIRTY_HINTS;
+  }
+  else if (ev->atom == atoms._KDE_NET_WM_FRAME_STRUT) {
     hot->dirty |= DIRTY_HINTS;
   }
   else if (ev->atom == atoms._NET_WM_BYPASS_COMPOSITOR) {

@@ -221,6 +221,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
       {atoms._NET_WM_ICON_GEOMETRY, XCB_ATOM_CARDINAL, 4},
       {atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 5},
       {atoms._GTK_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 4},
+      {atoms._KDE_NET_WM_FRAME_STRUT, XCB_ATOM_CARDINAL, 4},
       {atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 1},
       {atoms._NET_WM_BYPASS_COMPOSITOR, XCB_ATOM_CARDINAL, 1},
   };

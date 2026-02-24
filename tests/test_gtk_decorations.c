@@ -33,6 +33,7 @@ static void cleanup_server(server_t* s) {
 
 void test_gtk_extents_toggle_decorations(void) {
   atoms._GTK_FRAME_EXTENTS = 100;
+  atoms._KDE_NET_WM_FRAME_STRUT = 101;
   atoms._NET_FRAME_EXTENTS = 200;
 
   server_t s;
@@ -85,26 +86,7 @@ void test_gtk_extents_toggle_decorations(void) {
   cookie_slot_t slot;
   slot.client = h;
   slot.type = COOKIE_GET_PROPERTY;
-  slot.data = (uint64_t)atoms._GTK_FRAME_EXTENTS;
-
-  wm_handle_reply(&s, &slot, &reply_struct.rep, NULL);
-
-  assert(hot->gtk_frame_extents_set);
-  assert(!(hot->flags & CLIENT_FLAG_UNDECORATED));
-  assert(hot->dirty & DIRTY_GEOM);
-
-  stub_last_prop_atom = 0;
-  wm_flush_dirty(&s, monotonic_time_ns());
-
-  assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
-  assert(stub_last_prop_len == 4);
-  uint32_t* extents_check = (uint32_t*)stub_last_prop_data;
-  assert(extents_check[0] == 0);
-  assert(extents_check[1] == 0);
-  assert(extents_check[2] == 0);
-  assert(extents_check[3] == 0);
-
-  hot->dirty = DIRTY_NONE;
+  xcb_atom_t extents_props[] = {atoms._GTK_FRAME_EXTENTS, atoms._KDE_NET_WM_FRAME_STRUT};
 
   struct {
     xcb_get_property_reply_t rep;
@@ -113,25 +95,47 @@ void test_gtk_extents_toggle_decorations(void) {
   empty_reply.rep.format = 0;
   empty_reply.rep.length = 0;
 
-  wm_handle_reply(&s, &slot, &empty_reply.rep, NULL);
-
-  assert(!hot->gtk_frame_extents_set);
-  assert((hot->flags & CLIENT_FLAG_UNDECORATED) == 0);
-  assert(hot->dirty & DIRTY_GEOM);
-
-  stub_last_prop_atom = 0;
-  wm_flush_dirty(&s, monotonic_time_ns());
-
   uint16_t bw = s.config.theme.border_width;
   uint16_t hh = s.config.theme.handle_height;
   uint16_t bottom = (hh > bw) ? hh : bw;
 
-  assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
-  uint32_t* extents = (uint32_t*)stub_last_prop_data;
-  assert(extents[0] == 5);
-  assert(extents[1] == 5);
-  assert(extents[2] == 25);
-  assert(extents[3] == bottom);
+  for (size_t i = 0; i < sizeof(extents_props) / sizeof(extents_props[0]); i++) {
+    slot.data = (uint64_t)extents_props[i];
+
+    wm_handle_reply(&s, &slot, &reply_struct.rep, NULL);
+
+    assert(hot->gtk_frame_extents_set);
+    assert(hot->flags & CLIENT_FLAG_UNDECORATED);
+    assert(hot->dirty & DIRTY_GEOM);
+
+    stub_last_prop_atom = 0;
+    wm_flush_dirty(&s, monotonic_time_ns());
+
+    assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
+    assert(stub_last_prop_len == 4);
+    uint32_t* extents_check = (uint32_t*)stub_last_prop_data;
+    assert(extents_check[0] == 0);
+    assert(extents_check[1] == 0);
+    assert(extents_check[2] == 0);
+    assert(extents_check[3] == 0);
+
+    hot->dirty = DIRTY_NONE;
+    wm_handle_reply(&s, &slot, &empty_reply.rep, NULL);
+
+    assert(!hot->gtk_frame_extents_set);
+    assert((hot->flags & CLIENT_FLAG_UNDECORATED) == 0);
+    assert(hot->dirty & DIRTY_GEOM);
+
+    stub_last_prop_atom = 0;
+    wm_flush_dirty(&s, monotonic_time_ns());
+
+    assert(stub_last_prop_atom == atoms._NET_FRAME_EXTENTS);
+    uint32_t* extents = (uint32_t*)stub_last_prop_data;
+    assert(extents[0] == 5);
+    assert(extents[1] == 5);
+    assert(extents[2] == 25);
+    assert(extents[3] == bottom);
+  }
 
   printf("test_gtk_extents_toggle_decorations passed\n");
 
