@@ -257,9 +257,6 @@ typedef struct client_hot {
   pending_state_msg_t pending_state_msgs[4];
 
   bool geometry_from_configure;
-  bool geometry_from_notify;
-  uint16_t geometry_notify_w;
-  uint16_t geometry_notify_h;
 
   uint32_t user_time;
   xcb_window_t user_time_window;

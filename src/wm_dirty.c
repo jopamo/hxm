@@ -58,22 +58,6 @@ void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, 
   xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
 }
 
-static void wm_send_synthetic_expose(server_t* s, const client_hot_t* hot, uint16_t w, uint16_t h) {
-  if (!s || !hot)
-    return;
-  char buffer[32];
-  memset(buffer, 0, sizeof(buffer));
-  xcb_expose_event_t* ev = (xcb_expose_event_t*)buffer;
-  ev->response_type = XCB_EXPOSE;
-  ev->window = hot->xid;
-  ev->x = 0;
-  ev->y = 0;
-  ev->width = w;
-  ev->height = h;
-  ev->count = 0;
-  xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_EXPOSURE, buffer);
-}
-
 static rect_t wm_monitor_bounds_for_rect(server_t* s, const rect_t* r) {
   rect_t bounds;
 
@@ -489,7 +473,6 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
       uint32_t client_w = (uint32_t)client_w_calc;
       uint32_t client_h = (uint32_t)client_h_calc;
-      bool client_size_from_notify = (hot->geometry_from_notify && hot->geometry_notify_w == (uint16_t)client_w && hot->geometry_notify_h == (uint16_t)client_h);
 
       TRACE_LOG("apply_geom: frame(%dx%d+%d+%d) extents_set=%d -> client(%dx%d)", frame_w, frame_h, frame_x, frame_y, hot->gtk_frame_extents_set, client_w, client_h);
 
@@ -497,7 +480,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
       if (geom_changed) {
         if (!interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE) {
-          if (!client_size_from_notify && (hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h)) {
+          if (hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h) {
             uint64_t sync_value = ++hot->sync_value;
             wm_send_sync_request(s, hot, sync_value, XCB_CURRENT_TIME);
           }
@@ -525,12 +508,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         client_values[2] = client_w;
         client_values[3] = client_h;
 
-        if (!client_size_from_notify) {
-          xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
-        }
-        else {
-          wm_send_synthetic_expose(s, hot, (uint16_t)client_w, (uint16_t)client_h);
-        }
+        xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
 
         // Set _NET_FRAME_EXTENTS
         uint16_t bottom_h = bw;
@@ -567,7 +545,6 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
       hot->pending = hot->desired;
       hot->pending_epoch++;
-      hot->geometry_from_notify = false;
 
       hot->dirty &= ~DIRTY_GEOM;
     }

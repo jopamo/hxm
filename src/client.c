@@ -130,9 +130,6 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   hot->state = STATE_NEW;
   hot->manage_phase = MANAGE_PHASE1;
   hot->geometry_from_configure = false;
-  hot->geometry_from_notify = false;
-  hot->geometry_notify_w = 0;
-  hot->geometry_notify_h = 0;
 
   hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
 

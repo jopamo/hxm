@@ -442,8 +442,9 @@ static void test_configure_notify_client_resize_resyncs_decorated_frame(void) {
   wm_flush_dirty(&s, monotonic_time_ns());
 
   const stub_config_call_t* frame_call = stub_config_call_at(0);
+  const stub_config_call_t* client_call = stub_config_call_at(1);
   assert(frame_call);
-  assert(stub_config_call_at(1) == NULL);
+  assert(client_call);
 
   uint16_t bw = s.config.theme.border_width;
   uint16_t hh = s.config.theme.handle_height;
@@ -452,6 +453,9 @@ static void test_configure_notify_client_resize_resyncs_decorated_frame(void) {
   assert(frame_call->win == hot->frame);
   assert(frame_call->w == (uint32_t)(140 + 2 * bw));
   assert(frame_call->h == (uint32_t)(120 + s.config.theme.title_height + bottom));
+  assert(client_call->win == hot->xid);
+  assert(client_call->w == 140u);
+  assert(client_call->h == 120u);
 
   printf("test_configure_notify_client_resize_resyncs_decorated_frame passed\n");
   cleanup_server(&s);
@@ -488,104 +492,20 @@ static void test_configure_notify_client_resize_resyncs_extents_frame(void) {
   wm_flush_dirty(&s, monotonic_time_ns());
 
   const stub_config_call_t* frame_call = stub_config_call_at(0);
+  const stub_config_call_t* client_call = stub_config_call_at(1);
   assert(frame_call);
-  assert(stub_config_call_at(1) == NULL);
+  assert(client_call);
 
   assert(frame_call->win == hot->frame);
   assert(frame_call->w == 150u);
   assert(frame_call->h == 110u);
+  assert(client_call->win == hot->xid);
+  assert(client_call->x == 0);
+  assert(client_call->y == 0);
+  assert(client_call->w == 150u);
+  assert(client_call->h == 110u);
 
   printf("test_configure_notify_client_resize_resyncs_extents_frame passed\n");
-  cleanup_server(&s);
-}
-
-static void test_configure_notify_resync_constrained_size_reconfigures_client(void) {
-  server_t s;
-  setup_server(&s);
-  xcb_stubs_reset();
-
-  handle_t h = add_client(&s, 7003, 7103);
-  client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
-  hot->desired = (rect_t){10, 20, 100, 80};
-  hot->server = hot->desired;
-  hot->dirty = DIRTY_NONE;
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
-  hot->hints.min_w = 200;
-  hot->hints.min_h = 120;
-
-  xcb_configure_notify_event_t ev = {0};
-  ev.window = hot->xid;
-  ev.width = 140;
-  ev.height = 90;
-
-  wm_handle_configure_notify(&s, h, &ev);
-  assert(hot->desired.w == 200);
-  assert(hot->desired.h == 120);
-  assert(hot->dirty & DIRTY_GEOM);
-
-  stub_config_calls_len = 0;
-  wm_flush_dirty(&s, monotonic_time_ns());
-
-  const stub_config_call_t* frame_call = stub_config_call_at(0);
-  const stub_config_call_t* client_call = stub_config_call_at(1);
-  assert(frame_call);
-  assert(client_call);
-  assert(frame_call->win == hot->frame);
-  assert(client_call->win == hot->xid);
-  assert(client_call->w == 200u);
-  assert(client_call->h == 120u);
-
-  printf("test_configure_notify_resync_constrained_size_reconfigures_client passed\n");
-  cleanup_server(&s);
-}
-
-static void test_configure_notify_resync_coalesces_pending_notify_resize(void) {
-  server_t s;
-  setup_server(&s);
-  xcb_stubs_reset();
-
-  handle_t h = add_client(&s, 7004, 7104);
-  client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
-  hot->desired = (rect_t){10, 20, 100, 80};
-  hot->server = hot->desired;
-  hot->dirty = DIRTY_NONE;
-
-  xcb_configure_notify_event_t ev1 = {0};
-  ev1.window = hot->xid;
-  ev1.width = 140;
-  ev1.height = 110;
-  wm_handle_configure_notify(&s, h, &ev1);
-  assert(hot->desired.w == 140);
-  assert(hot->desired.h == 110);
-  assert(hot->dirty & DIRTY_GEOM);
-
-  xcb_configure_notify_event_t ev2 = {0};
-  ev2.window = hot->xid;
-  ev2.width = 180;
-  ev2.height = 130;
-  wm_handle_configure_notify(&s, h, &ev2);
-  assert(hot->desired.w == 180);
-  assert(hot->desired.h == 130);
-  assert(hot->dirty & DIRTY_GEOM);
-
-  stub_config_calls_len = 0;
-  wm_flush_dirty(&s, monotonic_time_ns());
-
-  const stub_config_call_t* frame_call = stub_config_call_at(0);
-  assert(frame_call);
-  assert(stub_config_call_at(1) == NULL);
-
-  uint16_t bw = s.config.theme.border_width;
-  uint16_t hh = s.config.theme.handle_height;
-  uint16_t bottom = (hh > bw) ? hh : bw;
-
-  assert(frame_call->win == hot->frame);
-  assert(frame_call->w == (uint32_t)(180 + 2 * bw));
-  assert(frame_call->h == (uint32_t)(130 + s.config.theme.title_height + bottom));
-
-  printf("test_configure_notify_resync_coalesces_pending_notify_resize passed\n");
   cleanup_server(&s);
 }
 
@@ -600,7 +520,5 @@ int main(void) {
   test_panel_clamps_to_monitor_bounds();
   test_configure_notify_client_resize_resyncs_decorated_frame();
   test_configure_notify_client_resize_resyncs_extents_frame();
-  test_configure_notify_resync_constrained_size_reconfigures_client();
-  test_configure_notify_resync_coalesces_pending_notify_resize();
   return 0;
 }
