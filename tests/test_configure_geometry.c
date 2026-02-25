@@ -416,6 +416,99 @@ static void test_panel_clamps_to_monitor_bounds(void) {
   cleanup_server(&s);
 }
 
+static void test_configure_notify_client_resize_resyncs_decorated_frame(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_client(&s, 7001, 7101);
+  client_hot_t* hot = server_chot(&s, h);
+  hot->manage_phase = MANAGE_DONE;
+  hot->desired = (rect_t){10, 20, 100, 80};
+  hot->server = hot->desired;
+  hot->dirty = DIRTY_NONE;
+
+  xcb_configure_notify_event_t ev = {0};
+  ev.window = hot->xid;
+  ev.width = 140;
+  ev.height = 120;
+
+  wm_handle_configure_notify(&s, h, &ev);
+  assert(hot->desired.w == 140);
+  assert(hot->desired.h == 120);
+  assert(hot->dirty & DIRTY_GEOM);
+
+  stub_config_calls_len = 0;
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const stub_config_call_t* frame_call = stub_config_call_at(0);
+  const stub_config_call_t* client_call = stub_config_call_at(1);
+  assert(frame_call);
+  assert(client_call);
+
+  uint16_t bw = s.config.theme.border_width;
+  uint16_t hh = s.config.theme.handle_height;
+  uint16_t bottom = (hh > bw) ? hh : bw;
+
+  assert(frame_call->win == hot->frame);
+  assert(frame_call->w == (uint32_t)(140 + 2 * bw));
+  assert(frame_call->h == (uint32_t)(120 + s.config.theme.title_height + bottom));
+  assert(client_call->win == hot->xid);
+  assert(client_call->w == 140u);
+  assert(client_call->h == 120u);
+
+  printf("test_configure_notify_client_resize_resyncs_decorated_frame passed\n");
+  cleanup_server(&s);
+}
+
+static void test_configure_notify_client_resize_resyncs_extents_frame(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_client(&s, 7002, 7102);
+  client_hot_t* hot = server_chot(&s, h);
+  hot->manage_phase = MANAGE_DONE;
+  hot->gtk_frame_extents_set = true;
+  hot->gtk_extents.left = 8;
+  hot->gtk_extents.right = 8;
+  hot->gtk_extents.top = 24;
+  hot->gtk_extents.bottom = 8;
+  hot->desired = (rect_t){10, 20, 100, 80};
+  hot->server = hot->desired;
+  hot->dirty = DIRTY_NONE;
+
+  xcb_configure_notify_event_t ev = {0};
+  ev.window = hot->xid;
+  ev.width = 150;
+  ev.height = 110;
+
+  wm_handle_configure_notify(&s, h, &ev);
+  assert(hot->desired.w == 150);
+  assert(hot->desired.h == 110);
+  assert(hot->dirty & DIRTY_GEOM);
+
+  stub_config_calls_len = 0;
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const stub_config_call_t* frame_call = stub_config_call_at(0);
+  const stub_config_call_t* client_call = stub_config_call_at(1);
+  assert(frame_call);
+  assert(client_call);
+
+  assert(frame_call->win == hot->frame);
+  assert(frame_call->w == 150u);
+  assert(frame_call->h == 110u);
+  assert(client_call->win == hot->xid);
+  assert(client_call->x == 0);
+  assert(client_call->y == 0);
+  assert(client_call->w == 150u);
+  assert(client_call->h == 110u);
+
+  printf("test_configure_notify_client_resize_resyncs_extents_frame passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_configure_request_applies_and_extents();
   test_configure_request_mask_respects_existing();
@@ -425,5 +518,7 @@ int main(void) {
   test_configure_request_ignores_border_and_stack_fields();
   test_panel_configure_request_skips_min_constraints();
   test_panel_clamps_to_monitor_bounds();
+  test_configure_notify_client_resize_resyncs_decorated_frame();
+  test_configure_notify_client_resize_resyncs_extents_frame();
   return 0;
 }
