@@ -58,6 +58,22 @@ void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, 
   xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
 }
 
+static void wm_send_synthetic_expose(server_t* s, const client_hot_t* hot, uint16_t w, uint16_t h) {
+  if (!s || !hot)
+    return;
+  char buffer[32];
+  memset(buffer, 0, sizeof(buffer));
+  xcb_expose_event_t* ev = (xcb_expose_event_t*)buffer;
+  ev->response_type = XCB_EXPOSE;
+  ev->window = hot->xid;
+  ev->x = 0;
+  ev->y = 0;
+  ev->width = w;
+  ev->height = h;
+  ev->count = 0;
+  xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_EXPOSURE, buffer);
+}
+
 static rect_t wm_monitor_bounds_for_rect(server_t* s, const rect_t* r) {
   rect_t bounds;
 
@@ -511,6 +527,9 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
         if (!client_size_from_notify) {
           xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
+        }
+        else {
+          wm_send_synthetic_expose(s, hot, (uint16_t)client_w, (uint16_t)client_h);
         }
 
         // Set _NET_FRAME_EXTENTS
