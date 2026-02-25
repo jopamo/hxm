@@ -810,6 +810,7 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     hot->desired.h = ev->height;
 
   hot->geometry_from_configure = true;
+  hot->geometry_from_notify = false;
 
   // Reworked GTK handling: treat as standard windows for now
   if (hot->gtk_frame_extents_set) {
@@ -843,8 +844,8 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
   }
   else if (ev->window == hot->xid) {
     bool size_changed = (hot->server.w != ev->width || hot->server.h != ev->height);
-    bool can_resync_geom = (hot->manage_phase == MANAGE_DONE && hot->state == STATE_MAPPED && (hot->dirty & DIRTY_GEOM) == 0);
-    bool resynced = false;
+    bool pending_geom = (hot->dirty & DIRTY_GEOM) != 0;
+    bool can_resync_geom = (hot->manage_phase == MANAGE_DONE && hot->state == STATE_MAPPED && !pending_geom);
     if (size_changed && can_resync_geom) {
       uint16_t new_w = ev->width;
       uint16_t new_h = ev->height;
@@ -853,17 +854,20 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
         client_constrain_size(&hot->hints, hot->hints_flags, &new_w, &new_h);
       }
 
-      if (hot->desired.w != new_w || hot->desired.h != new_h) {
+      if (hot->desired.w != new_w || hot->desired.h != new_h || size_changed) {
         hot->desired.w = new_w;
         hot->desired.h = new_h;
         hot->dirty |= DIRTY_GEOM;
-        resynced = true;
       }
-    }
 
-    if (!resynced) {
+      hot->geometry_from_notify = true;
+      hot->geometry_notify_w = ev->width;
+      hot->geometry_notify_h = ev->height;
+    }
+    else if (!pending_geom) {
       hot->server.w = ev->width;
       hot->server.h = ev->height;
+      hot->geometry_from_notify = false;
     }
 
     LOG_DEBUG("Client %lx window size updated: %dx%d", h, ev->width, ev->height);
