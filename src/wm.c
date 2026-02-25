@@ -811,6 +811,8 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
 
   hot->geometry_from_configure = true;
   hot->geometry_from_notify = false;
+  hot->notify_settle_pending = false;
+  hot->notify_settle_deadline_ns = 0;
 
   // Reworked GTK handling: treat as standard windows for now
   if (hot->gtk_frame_extents_set) {
@@ -859,6 +861,11 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
       hot->dirty |= DIRTY_GEOM;
       hot->geometry_notify_w = ev->width;
       hot->geometry_notify_h = ev->height;
+      hot->notify_settle_pending = true;
+      hot->notify_settle_w = new_w;
+      hot->notify_settle_h = new_h;
+      hot->notify_settle_deadline_ns = monotonic_time_ns() + 40000000ULL;
+      server_schedule_timer(s, 40);
     }
     else if (size_changed && can_resync_geom) {
       uint16_t new_w = ev->width;
@@ -877,11 +884,18 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
       hot->geometry_from_notify = true;
       hot->geometry_notify_w = ev->width;
       hot->geometry_notify_h = ev->height;
+      hot->notify_settle_pending = true;
+      hot->notify_settle_w = new_w;
+      hot->notify_settle_h = new_h;
+      hot->notify_settle_deadline_ns = monotonic_time_ns() + 40000000ULL;
+      server_schedule_timer(s, 40);
     }
     else if (!pending_geom) {
       hot->server.w = ev->width;
       hot->server.h = ev->height;
       hot->geometry_from_notify = false;
+      hot->notify_settle_pending = false;
+      hot->notify_settle_deadline_ns = 0;
     }
 
     LOG_DEBUG("Client %lx window size updated: %dx%d", h, ev->width, ev->height);

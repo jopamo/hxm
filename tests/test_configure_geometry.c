@@ -589,6 +589,50 @@ static void test_configure_notify_resync_coalesces_pending_notify_resize(void) {
   cleanup_server(&s);
 }
 
+static void test_configure_notify_resync_settles_with_final_client_configure(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_client(&s, 7005, 7105);
+  client_hot_t* hot = server_chot(&s, h);
+  hot->manage_phase = MANAGE_DONE;
+  hot->desired = (rect_t){10, 20, 100, 80};
+  hot->server = hot->desired;
+  hot->dirty = DIRTY_NONE;
+
+  xcb_configure_notify_event_t ev = {0};
+  ev.window = hot->xid;
+  ev.width = 160;
+  ev.height = 130;
+  wm_handle_configure_notify(&s, h, &ev);
+  assert(hot->dirty & DIRTY_GEOM);
+  assert(hot->notify_settle_pending);
+
+  uint64_t now = monotonic_time_ns();
+  stub_config_calls_len = 0;
+  wm_flush_dirty(&s, now);
+
+  const stub_config_call_t* frame_call = stub_config_call_at(0);
+  assert(frame_call);
+  assert(frame_call->win == hot->frame);
+  assert(stub_config_call_at(1) == NULL);
+  assert(hot->notify_settle_pending);
+
+  stub_config_calls_len = 0;
+  wm_flush_dirty(&s, now + 50000000ULL);
+
+  const stub_config_call_t* settle_call = stub_config_call_at(0);
+  assert(settle_call);
+  assert(settle_call->win == hot->xid);
+  assert(settle_call->w == 160u);
+  assert(settle_call->h == 130u);
+  assert(!hot->notify_settle_pending);
+
+  printf("test_configure_notify_resync_settles_with_final_client_configure passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_configure_request_applies_and_extents();
   test_configure_request_mask_respects_existing();
@@ -602,5 +646,6 @@ int main(void) {
   test_configure_notify_client_resize_resyncs_extents_frame();
   test_configure_notify_resync_constrained_size_reconfigures_client();
   test_configure_notify_resync_coalesces_pending_notify_resize();
+  test_configure_notify_resync_settles_with_final_client_configure();
   return 0;
 }

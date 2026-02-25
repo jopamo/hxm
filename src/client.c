@@ -133,6 +133,10 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   hot->geometry_from_notify = false;
   hot->geometry_notify_w = 0;
   hot->geometry_notify_h = 0;
+  hot->notify_settle_pending = false;
+  hot->notify_settle_w = 0;
+  hot->notify_settle_h = 0;
+  hot->notify_settle_deadline_ns = 0;
 
   hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
 

@@ -359,7 +359,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       continue;
     }
 
-    if (hot->dirty == DIRTY_NONE && !hot->frame_damage.valid) {
+    if (hot->dirty == DIRTY_NONE && !hot->frame_damage.valid && !hot->notify_settle_pending) {
       if (i < s->active_clients.length && s->active_clients.items[i] == ptr)
         i++;
       continue;
@@ -375,9 +375,39 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 #endif
 
     if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED || hot->state == STATE_NEW) {
+      hot->notify_settle_pending = false;
+      hot->notify_settle_deadline_ns = 0;
       if (i < s->active_clients.length && s->active_clients.items[i] == ptr)
         i++;
       continue;
+    }
+
+    if ((hot->dirty & DIRTY_GEOM) == 0 && hot->notify_settle_pending) {
+      if (hot->state == STATE_MAPPED && hot->manage_phase == MANAGE_DONE && now >= hot->notify_settle_deadline_ns) {
+        uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
+        uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+        int32_t local_x = bw;
+        int32_t local_y = th;
+        if (hot->gtk_frame_extents_set) {
+          local_x = 0;
+          local_y = 0;
+        }
+
+        uint32_t client_values[4];
+        client_values[0] = (uint32_t)local_x;
+        client_values[1] = (uint32_t)local_y;
+        client_values[2] = hot->server.w;
+        client_values[3] = hot->server.h;
+        xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
+        hot->notify_settle_pending = false;
+        hot->notify_settle_deadline_ns = 0;
+        flushed = true;
+      }
+      else {
+        uint64_t remaining = (hot->notify_settle_deadline_ns > now) ? (hot->notify_settle_deadline_ns - now) : 1000000ULL;
+        int ms = (int)(remaining / 1000000ULL) + 1;
+        server_schedule_timer(s, ms);
+      }
     }
 
     if (hot->dirty & DIRTY_GEOM) {
@@ -511,6 +541,8 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
         if (!client_size_from_notify) {
           xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
+          hot->notify_settle_pending = false;
+          hot->notify_settle_deadline_ns = 0;
         }
 
         // Set _NET_FRAME_EXTENTS

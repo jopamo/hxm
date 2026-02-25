@@ -260,6 +260,10 @@ typedef struct client_hot {
   bool geometry_from_notify;
   uint16_t geometry_notify_w;
   uint16_t geometry_notify_h;
+  bool notify_settle_pending;
+  uint16_t notify_settle_w;
+  uint16_t notify_settle_h;
+  uint64_t notify_settle_deadline_ns;
 
   uint32_t user_time;
   xcb_window_t user_time_window;
