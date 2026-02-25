@@ -90,6 +90,14 @@ static bool should_hide_for_show_desktop(const client_hot_t* hot) {
   return hot && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
 }
 
+static uint16_t clamp_u16_from_i64(int64_t v) {
+  if (v < 0)
+    return 0;
+  if (v > UINT16_MAX)
+    return UINT16_MAX;
+  return (uint16_t)v;
+}
+
 /*
  * client_manage_start:
  * Begin the management process for a new window.
@@ -386,9 +394,7 @@ void client_finish_manage(server_t* s, handle_t h) {
   hot->late_probe_ticks = 200;
   hot->late_probe_attempts = 0;
   hot->late_probe_deadline_ns = 0;
-  if (hot->late_probe_attempts < 5) {
-    server_schedule_timer(s, 20);
-  }
+  server_schedule_timer(s, 20);
 
   client_apply_rules(s, h);
 
@@ -531,7 +537,9 @@ void client_finish_manage(server_t* s, handle_t h) {
   actions[num_actions++] = atoms._NET_WM_ACTION_ABOVE;
   actions[num_actions++] = atoms._NET_WM_ACTION_BELOW;
 
-  bool fixed = (hot->hints.max_w > 0 && hot->hints.min_w == hot->hints.max_w && hot->hints.max_h > 0 && hot->hints.min_h == hot->hints.max_h);
+  bool has_min_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) != 0;
+  bool has_max_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) != 0;
+  bool fixed = has_min_size && has_max_size && hot->hints.max_w > 0 && hot->hints.min_w == hot->hints.max_w && hot->hints.max_h > 0 && hot->hints.min_h == hot->hints.max_h;
 
   if (!fixed) {
     actions[num_actions++] = atoms._NET_WM_ACTION_RESIZE;
@@ -880,19 +888,6 @@ void client_close(server_t* s, handle_t h) {
   if (!hot || !cold || hot->state == STATE_DESTROYED || hot->state == STATE_UNMANAGED)
     return;
 
-  if (cold->protocols & PROTOCOL_PING) {
-    xcb_client_message_event_t ping;
-    memset(&ping, 0, sizeof(ping));
-    ping.response_type = XCB_CLIENT_MESSAGE;
-    ping.format = 32;
-    ping.window = hot->xid;
-    ping.type = atoms.WM_PROTOCOLS;
-    ping.data.data32[0] = atoms._NET_WM_PING;
-    ping.data.data32[1] = hot->user_time ? hot->user_time : XCB_CURRENT_TIME;
-    ping.data.data32[2] = hot->xid;
-    xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ping);
-  }
-
   if (cold->protocols & PROTOCOL_DELETE_WINDOW) {
     LOG_DEBUG("Sending WM_DELETE_WINDOW to client %lx", h);
 
@@ -916,29 +911,47 @@ void client_close(server_t* s, handle_t h) {
 void client_constrain_size(const size_hints_t* s, uint32_t flags, uint16_t* w, uint16_t* h) {
   // Min/Max size
   if (flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
-    if (s->min_w > 0 && *w < (uint16_t)s->min_w)
-      *w = (uint16_t)s->min_w;
-    if (s->min_h > 0 && *h < (uint16_t)s->min_h)
-      *h = (uint16_t)s->min_h;
+    if (s->min_w > 0) {
+      uint16_t min_w = clamp_u16_from_i64((int64_t)s->min_w);
+      if (*w < min_w)
+        *w = min_w;
+    }
+    if (s->min_h > 0) {
+      uint16_t min_h = clamp_u16_from_i64((int64_t)s->min_h);
+      if (*h < min_h)
+        *h = min_h;
+    }
   }
 
   if (flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) {
-    if (s->max_w > 0 && *w > (uint16_t)s->max_w)
-      *w = (uint16_t)s->max_w;
-    if (s->max_h > 0 && *h > (uint16_t)s->max_h)
-      *h = (uint16_t)s->max_h;
+    if (s->max_w > 0) {
+      uint16_t max_w = clamp_u16_from_i64((int64_t)s->max_w);
+      if (*w > max_w)
+        *w = max_w;
+    }
+    if (s->max_h > 0) {
+      uint16_t max_h = clamp_u16_from_i64((int64_t)s->max_h);
+      if (*h > max_h)
+        *h = max_h;
+    }
   }
 
   // Aspect ratio
   if (flags & XCB_ICCCM_SIZE_HINT_P_ASPECT) {
     if (s->min_aspect_den > 0 && s->min_aspect_num > 0) {
-      if ((int32_t)(*w) * s->min_aspect_den < (int32_t)(*h) * s->min_aspect_num) {
-        *w = (uint16_t)((int32_t)(*h) * s->min_aspect_num / s->min_aspect_den);
+      int64_t lhs = (int64_t)(*w) * (int64_t)s->min_aspect_den;
+      int64_t rhs = (int64_t)(*h) * (int64_t)s->min_aspect_num;
+      if (lhs < rhs) {
+        int64_t new_w = ((int64_t)(*h) * (int64_t)s->min_aspect_num) / (int64_t)s->min_aspect_den;
+        *w = clamp_u16_from_i64(new_w);
       }
     }
     if (s->max_aspect_den > 0 && s->max_aspect_num > 0) {
-      if ((int32_t)(*w) * s->max_aspect_den > (int32_t)(*h) * s->max_aspect_num) {
-        *h = (uint16_t)((int32_t)(*w) * s->max_aspect_den / s->max_aspect_num);
+      int64_t lhs = (int64_t)(*w) * (int64_t)s->max_aspect_den;
+      int64_t rhs = (int64_t)(*h) * (int64_t)s->max_aspect_num;
+      if (lhs > rhs) {
+        int64_t new_h = ((int64_t)(*w) * (int64_t)s->max_aspect_den) / (int64_t)s->max_aspect_num;
+        *h = clamp_u16_from_i64(new_h);
       }
     }
   }
@@ -946,15 +959,25 @@ void client_constrain_size(const size_hints_t* s, uint32_t flags, uint16_t* w, u
   // Resize increments
   if (flags & XCB_ICCCM_SIZE_HINT_P_RESIZE_INC) {
     if (s->inc_w > 1) {
-      int32_t base_w = (flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE) ? s->base_w : (s->min_w > 0 ? s->min_w : 0);
-      if (*w > base_w) {
-        *w = (uint16_t)(base_w + ((*w - base_w) / s->inc_w) * s->inc_w);
+      int64_t base_w = (flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE) ? (int64_t)s->base_w : (s->min_w > 0 ? (int64_t)s->min_w : 0);
+      if (base_w < 0)
+        base_w = 0;
+      if (base_w > UINT16_MAX)
+        base_w = UINT16_MAX;
+      if ((int64_t)(*w) > base_w) {
+        int64_t snapped_w = base_w + (((int64_t)(*w) - base_w) / s->inc_w) * s->inc_w;
+        *w = clamp_u16_from_i64(snapped_w);
       }
     }
     if (s->inc_h > 1) {
-      int32_t base_h = (flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE) ? s->base_h : (s->min_h > 0 ? s->min_h : 0);
-      if (*h > base_h) {
-        *h = (uint16_t)(base_h + ((*h - base_h) / s->inc_h) * s->inc_h);
+      int64_t base_h = (flags & XCB_ICCCM_SIZE_HINT_BASE_SIZE) ? (int64_t)s->base_h : (s->min_h > 0 ? (int64_t)s->min_h : 0);
+      if (base_h < 0)
+        base_h = 0;
+      if (base_h > UINT16_MAX)
+        base_h = UINT16_MAX;
+      if ((int64_t)(*h) > base_h) {
+        int64_t snapped_h = base_h + (((int64_t)(*h) - base_h) / s->inc_h) * s->inc_h;
+        *h = clamp_u16_from_i64(snapped_h);
       }
     }
   }
