@@ -540,6 +540,55 @@ static void test_configure_notify_resync_constrained_size_reconfigures_client(vo
   cleanup_server(&s);
 }
 
+static void test_configure_notify_resync_coalesces_pending_notify_resize(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_client(&s, 7004, 7104);
+  client_hot_t* hot = server_chot(&s, h);
+  hot->manage_phase = MANAGE_DONE;
+  hot->desired = (rect_t){10, 20, 100, 80};
+  hot->server = hot->desired;
+  hot->dirty = DIRTY_NONE;
+
+  xcb_configure_notify_event_t ev1 = {0};
+  ev1.window = hot->xid;
+  ev1.width = 140;
+  ev1.height = 110;
+  wm_handle_configure_notify(&s, h, &ev1);
+  assert(hot->desired.w == 140);
+  assert(hot->desired.h == 110);
+  assert(hot->dirty & DIRTY_GEOM);
+
+  xcb_configure_notify_event_t ev2 = {0};
+  ev2.window = hot->xid;
+  ev2.width = 180;
+  ev2.height = 130;
+  wm_handle_configure_notify(&s, h, &ev2);
+  assert(hot->desired.w == 180);
+  assert(hot->desired.h == 130);
+  assert(hot->dirty & DIRTY_GEOM);
+
+  stub_config_calls_len = 0;
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const stub_config_call_t* frame_call = stub_config_call_at(0);
+  assert(frame_call);
+  assert(stub_config_call_at(1) == NULL);
+
+  uint16_t bw = s.config.theme.border_width;
+  uint16_t hh = s.config.theme.handle_height;
+  uint16_t bottom = (hh > bw) ? hh : bw;
+
+  assert(frame_call->win == hot->frame);
+  assert(frame_call->w == (uint32_t)(180 + 2 * bw));
+  assert(frame_call->h == (uint32_t)(130 + s.config.theme.title_height + bottom));
+
+  printf("test_configure_notify_resync_coalesces_pending_notify_resize passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_configure_request_applies_and_extents();
   test_configure_request_mask_respects_existing();
@@ -552,5 +601,6 @@ int main(void) {
   test_configure_notify_client_resize_resyncs_decorated_frame();
   test_configure_notify_client_resize_resyncs_extents_frame();
   test_configure_notify_resync_constrained_size_reconfigures_client();
+  test_configure_notify_resync_coalesces_pending_notify_resize();
   return 0;
 }
