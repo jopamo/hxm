@@ -159,6 +159,14 @@ static void test_active_window_updates(void) {
   const struct stub_prop_call* del = find_prop_call(s.root, atoms._NET_ACTIVE_WINDOW, true);
   assert(del != NULL);
 
+  hot->state = STATE_UNMAPPED;
+  s.focused_client = h;
+  s.root_dirty |= ROOT_DIRTY_ACTIVE_WINDOW;
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const struct stub_prop_call* del_unmapped = find_prop_call(s.root, atoms._NET_ACTIVE_WINDOW, true);
+  assert(del_unmapped != NULL);
+
   printf("test_active_window_updates passed\n");
   cleanup_server(&s);
 }
@@ -196,6 +204,46 @@ static void test_client_list_add_remove(void) {
   assert(list_vals[0] == 2002);
 
   printf("test_client_list_add_remove passed\n");
+  cleanup_server(&s);
+}
+
+static void test_client_list_remove_keeps_order(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  atoms._NET_CLIENT_LIST = 330;
+  atoms._NET_CLIENT_LIST_STACKING = 331;
+
+  handle_t h1 = add_mapped_client(&s, 3001, 3101);
+  handle_t h2 = add_mapped_client(&s, 3002, 3102);
+  handle_t h3 = add_mapped_client(&s, 3003, 3103);
+  (void)h2;
+  (void)h3;
+
+  stack_raise(&s, h1);
+  s.root_dirty |= ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING;
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const struct stub_prop_call* list = find_prop_call(s.root, atoms._NET_CLIENT_LIST, false);
+  assert(list != NULL);
+  assert(list->len == 3);
+  const uint32_t* vals = (const uint32_t*)list->data;
+  assert(vals[0] == 3001);
+  assert(vals[1] == 3002);
+  assert(vals[2] == 3003);
+
+  client_unmanage(&s, h1);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const struct stub_prop_call* list_after = find_prop_call(s.root, atoms._NET_CLIENT_LIST, false);
+  assert(list_after != NULL);
+  assert(list_after->len == 2);
+  vals = (const uint32_t*)list_after->data;
+  assert(vals[0] == 3002);
+  assert(vals[1] == 3003);
+
+  printf("test_client_list_remove_keeps_order passed\n");
   cleanup_server(&s);
 }
 
@@ -828,6 +876,7 @@ static void test_urgency_hint_maps_to_ewmh_state(void) {
 int main(void) {
   test_active_window_updates();
   test_client_list_add_remove();
+  test_client_list_remove_keeps_order();
   test_client_list_includes_all_managed();
   test_desktop_props_publish_and_switch();
   test_net_wm_desktop_reply_sets_sticky_and_desktop();

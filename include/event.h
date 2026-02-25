@@ -232,7 +232,7 @@ typedef struct server {
 
   /* Client storage */
   slotmap_t clients;          /* owns hot/cold client memory */
-  small_vec_t active_clients; /* handles (handle_t) for iteration */
+  small_vec_t active_clients; /* handles in stable manage order */
 
   /* Global maps: XID -> handle */
   hash_map_t window_to_client;         /* xcb_window_t -> handle_t via ptr */

@@ -109,10 +109,10 @@ static void wm_clamp_rect_to_bounds(rect_t* r, const rect_t* bounds) {
   r->y = (int16_t)y;
 }
 
-void wm_send_synthetic_configure(server_t* s, handle_t h) {
+bool wm_send_synthetic_configure(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
   if (!hot)
-    return;
+    return false;
 
   uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
   uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
@@ -140,7 +140,7 @@ void wm_send_synthetic_configure(server_t* s, handle_t h) {
   ev->override_redirect = hot->override_redirect;
 
   if (hot->last_synthetic_geom.x == ev->x && hot->last_synthetic_geom.y == ev->y && hot->last_synthetic_geom.w == ev->width && hot->last_synthetic_geom.h == ev->height) {
-    return;
+    return false;
   }
   hot->last_synthetic_geom.x = ev->x;
   hot->last_synthetic_geom.y = ev->y;
@@ -149,6 +149,7 @@ void wm_send_synthetic_configure(server_t* s, handle_t h) {
 
   TRACE_LOG("synthetic_configure xid=%u x=%d y=%d w=%u h=%u", hot->xid, ev->x, ev->y, ev->width, ev->height);
   xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_STRUCTURE_NOTIFY, buffer);
+  return true;
 }
 
 void wm_publish_workarea(server_t* s, const rect_t* wa) {
@@ -254,9 +255,10 @@ static uint32_t wm_build_client_list(server_t* s, xcb_window_t* out, uint32_t ca
  *
  * Phases:
  * 1. Visibility: Map/Unmap windows based on desktop state.
- * 2. Per-Client Updates: Flush geometry, title, hints, and stacking.
- * 3. Focus Commit: Apply deferred focus changes (SetInputFocus).
- * 4. Root Properties: Update _NET_CLIENT_LIST, WORKAREA, etc.
+ * 2. Workarea Pre-Publish: Update _NET_WORKAREA before geometry pass.
+ * 3. Per-Client Updates: Flush geometry, title, hints, and stacking.
+ * 4. Focus Commit: Apply deferred focus changes (SetInputFocus).
+ * 5. Root Properties: Update _NET_CLIENT_LIST, ACTIVE_WINDOW, etc.
  *
  * Returns true if any X requests were issued (triggering a flush).
  */
@@ -347,6 +349,22 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       }
     }
     s->root_dirty &= ~ROOT_DIRTY_VISIBILITY;
+  }
+
+  // Workarea first so maximized/fullscreen clients marked DIRTY_GEOM during
+  // publish can be flushed in this same tick.
+  if (s->root_dirty & ROOT_DIRTY_WORKAREA) {
+    flushed = true;
+    rect_t wa;
+    wm_compute_workarea(s, &wa);
+#if HXM_TRACE_LOGS
+    static rl_t rl_wa = {0};
+    if (rl_allow(&rl_wa, now, 1000000000)) {
+      TRACE_LOG("publish_workarea x=%d y=%d w=%u h=%u", wa.x, wa.y, wa.w, wa.h);
+    }
+#endif
+    wm_publish_workarea(s, &wa);
+    s->root_dirty &= ~ROOT_DIRTY_WORKAREA;
   }
 
   for (size_t i = 0; i < s->active_clients.length;) {
@@ -507,7 +525,8 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
       TRACE_LOG("apply_geom: frame(%dx%d+%d+%d) extents_set=%d -> client(%dx%d)", frame_w, frame_h, frame_x, frame_y, hot->gtk_frame_extents_set, client_w, client_h);
 
-      bool geom_changed = (hot->server.x != (int16_t)frame_x || hot->server.y != (int16_t)frame_y || hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h);
+      bool geom_changed = (hot->server.x != (int16_t)frame_x || hot->server.y != (int16_t)frame_y || hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h ||
+                           hot->server_frame_w != (uint16_t)frame_w || hot->server_frame_h != (uint16_t)frame_h);
 
       if (geom_changed) {
         if (!interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE) {
@@ -562,6 +581,8 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         hot->server.y = (int16_t)frame_y;
         hot->server.w = (uint16_t)client_w;
         hot->server.h = (uint16_t)client_h;
+        hot->server_frame_w = (uint16_t)frame_w;
+        hot->server_frame_h = (uint16_t)frame_h;
 
         frame_redraw(s, h, FRAME_REDRAW_ALL);
 
@@ -575,8 +596,8 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         TRACE_LOG("Skipping DIRTY_GEOM for %lx (unchanged)", h);
       }
 
-      wm_send_synthetic_configure(s, h);
-      flushed = true;
+      if (wm_send_synthetic_configure(s, h))
+        flushed = true;
 
       hot->pending = hot->desired;
       hot->pending_epoch++;
@@ -727,9 +748,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       actions[num_actions++] = atoms._NET_WM_ACTION_ABOVE;
       actions[num_actions++] = atoms._NET_WM_ACTION_BELOW;
 
-      bool fixed = (hot->hints.max_w > 0 && hot->hints.min_w == hot->hints.max_w && hot->hints.max_h > 0 && hot->hints.min_h == hot->hints.max_h);
-
-      if (!fixed) {
+      if (!client_has_fixed_size(hot)) {
         actions[num_actions++] = atoms._NET_WM_ACTION_RESIZE;
         actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_HORZ;
         actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_VERT;
@@ -812,8 +831,11 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
     flushed = true;
     if (s->focused_client != HANDLE_INVALID) {
       client_hot_t* c = server_chot(s, s->focused_client);
-      if (c) {
+      if (c && c->state == STATE_MAPPED) {
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_ACTIVE_WINDOW, XCB_ATOM_WINDOW, 32, 1, &c->xid);
+      }
+      else {
+        xcb_delete_property(s->conn, s->root, atoms._NET_ACTIVE_WINDOW);
       }
     }
     else {
@@ -835,7 +857,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       idx_stacking = wm_build_client_list_stacking(s, wins_stacking, (uint32_t)cap);
     }
 
-    // _NET_CLIENT_LIST: mapping order (slotmap order) for all managed clients.
+    // _NET_CLIENT_LIST: stable manage order from active_clients.
     uint32_t cap_list = (uint32_t)s->active_clients.length;
     xcb_window_t* wins_list = cap_list ? (xcb_window_t*)arena_alloc(&s->tick_arena, cap_list * sizeof(xcb_window_t)) : NULL;
 
@@ -853,21 +875,6 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
     }
 
     s->root_dirty &= ~(ROOT_DIRTY_CLIENT_LIST | ROOT_DIRTY_CLIENT_LIST_STACKING);
-  }
-
-  if (s->root_dirty & ROOT_DIRTY_WORKAREA) {
-    flushed = true;
-    rect_t wa;
-    wm_compute_workarea(s, &wa);
-#if HXM_TRACE_LOGS
-    static rl_t rl_wa = {0};
-    if (rl_allow(&rl_wa, now, 1000000000)) {
-      TRACE_LOG("publish_workarea x=%d y=%d w=%u h=%u", wa.x, wa.y, wa.w, wa.h);
-    }
-#endif
-    wm_publish_workarea(s, &wa);
-
-    s->root_dirty &= ~ROOT_DIRTY_WORKAREA;
   }
 
   if (s->root_dirty & ROOT_DIRTY_CURRENT_DESKTOP) {

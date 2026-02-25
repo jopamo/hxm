@@ -151,6 +151,8 @@ typedef struct client_hot {
   xcb_window_t frame;
 
   rect_t server;
+  uint16_t server_frame_w;
+  uint16_t server_frame_h;
   rect_t last_synthetic_geom;
   rect_t desired;
   rect_t pending;
@@ -352,6 +354,7 @@ void client_setup_grabs(server_t* s, handle_t h);
 
 bool client_can_move(const client_hot_t* hot);
 bool client_can_resize(const client_hot_t* hot);
+bool client_has_fixed_size(const client_hot_t* hot);
 
 #ifdef __cplusplus
 }

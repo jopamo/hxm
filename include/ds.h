@@ -93,6 +93,11 @@ void* small_vec_get(const small_vec_t* v, size_t idx);
  */
 void small_vec_remove_swap(small_vec_t* v, void* item);
 
+/* Remove an item by pointer identity (preserve order)
+ * If item is not found, does nothing
+ */
+void small_vec_remove(small_vec_t* v, void* item);
+
 /* Convenience helpers */
 static inline size_t small_vec_len(const small_vec_t* v) {
   return v ? v->length : 0u;

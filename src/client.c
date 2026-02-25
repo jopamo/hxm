@@ -90,6 +90,16 @@ static bool should_hide_for_show_desktop(const client_hot_t* hot) {
   return hot && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
 }
 
+bool client_has_fixed_size(const client_hot_t* hot) {
+  if (!hot)
+    return false;
+
+  bool has_min_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) != 0;
+  bool has_max_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) != 0;
+  return has_min_size && has_max_size && hot->hints.max_w > 0 && hot->hints.max_h > 0 &&
+         hot->hints.min_w == hot->hints.max_w && hot->hints.min_h == hot->hints.max_h;
+}
+
 static uint16_t clamp_u16_from_i64(int64_t v) {
   if (v < 0)
     return 0;
@@ -504,6 +514,8 @@ void client_finish_manage(server_t* s, handle_t h) {
   hot->server.y = (int16_t)frame_y;
   hot->server.w = (uint16_t)client_w;
   hot->server.h = (uint16_t)client_h;
+  hot->server_frame_w = (uint16_t)frame_w;
+  hot->server_frame_h = (uint16_t)frame_h;
   hot->dirty |= DIRTY_GEOM;
 
   // Set _NET_FRAME_EXTENTS before mapping
@@ -537,11 +549,7 @@ void client_finish_manage(server_t* s, handle_t h) {
   actions[num_actions++] = atoms._NET_WM_ACTION_ABOVE;
   actions[num_actions++] = atoms._NET_WM_ACTION_BELOW;
 
-  bool has_min_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) != 0;
-  bool has_max_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) != 0;
-  bool fixed = has_min_size && has_max_size && hot->hints.max_w > 0 && hot->hints.min_w == hot->hints.max_w && hot->hints.max_h > 0 && hot->hints.min_h == hot->hints.max_h;
-
-  if (!fixed) {
+  if (!client_has_fixed_size(hot)) {
     actions[num_actions++] = atoms._NET_WM_ACTION_RESIZE;
     actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_HORZ;
     actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_VERT;
@@ -875,7 +883,7 @@ void client_unmanage(server_t* s, handle_t h) {
 
   // Free slot
   slotmap_free(&s->clients, h);
-  small_vec_remove_swap(&s->active_clients, handle_to_ptr(h));
+  small_vec_remove(&s->active_clients, handle_to_ptr(h));
 
   s->root_dirty |= ROOT_DIRTY_CLIENT_LIST;
   s->workarea_dirty = true;
@@ -1018,11 +1026,5 @@ bool client_can_resize(const client_hot_t* hot) {
   if (!client_can_move(hot))
     return false;
 
-  // Reject resize when min == max
-  if ((hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) && (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE)) {
-    if (hot->hints.min_w > 0 && hot->hints.min_w == hot->hints.max_w && hot->hints.min_h > 0 && hot->hints.min_h == hot->hints.max_h) {
-      return false;
-    }
-  }
-  return true;
+  return !client_has_fixed_size(hot);
 }

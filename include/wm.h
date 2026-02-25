@@ -146,7 +146,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
 /* State/metadata updates */
 void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t prop);
-void wm_send_synthetic_configure(server_t* s, handle_t h);
+bool wm_send_synthetic_configure(server_t* s, handle_t h);
 void wm_client_refresh_title(server_t* s, handle_t h);
 
 #ifdef __cplusplus

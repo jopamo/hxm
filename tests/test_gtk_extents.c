@@ -226,6 +226,47 @@ static void test_no_gtk_extents_no_inflation(void) {
   test_server_destroy(&ts);
 }
 
+static void test_theme_decoration_change_reconfigures_frame(void) {
+  test_server_t ts;
+  test_server_init(&ts);
+
+  ts.s.config.theme.border_width = 3;
+  ts.s.config.theme.title_height = 18;
+
+  client_hot_t* hot = test_client_add(&ts, 104, 204);
+  hot->gtk_frame_extents_set = false;
+  hot->desired.x = 20;
+  hot->desired.y = 30;
+  hot->desired.w = 320;
+  hot->desired.h = 240;
+  hot->dirty = DIRTY_GEOM;
+
+  reset_config_captures();
+  wm_flush_dirty(&ts.s, monotonic_time_ns());
+  assert(stub_configure_window_count == 2);
+  assert(stub_config_calls_len == 2);
+
+  reset_config_captures();
+  ts.s.config.theme.border_width = 9;
+  ts.s.config.theme.title_height = 26;
+  hot->dirty = DIRTY_GEOM;
+
+  wm_flush_dirty(&ts.s, monotonic_time_ns());
+
+  // Client content size is unchanged, but frame size changes with decorations.
+  assert(stub_configure_window_count == 2);
+  assert(stub_config_calls_len == 2);
+
+  const uint32_t exp_frame_w = 320 + 2 * 9;
+  const uint32_t exp_frame_h = 240 + 26 + 9;
+  assert_call_eq(&stub_config_calls[0], 204, 20, 30, exp_frame_w, exp_frame_h);
+  assert_call_eq(&stub_config_calls[1], 104, 9, 26, 320, 240);
+
+  printf("test_theme_decoration_change_reconfigures_frame passed\n");
+
+  test_server_destroy(&ts);
+}
+
 static void test_not_dirty_no_configure(void) {
   test_server_t ts;
   test_server_init(&ts);
@@ -369,6 +410,7 @@ static void test_two_clients_both_configured(void) {
 int main(void) {
   test_gtk_extents_inflation_order_and_state();
   test_no_gtk_extents_no_inflation();
+  test_theme_decoration_change_reconfigures_frame();
   test_not_dirty_no_configure();
   test_idempotent_second_flush_does_nothing();
   test_two_clients_both_configured();

@@ -246,6 +246,19 @@ void small_vec_remove_swap(small_vec_t* v, void* item) {
   }
 }
 
+void small_vec_remove(small_vec_t* v, void* item) {
+  // Stable remove in O(n) time
+  for (size_t i = 0; i < v->length; i++) {
+    if (v->items[i] == item) {
+      size_t tail = v->length - i - 1;
+      if (tail > 0)
+        memmove(&v->items[i], &v->items[i + 1], tail * sizeof(void*));
+      v->length--;
+      return;
+    }
+  }
+}
+
 /* -----------------------------
  * Hash map
  * ----------------------------- */
