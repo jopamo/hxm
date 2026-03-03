@@ -134,6 +134,19 @@ static handle_t add_mapped_client(server_t* s, xcb_window_t win, xcb_window_t fr
   return h;
 }
 
+static void send_net_active_window(server_t* s, xcb_window_t win, uint32_t source, uint32_t timestamp) {
+  xcb_client_message_event_t ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.response_type = XCB_CLIENT_MESSAGE;
+  ev.format = 32;
+  ev.window = win;
+  ev.type = atoms._NET_ACTIVE_WINDOW;
+  ev.data.data32[0] = source;
+  ev.data.data32[1] = timestamp;
+  ev.data.data32[2] = XCB_NONE;
+  wm_handle_client_message(s, &ev);
+}
+
 static void test_active_window_updates(void) {
   server_t s;
   setup_server(&s);
@@ -168,6 +181,91 @@ static void test_active_window_updates(void) {
   assert(del_unmapped != NULL);
 
   printf("test_active_window_updates passed\n");
+  cleanup_server(&s);
+}
+
+static void test_active_window_exits_show_desktop_mode(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  s.desktop_count = 2;
+  s.current_desktop = 0;
+
+  handle_t h1 = add_mapped_client(&s, 1201, 1301);
+  handle_t h2 = add_mapped_client(&s, 1202, 1302);
+  client_hot_t* a = server_chot(&s, h1);
+  client_hot_t* b = server_chot(&s, h2);
+  assert(a && b);
+
+  a->manage_phase = MANAGE_DONE;
+  b->manage_phase = MANAGE_DONE;
+  a->desktop = 0;
+  b->desktop = 0;
+  a->user_time = 100;
+  b->user_time = 100;
+
+  wm_set_showing_desktop(&s, true);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const struct stub_prop_call* shown = find_prop_call(s.root, atoms._NET_SHOWING_DESKTOP, false);
+  assert(shown != NULL);
+  assert(shown->len == 1);
+  assert(((const uint32_t*)shown->data)[0] == 1u);
+  assert(s.showing_desktop == true);
+  assert(a->show_desktop_hidden == true);
+  assert(b->show_desktop_hidden == true);
+  assert(a->state == STATE_UNMAPPED);
+  assert(b->state == STATE_UNMAPPED);
+
+  send_net_active_window(&s, b->xid, 2, 200);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const struct stub_prop_call* hidden = find_prop_call(s.root, atoms._NET_SHOWING_DESKTOP, false);
+  assert(hidden != NULL);
+  assert(hidden->len == 1);
+  assert(((const uint32_t*)hidden->data)[0] == 0u);
+  assert(s.showing_desktop == false);
+  assert(a->show_desktop_hidden == false);
+  assert(b->show_desktop_hidden == false);
+  assert(a->state == STATE_MAPPED);
+  assert(b->state == STATE_MAPPED);
+  assert(s.focused_client == h2);
+
+  printf("test_active_window_exits_show_desktop_mode passed\n");
+  cleanup_server(&s);
+}
+
+static void test_restore_exits_show_desktop_mode(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_mapped_client(&s, 1401, 1501);
+  client_hot_t* hot = server_chot(&s, h);
+  assert(hot);
+  hot->manage_phase = MANAGE_DONE;
+  hot->desktop = 0;
+
+  wm_set_showing_desktop(&s, true);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  assert(s.showing_desktop == true);
+  assert(hot->show_desktop_hidden == true);
+  assert(hot->state == STATE_UNMAPPED);
+
+  wm_client_restore(&s, h);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const struct stub_prop_call* hidden = find_prop_call(s.root, atoms._NET_SHOWING_DESKTOP, false);
+  assert(hidden != NULL);
+  assert(hidden->len == 1);
+  assert(((const uint32_t*)hidden->data)[0] == 0u);
+  assert(s.showing_desktop == false);
+  assert(hot->show_desktop_hidden == false);
+  assert(hot->state == STATE_MAPPED);
+
+  printf("test_restore_exits_show_desktop_mode passed\n");
   cleanup_server(&s);
 }
 
@@ -875,6 +973,8 @@ static void test_urgency_hint_maps_to_ewmh_state(void) {
 
 int main(void) {
   test_active_window_updates();
+  test_active_window_exits_show_desktop_mode();
+  test_restore_exits_show_desktop_mode();
   test_client_list_add_remove();
   test_client_list_remove_keeps_order();
   test_client_list_includes_all_managed();

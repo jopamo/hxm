@@ -135,6 +135,19 @@ static handle_t add_mapped_client(server_t* s, xcb_window_t win, xcb_window_t fr
   return h;
 }
 
+static void send_net_active_window(server_t* s, xcb_window_t win, uint32_t source, uint32_t timestamp) {
+  xcb_client_message_event_t ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.response_type = XCB_CLIENT_MESSAGE;
+  ev.format = 32;
+  ev.window = win;
+  ev.type = atoms._NET_ACTIVE_WINDOW;
+  ev.data.data32[0] = source;
+  ev.data.data32[1] = timestamp;
+  ev.data.data32[2] = XCB_NONE;
+  wm_handle_client_message(s, &ev);
+}
+
 static void test_malformed_wm_state_format_ignored(void) {
   server_t s;
   setup_server(&s);
@@ -271,10 +284,134 @@ static void test_property_spam_no_crash(void) {
   cleanup_server(&s);
 }
 
+static void test_active_window_rejects_stale_application_timestamp(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  s.desktop_count = 2;
+  s.current_desktop = 0;
+
+  handle_t h1 = add_mapped_client(&s, 5001, 5101);
+  handle_t h2 = add_mapped_client(&s, 5002, 5102);
+  client_hot_t* a = server_chot(&s, h1);
+  client_hot_t* b = server_chot(&s, h2);
+  assert(a && b);
+
+  a->desktop = 0;
+  b->desktop = 0;
+  a->user_time = 500;
+
+  wm_set_focus(&s, h1);
+  assert(s.focused_client == h1);
+
+  send_net_active_window(&s, b->xid, 1, 400);
+
+  assert(s.current_desktop == 0);
+  assert(s.focused_client == h1);
+
+  printf("test_active_window_rejects_stale_application_timestamp passed\n");
+  cleanup_server(&s);
+}
+
+static void test_active_window_rejects_non_user_cross_desktop_activation(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  s.desktop_count = 2;
+  s.current_desktop = 0;
+
+  handle_t h1 = add_mapped_client(&s, 6001, 6101);
+  handle_t h2 = add_mapped_client(&s, 6002, 6102);
+  client_hot_t* a = server_chot(&s, h1);
+  client_hot_t* b = server_chot(&s, h2);
+  assert(a && b);
+
+  a->desktop = 0;
+  b->desktop = 1;
+  a->user_time = 700;
+
+  wm_set_focus(&s, h1);
+  assert(s.focused_client == h1);
+
+  send_net_active_window(&s, b->xid, 1, 800);
+
+  assert(s.current_desktop == 0);
+  assert(s.focused_client == h1);
+
+  printf("test_active_window_rejects_non_user_cross_desktop_activation passed\n");
+  cleanup_server(&s);
+}
+
+static void test_active_window_user_request_can_switch_desktop(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  s.desktop_count = 2;
+  s.current_desktop = 0;
+
+  handle_t h1 = add_mapped_client(&s, 7001, 7101);
+  handle_t h2 = add_mapped_client(&s, 7002, 7102);
+  client_hot_t* a = server_chot(&s, h1);
+  client_hot_t* b = server_chot(&s, h2);
+  assert(a && b);
+
+  a->desktop = 0;
+  b->desktop = 1;
+  a->user_time = 700;
+
+  wm_set_focus(&s, h1);
+  assert(s.focused_client == h1);
+
+  send_net_active_window(&s, b->xid, 2, 1);
+
+  assert(s.current_desktop == 1);
+  assert(s.focused_client == h2);
+
+  printf("test_active_window_user_request_can_switch_desktop passed\n");
+  cleanup_server(&s);
+}
+
+static void test_active_window_rejects_missing_timestamp_when_focus_time_known(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  s.desktop_count = 2;
+  s.current_desktop = 0;
+
+  handle_t h1 = add_mapped_client(&s, 8001, 8101);
+  handle_t h2 = add_mapped_client(&s, 8002, 8102);
+  client_hot_t* a = server_chot(&s, h1);
+  client_hot_t* b = server_chot(&s, h2);
+  assert(a && b);
+
+  a->desktop = 0;
+  b->desktop = 0;
+  a->user_time = 900;
+
+  wm_set_focus(&s, h1);
+  assert(s.focused_client == h1);
+
+  send_net_active_window(&s, b->xid, 1, XCB_CURRENT_TIME);
+
+  assert(s.current_desktop == 0);
+  assert(s.focused_client == h1);
+
+  printf("test_active_window_rejects_missing_timestamp_when_focus_time_known passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_malformed_wm_state_format_ignored();
   test_unknown_window_type_ignored();
   test_strut_partial_invalid_ranges_ignored();
   test_property_spam_no_crash();
+  test_active_window_rejects_stale_application_timestamp();
+  test_active_window_rejects_non_user_cross_desktop_activation();
+  test_active_window_user_request_can_switch_desktop();
+  test_active_window_rejects_missing_timestamp_when_focus_time_known();
   return 0;
 }

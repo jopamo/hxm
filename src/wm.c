@@ -99,6 +99,76 @@ static bool should_raise_on_click(client_hot_t* c, xcb_button_t button) {
   return (button == 1 || button == 3);
 }
 
+static bool wm_show_desktop_hides_client(const client_hot_t* hot) {
+  if (!hot)
+    return false;
+  return hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
+}
+
+static bool wm_maybe_exit_showing_desktop_for_client(server_t* s, const client_hot_t* hot) {
+  if (!s || !hot)
+    return false;
+  if (!s->showing_desktop)
+    return false;
+  if (!wm_show_desktop_hides_client(hot))
+    return false;
+  wm_set_showing_desktop(s, false);
+  return true;
+}
+
+static bool wm_x11_time_after_or_equal(uint32_t lhs, uint32_t rhs) {
+  if (lhs == rhs)
+    return true;
+  return (int32_t)(lhs - rhs) > 0;
+}
+
+static bool wm_net_active_request_allowed(server_t* s, handle_t target, const client_hot_t* hot, uint32_t source, uint32_t timestamp) {
+  if (!s || !hot)
+    return false;
+
+  if (source > 2) {
+    LOG_WARN("Ignoring _NET_ACTIVE_WINDOW with invalid source=%u", source);
+    return false;
+  }
+
+  bool request_from_user = (source == 2);
+  bool off_desktop = !hot->sticky && hot->desktop >= 0 && (uint32_t)hot->desktop != s->current_desktop;
+  if (off_desktop && !request_from_user) {
+    LOG_INFO("Ignoring _NET_ACTIVE_WINDOW non-user cross-desktop request source=%u", source);
+    return false;
+  }
+
+  if (request_from_user)
+    return true;
+
+  uint32_t focused_user_time = 0;
+  if (s->focused_client != HANDLE_INVALID && s->focused_client != target) {
+    const client_hot_t* focused = server_chot(s, s->focused_client);
+    if (focused && focused->state == STATE_MAPPED)
+      focused_user_time = focused->user_time;
+  }
+
+  if (timestamp == XCB_CURRENT_TIME) {
+    if (focused_user_time != 0) {
+      LOG_INFO("Ignoring _NET_ACTIVE_WINDOW without timestamp; focused_user_time=%u", focused_user_time);
+      return false;
+    }
+    return true;
+  }
+
+  if (focused_user_time != 0 && !wm_x11_time_after_or_equal(timestamp, focused_user_time)) {
+    LOG_INFO("Ignoring stale _NET_ACTIVE_WINDOW timestamp=%u focused_user_time=%u", timestamp, focused_user_time);
+    return false;
+  }
+
+  if (hot->user_time != 0 && !wm_x11_time_after_or_equal(timestamp, hot->user_time)) {
+    LOG_INFO("Ignoring stale _NET_ACTIVE_WINDOW timestamp=%u target_user_time=%u", timestamp, hot->user_time);
+    return false;
+  }
+
+  return true;
+}
+
 static bool wm_is_above_in_layer(const server_t* s, const client_hot_t* a, const client_hot_t* b) {
   if (!a || !b)
     return false;
@@ -1857,17 +1927,27 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
   }
 
   if (ev->type == atoms._NET_ACTIVE_WINDOW) {
+    if (ev->format != 32)
+      return;
+
     handle_t h = server_get_client_by_window(s, ev->window);
     if (h != HANDLE_INVALID) {
       client_hot_t* hot = server_chot(s, h);
       if (!hot)
         return;
+      uint32_t source = ev->data.data32[0];
+      uint32_t timestamp = ev->data.data32[1];
       TRACE_LOG("_NET_ACTIVE_WINDOW h=%lx xid=%u state=%d desktop=%d", h, hot->xid, hot->state, hot->desktop);
 
       if (hot->manage_phase != MANAGE_DONE || hot->frame == XCB_WINDOW_NONE) {
         LOG_DEBUG("Ignoring _NET_ACTIVE_WINDOW for incomplete client %lx phase=%d", h, hot->manage_phase);
         return;
       }
+
+      if (!wm_net_active_request_allowed(s, h, hot, source, timestamp))
+        return;
+
+      wm_maybe_exit_showing_desktop_for_client(s, hot);
 
       if (!hot->sticky && hot->desktop >= 0 && (uint32_t)hot->desktop != s->current_desktop) {
         wm_switch_workspace(s, (uint32_t)hot->desktop);
@@ -2380,7 +2460,15 @@ void wm_client_restore(server_t* s, handle_t h) {
   if (!hot)
     return;
 
+  bool exited_show_desktop = false;
+  if (hot->state == STATE_UNMAPPED) {
+    exited_show_desktop = wm_maybe_exit_showing_desktop_for_client(s, hot);
+  }
+
   if (hot->state != STATE_UNMAPPED) {
+    if (exited_show_desktop && hot->state == STATE_MAPPED)
+      return;
+
     LOG_WARN(
         "wm_client_restore called for client %u in state %d (not "
         "UNMAPPED), ignoring",
