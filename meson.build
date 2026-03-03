@@ -638,6 +638,7 @@ fail_on_skips_test_script = find_program('tests/test_fail_on_skips.sh', required
 ci_workflow_test_script = find_program('tests/test_ci_workflow.py', required: true)
 integration_script_fallback_test_script = find_program('tests/test_integration_script_fallback.sh', required: true)
 sync_reply_allowlist_test_script = find_program('tests/test_sync_reply_allowlist.sh', required: true)
+cookie_handler_ownership_test_script = find_program('tests/test_cookie_handler_ownership.sh', required: true)
 
 script_env = environment()
 script_env.set('HXM_BIN', hxm.full_path())
@@ -665,6 +666,12 @@ test('integration_script_fallback', integration_script_fallback_test_script,
 )
 
 test('sync_reply_allowlist', sync_reply_allowlist_test_script,
+  workdir: source_root,
+  is_parallel: true,
+  timeout: 30,
+)
+
+test('cookie_handler_ownership', cookie_handler_ownership_test_script,
   workdir: source_root,
   is_parallel: true,
   timeout: 30,

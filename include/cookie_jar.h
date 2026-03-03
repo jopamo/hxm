@@ -72,6 +72,11 @@ typedef enum cookie_type {
 struct server;
 struct cookie_slot;
 
+/* COOKIE_JAR_HANDLER_OWNERSHIP_CONTRACT (canonical source of truth)
+ * - reply/err are borrowed for the callback duration only
+ * - The cookie_jar drain path frees reply/err after handler returns
+ * - Handlers must not free() or retain reply/err
+ */
 /* Handler invoked when a reply becomes available or a timeout/error occurs
  *
  * reply:
