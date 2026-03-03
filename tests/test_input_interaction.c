@@ -7,6 +7,7 @@
 
 #include "client.h"
 #include "config.h"
+#include "cookie_jar.h"
 #include "event.h"
 #include "hxm.h"
 #include "src/wm_internal.h"
@@ -21,6 +22,25 @@ extern int stub_ungrab_key_count;
 extern uint16_t stub_last_grab_key_mods;
 extern xcb_keycode_t stub_last_grab_keycode;
 extern int stub_sync_await_count;
+extern void xcb_stubs_set_query_pointer_sequence(uint32_t sequence);
+
+bool __real_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
+
+static bool g_fail_grab_pointer_enqueue = false;
+static int g_cookie_push_query_pointer_calls = 0;
+
+bool __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
+  if (type == COOKIE_QUERY_POINTER)
+    g_cookie_push_query_pointer_calls++;
+  if (g_fail_grab_pointer_enqueue && type == COOKIE_GRAB_POINTER)
+    return false;
+  return __real_cookie_jar_push(cj, sequence, type, client, data, txn_id, handler);
+}
+
+static void reset_cookie_push_spy(void) {
+  g_fail_grab_pointer_enqueue = false;
+  g_cookie_push_query_pointer_calls = 0;
+}
 
 static void setup_server(server_t* s) {
   memset(s, 0, sizeof(*s));
@@ -35,6 +55,7 @@ static void setup_server(server_t* s) {
   config_init_defaults(&s->config);
 
   slotmap_init(&s->clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
+  cookie_jar_init(&s->cookie_jar);
   hash_map_init(&s->window_to_client);
   hash_map_init(&s->frame_to_client);
   list_init(&s->focus_history);
@@ -62,6 +83,7 @@ static void cleanup_server(server_t* s) {
     }
   }
   config_destroy(&s->config);
+  cookie_jar_destroy(&s->cookie_jar);
   slotmap_destroy(&s->clients);
   hash_map_destroy(&s->window_to_client);
   hash_map_destroy(&s->frame_to_client);
@@ -179,6 +201,7 @@ static void test_move_interaction(void) {
   server_t s;
   setup_server(&s);
   xcb_stubs_reset();
+  reset_cookie_push_spy();
 
   handle_t h = add_mapped_client(&s, 2001, 2101);
   client_hot_t* hot = server_chot(&s, h);
@@ -214,10 +237,44 @@ static void test_move_interaction(void) {
   cleanup_server(&s);
 }
 
+static void test_move_interaction_aborts_when_grab_enqueue_fails(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_cookie_push_spy();
+
+  handle_t h = add_mapped_client(&s, 2201, 2301);
+  client_hot_t* hot = server_chot(&s, h);
+
+  g_fail_grab_pointer_enqueue = true;
+
+  xcb_button_press_event_t press = {0};
+  press.event = hot->xid;
+  press.detail = 1;
+  press.state = XCB_MOD_MASK_1;
+  press.root_x = 80;
+  press.root_y = 90;
+
+  wm_handle_button_press(&s, &press);
+
+  g_fail_grab_pointer_enqueue = false;
+
+  assert(stub_grab_pointer_count == 1);
+  assert(stub_ungrab_pointer_count == 1);
+  assert(s.interaction_mode == INTERACTION_NONE);
+  assert(s.interaction_window == XCB_NONE);
+  assert(s.interaction_handle == HANDLE_INVALID);
+  assert(!cookie_jar_has_pending(&s.cookie_jar));
+
+  printf("test_move_interaction_aborts_when_grab_enqueue_fails passed\n");
+  cleanup_server(&s);
+}
+
 static void test_resize_interaction(void) {
   server_t s;
   setup_server(&s);
   xcb_stubs_reset();
+  reset_cookie_push_spy();
 
   handle_t h = add_mapped_client(&s, 3001, 3101);
   client_hot_t* hot = server_chot(&s, h);
@@ -257,6 +314,7 @@ static void test_resize_corner_top_left(void) {
   server_t s;
   setup_server(&s);
   xcb_stubs_reset();
+  reset_cookie_push_spy();
 
   handle_t h = add_mapped_client(&s, 4001, 4101);
   client_hot_t* hot = server_chot(&s, h);
@@ -285,6 +343,7 @@ static void test_cancel_interaction_resets_cursor(void) {
   server_t s;
   setup_server(&s);
   xcb_stubs_reset();
+  reset_cookie_push_spy();
 
   handle_t h = add_mapped_client(&s, 5001, 5101);
   client_hot_t* hot = server_chot(&s, h);
@@ -309,6 +368,7 @@ static void test_resize_no_sync_await(void) {
   server_t s;
   setup_server(&s);
   xcb_stubs_reset();
+  reset_cookie_push_spy();
 
   handle_t h = add_mapped_client(&s, 6001, 6101);
   client_hot_t* hot = server_chot(&s, h);
@@ -333,6 +393,7 @@ static void test_keybinding_clean_mods(void) {
   server_t s;
   setup_server(&s);
   xcb_stubs_reset();
+  reset_cookie_push_spy();
 
   key_binding_t* b = calloc(1, sizeof(*b));
   b->keysym = XK_Escape;
@@ -361,6 +422,7 @@ static void test_keybinding_conflict_deterministic(void) {
   server_t s;
   setup_server(&s);
   xcb_stubs_reset();
+  reset_cookie_push_spy();
 
   key_binding_t* first = calloc(1, sizeof(*first));
   first->keysym = XK_Escape;
@@ -398,6 +460,7 @@ static void test_key_grabs_from_config(void) {
   server_t s;
   setup_server(&s);
   xcb_stubs_reset();
+  reset_cookie_push_spy();
 
   key_binding_t* b = calloc(1, sizeof(*b));
   b->keysym = XK_Escape;
@@ -421,10 +484,42 @@ static void test_key_grabs_from_config(void) {
   cleanup_server(&s);
 }
 
+static void test_moveresize_keyboard_zero_query_sequence_skips_enqueue(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_cookie_push_spy();
+
+  handle_t h = add_mapped_client(&s, 7001, 7101);
+  client_hot_t* hot = server_chot(&s, h);
+
+  xcb_stubs_set_query_pointer_sequence(0);
+
+  xcb_client_message_event_t ev = {0};
+  ev.format = 32;
+  ev.window = hot->xid;
+  ev.type = atoms._NET_WM_MOVERESIZE;
+  ev.data.data32[0] = (uint32_t)-1;
+  ev.data.data32[1] = (uint32_t)-1;
+  ev.data.data32[2] = 10;  // NET_WM_MOVERESIZE_MOVE_KEYBOARD
+  ev.data.data32[3] = 0;
+  ev.data.data32[4] = 1;
+
+  wm_handle_client_message(&s, &ev);
+
+  assert(g_cookie_push_query_pointer_calls == 0);
+  assert(!cookie_jar_has_pending(&s.cookie_jar));
+  assert(s.interaction_mode == INTERACTION_NONE);
+
+  printf("test_moveresize_keyboard_zero_query_sequence_skips_enqueue passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_click_to_focus();
   test_click_ignores_dock_and_desktop();
   test_move_interaction();
+  test_move_interaction_aborts_when_grab_enqueue_fails();
   test_resize_interaction();
   test_resize_corner_top_left();
   test_cancel_interaction_resets_cursor();
@@ -432,5 +527,6 @@ int main(void) {
   test_keybinding_clean_mods();
   test_keybinding_conflict_deterministic();
   test_key_grabs_from_config();
+  test_moveresize_keyboard_zero_query_sequence_skips_enqueue();
   return 0;
 }

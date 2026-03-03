@@ -200,6 +200,10 @@ int g_restart_pending = 0;
   do {                \
     (void)0;          \
   } while (0)
+#define LOG_ERROR(...) \
+  do {                 \
+    (void)0;           \
+  } while (0)
 
 // -----------------------------
 // Stubs/spies for external WM functions called by module
@@ -244,6 +248,11 @@ static char spy_spawn_last_cmd[256];
 
 static int spy_exit_calls;
 static int spy_exit_last_code;
+static int spy_cookie_jar_push_calls;
+static uint32_t spy_cookie_jar_push_last_seq;
+static bool spy_cookie_jar_push_should_fail;
+static int spy_wm_start_interaction_calls;
+static uint32_t g_query_pointer_sequence = 1;
 
 // spies reset
 static void reset_spies(void) {
@@ -286,6 +295,11 @@ static void reset_spies(void) {
 
   spy_exit_calls = 0;
   spy_exit_last_code = 0;
+  spy_cookie_jar_push_calls = 0;
+  spy_cookie_jar_push_last_seq = 0;
+  spy_cookie_jar_push_should_fail = false;
+  spy_wm_start_interaction_calls = 0;
+  g_query_pointer_sequence = 1;
 
   g_restart_pending = 0;
 }
@@ -405,18 +419,20 @@ typedef struct {
 xcb_query_pointer_cookie_t xcb_query_pointer(void* conn, uint32_t root) {
   (void)conn;
   (void)root;
-  xcb_query_pointer_cookie_t ck = {.sequence = 1};
+  xcb_query_pointer_cookie_t ck = {.sequence = g_query_pointer_sequence};
   return ck;
 }
 
-void cookie_jar_push(cookie_jar_t* jar, uint32_t seq, int kind, handle_t h, uint32_t flags, uint64_t txn_id, void* cb) {
+bool cookie_jar_push(cookie_jar_t* jar, uint32_t seq, int kind, handle_t h, uint32_t flags, uint64_t txn_id, void* cb) {
   (void)jar;
-  (void)seq;
+  spy_cookie_jar_push_calls++;
+  spy_cookie_jar_push_last_seq = seq;
   (void)kind;
   (void)h;
   (void)flags;
   (void)txn_id;
   (void)cb;
+  return !spy_cookie_jar_push_should_fail;
 }
 
 void* wm_handle_reply = NULL;
@@ -434,6 +450,7 @@ void xcb_warp_pointer(void* conn, uint32_t src, uint32_t dst, int16_t src_x, int
 }
 
 void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir, int16_t root_x, int16_t root_y, uint32_t time, bool is_keyboard) {
+  spy_wm_start_interaction_calls++;
   (void)s;
   (void)h;
   (void)hot;
@@ -839,6 +856,29 @@ static void test_key_press_action_toggle_sticky(void) {
   assert(spy_toggle_sticky_last == 0x123);
 }
 
+static void test_key_press_action_move_zero_query_sequence_skips_cookie_enqueue(void) {
+  reset_spies();
+
+  key_binding_t bind = {.keysym = 0x6A6A, .modifiers = 0, .action = ACTION_MOVE, .exec_cmd = NULL};
+  key_binding_t* binds[] = {&bind};
+
+  client_hot_t focused = make_client(0xDEAD, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL);
+  client_hot_t* registry[] = {&focused, NULL};
+
+  server_t s = make_server(binds, 1, registry);
+  s.focused_client = focused.self;
+
+  g_query_pointer_sequence = 0;
+
+  xcb_key_press_event_t ev = {.detail = 19, .state = 0};
+  g_fake_keysym = 0x6A6A;
+
+  wm_handle_key_press(&s, &ev);
+
+  assert(spy_cookie_jar_push_calls == 0);
+  assert(spy_wm_start_interaction_calls == 0);
+}
+
 static void test_key_press_action_exec_and_terminal_spawn(void) {
   reset_spies();
 
@@ -900,6 +940,7 @@ int main(void) {
   test_key_press_action_workspace_uses_safe_atoi();
   test_key_press_action_move_to_workspace_follow();
   test_key_press_action_toggle_sticky();
+  test_key_press_action_move_zero_query_sequence_skips_cookie_enqueue();
   test_key_press_action_exec_and_terminal_spawn();
   test_key_press_action_exit_intercepted();
 

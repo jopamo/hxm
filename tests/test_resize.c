@@ -5,6 +5,7 @@
 #include <xcb/xcb_icccm.h>
 
 #include "client.h"
+#include "cookie_jar.h"
 #include "ds.h"
 #include "event.h"
 #include "handle_conv.h"
@@ -36,6 +37,7 @@ void test_resize_logic(void) {
     fprintf(stderr, "Failed to init slotmap\n");
     exit(1);
   }
+  cookie_jar_init(&s.cookie_jar);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
@@ -218,6 +220,7 @@ void test_resize_logic(void) {
     }
   }
   hash_map_destroy(&s.frame_to_client);
+  cookie_jar_destroy(&s.cookie_jar);
   slotmap_destroy(&s.clients);
   free(s.conn);
 }

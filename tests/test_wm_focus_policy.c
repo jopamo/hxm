@@ -306,6 +306,7 @@ void test_move_interaction(void) {
     small_vec_init(&s.layers[i]);
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
@@ -368,6 +369,7 @@ void test_move_interaction(void) {
     }
   }
   slotmap_destroy(&s.clients);
+  cookie_jar_destroy(&s.cookie_jar);
   hash_map_destroy(&s.window_to_client);
   hash_map_destroy(&s.frame_to_client);
   free(s.conn);

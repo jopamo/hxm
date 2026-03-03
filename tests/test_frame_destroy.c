@@ -5,6 +5,7 @@
 #include <xcb/xcb.h>
 
 #include "client.h"
+#include "cookie_jar.h"
 #include "ds.h"
 #include "event.h"
 #include "handle_conv.h"
@@ -67,6 +68,7 @@ static void server_init_for_test(server_t* s) {
     fprintf(stderr, "Failed to init slotmap\n");
     exit(1);
   }
+  cookie_jar_init(&s->cookie_jar);
 
   // Init lookups
   hash_map_init(&s->frame_to_client);
@@ -87,6 +89,7 @@ static void server_destroy_for_test(server_t* s) {
   }
   hash_map_destroy(&s->frame_to_client);
   hash_map_destroy(&s->window_to_client);
+  cookie_jar_destroy(&s->cookie_jar);
   slotmap_destroy(&s->clients);
   free(s->conn);
 }

@@ -31,6 +31,7 @@
 // XID generator
 static uint32_t stub_xid_counter = 100;
 static uint32_t stub_cookie_seq = 1;
+static uint32_t stub_query_pointer_sequence = UINT32_MAX;
 
 static int stub_xcb_fd = -1;
 
@@ -179,6 +180,7 @@ void xcb_stubs_reset(void) {
 
   stub_xid_counter = 100;
   stub_cookie_seq = 1;
+  stub_query_pointer_sequence = UINT32_MAX;
 
   memset(&stub_ext_reply, 0, sizeof(stub_ext_reply));
   stub_ext_reply.present = 1;
@@ -694,6 +696,37 @@ void xcb_stubs_set_query_tree_children(const xcb_window_t* children, int len) {
   stub_query_tree_children_len = len;
 }
 
+void xcb_stubs_set_query_pointer_sequence(uint32_t sequence) {
+  stub_query_pointer_sequence = sequence;
+}
+
+xcb_query_pointer_cookie_t xcb_query_pointer(xcb_connection_t* c, xcb_window_t window) {
+  (void)c;
+  (void)window;
+  xcb_query_pointer_cookie_t cookie;
+  if (stub_query_pointer_sequence != UINT32_MAX) {
+    cookie.sequence = stub_query_pointer_sequence;
+    stub_query_pointer_sequence = UINT32_MAX;
+  }
+  else {
+    cookie.sequence = stub_cookie_seq++;
+  }
+  return cookie;
+}
+
+xcb_query_pointer_reply_t* xcb_query_pointer_reply(xcb_connection_t* c, xcb_query_pointer_cookie_t cookie, xcb_generic_error_t** e) {
+  (void)c;
+  (void)cookie;
+  if (e)
+    *e = NULL;
+  xcb_query_pointer_reply_t* r = calloc(1, sizeof(*r));
+  if (!r)
+    return NULL;
+  r->same_screen = 1;
+  r->root = 1;
+  return r;
+}
+
 bool xcb_stubs_attr_request_window(uint32_t seq, xcb_window_t* out_window) {
   for (int i = 0; i < stub_attr_requests_len; i++) {
     if (stub_attr_requests[i].seq == seq) {
@@ -770,7 +803,7 @@ xcb_grab_pointer_cookie_t xcb_grab_pointer(xcb_connection_t* c,
   stub_grab_pointer_count++;
   stub_last_grab_pointer_cursor = cursor;
   (void)time;
-  return (xcb_grab_pointer_cookie_t){0};
+  return (xcb_grab_pointer_cookie_t){stub_cookie_seq++};
 }
 
 xcb_grab_pointer_reply_t* xcb_grab_pointer_reply(xcb_connection_t* c, xcb_grab_pointer_cookie_t cookie, xcb_generic_error_t** e) {

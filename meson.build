@@ -560,6 +560,9 @@ test_input_interaction = executable('test_input_interaction',
   ['tests/test_input_interaction.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
   dependencies: deps,
+  link_args: [
+    '-Wl,--wrap=cookie_jar_push',
+  ],
 )
 test('input_interaction', test_input_interaction)
 

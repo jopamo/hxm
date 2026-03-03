@@ -1209,8 +1209,16 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
   xcb_grab_pointer_cookie_t cookie = xcb_grab_pointer(s->conn, 0, s->root, XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_BUTTON_MOTION | XCB_EVENT_MASK_POINTER_MOTION, XCB_GRAB_MODE_ASYNC,
                                                       XCB_GRAB_MODE_ASYNC, XCB_NONE, cursor, time ? time : XCB_CURRENT_TIME);
 
-  if (cookie.sequence != 0 && s->cookie_jar.slots) {
-    cookie_jar_push(&s->cookie_jar, cookie.sequence, COOKIE_GRAB_POINTER, HANDLE_INVALID, (uintptr_t)hot->frame, s->txn_id, wm_handle_grab_pointer_reply);
+  if (cookie.sequence == 0) {
+    LOG_ERROR("grab_pointer request returned zero sequence; aborting interaction start");
+    wm_cancel_interaction(s);
+    return;
+  }
+
+  if (!cookie_jar_push(&s->cookie_jar, cookie.sequence, COOKIE_GRAB_POINTER, HANDLE_INVALID, (uintptr_t)hot->frame, s->txn_id, wm_handle_grab_pointer_reply)) {
+    LOG_ERROR("grab_pointer enqueue failed; aborting interaction start");
+    wm_cancel_interaction(s);
+    return;
   }
 
   LOG_INFO("Started interactive %s for client %lx (dir=%d)", start_move ? "MOVE" : "RESIZE", h, resize_dir);
@@ -2212,7 +2220,14 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     if (use_pointer_query) {
       uintptr_t data = (start_move ? 0x100 : 0) | (is_keyboard ? 0x200 : 0) | (uintptr_t)resize_dir;
       xcb_query_pointer_cookie_t ck = xcb_query_pointer(s->conn, s->root);
-      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, s->txn_id, wm_handle_reply);
+      if (ck.sequence == 0) {
+        LOG_ERROR("_NET_WM_MOVERESIZE query_pointer returned zero sequence; aborting interaction start");
+        return;
+      }
+      if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, s->txn_id, wm_handle_reply)) {
+        LOG_ERROR("_NET_WM_MOVERESIZE query_pointer enqueue failed; aborting interaction start");
+        return;
+      }
     }
     else {
       wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y, 0, is_keyboard);
