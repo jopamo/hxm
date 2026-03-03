@@ -1015,6 +1015,60 @@ static void test_state_below_sticky_skip_applies(void) {
   cleanup_server(&s);
 }
 
+static void test_manage_phase_ignores_startup_maximize_state(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  atoms._NET_WM_STATE = 915;
+  atoms._NET_WM_STATE_MAXIMIZED_HORZ = 916;
+  atoms._NET_WM_STATE_MAXIMIZED_VERT = 917;
+
+  handle_t h = add_mapped_client(&s, 6011, 6111);
+  client_hot_t* hot = server_chot(&s, h);
+  assert(hot != NULL);
+
+  hot->state = STATE_NEW;
+  hot->manage_phase = MANAGE_PHASE1;
+  hot->server = (rect_t){100, 80, 640, 360};
+  hot->desired = hot->server;
+
+  cookie_slot_t slot = {0};
+  slot.client = h;
+  slot.type = COOKIE_GET_PROPERTY;
+  slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_STATE;
+
+  struct {
+    xcb_get_property_reply_t r;
+    xcb_atom_t states[2];
+  } reply;
+  memset(&reply, 0, sizeof(reply));
+  reply.r.format = 32;
+  reply.r.value_len = 2;
+  reply.r.type = XCB_ATOM_ATOM;
+  reply.states[0] = atoms._NET_WM_STATE_MAXIMIZED_HORZ;
+  reply.states[1] = atoms._NET_WM_STATE_MAXIMIZED_VERT;
+
+  wm_handle_reply(&s, &slot, &reply.r, NULL);
+  assert(hot->maximized_horz == false);
+  assert(hot->maximized_vert == false);
+  assert(hot->desired.x == 100);
+  assert(hot->desired.y == 80);
+  assert(hot->desired.w == 640);
+  assert(hot->desired.h == 360);
+
+  hot->state = STATE_MAPPED;
+  hot->manage_phase = MANAGE_DONE;
+  hot->desired = hot->server;
+
+  wm_handle_reply(&s, &slot, &reply.r, NULL);
+  assert(hot->maximized_horz == true);
+  assert(hot->maximized_vert == true);
+
+  printf("test_manage_phase_ignores_startup_maximize_state passed\n");
+  cleanup_server(&s);
+}
+
 static void test_hidden_state_not_toggled_by_off_desktop_visibility(void) {
   server_t s;
   setup_server(&s);
@@ -1237,6 +1291,7 @@ int main(void) {
   test_maximize_and_fullscreen_use_client_desktop_monitor_workarea();
   test_window_type_dock_layer();
   test_state_below_sticky_skip_applies();
+  test_manage_phase_ignores_startup_maximize_state();
   test_hidden_state_not_toggled_by_off_desktop_visibility();
   test_hidden_state_tracks_iconify_restore_and_wm_state();
   test_show_desktop_round_trip_clears_hidden_state();

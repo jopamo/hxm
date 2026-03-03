@@ -796,6 +796,15 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                 set.skip_pager = true;
               }
             }
+            /*
+             * Do not import startup maximize hints during initial manage.
+             * Some clients persist maximized state in the property and this
+             * causes every new window to start maximized.
+             */
+            if (hot->manage_phase != MANAGE_DONE) {
+              set.max_horz = false;
+              set.max_vert = false;
+            }
             wm_client_apply_state_set(s, slot->client, &set);
           }
         }
