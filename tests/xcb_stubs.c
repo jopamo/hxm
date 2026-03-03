@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <xcb/damage.h>
 #include <xcb/randr.h>
 #include <xcb/sync.h>
 #include <xcb/xcb.h>
@@ -1318,4 +1319,43 @@ xcb_randr_query_version_reply_t* xcb_randr_query_version_reply(xcb_connection_t*
   r->major_version = 1;
   r->minor_version = 5;
   return r;
+}
+
+xcb_damage_query_version_cookie_t xcb_damage_query_version(xcb_connection_t* c, uint32_t client_major_version, uint32_t client_minor_version) {
+  (void)c;
+  (void)client_major_version;
+  (void)client_minor_version;
+  return (xcb_damage_query_version_cookie_t){stub_cookie_seq++};
+}
+
+xcb_damage_query_version_reply_t* xcb_damage_query_version_reply(xcb_connection_t* c, xcb_damage_query_version_cookie_t cookie, xcb_generic_error_t** e) {
+  (void)c;
+  (void)cookie;
+  (void)e;
+  xcb_damage_query_version_reply_t* r = calloc(1, sizeof(*r));
+  r->major_version = 1;
+  r->minor_version = 1;
+  return r;
+}
+
+xcb_void_cookie_t xcb_damage_create(xcb_connection_t* c, xcb_damage_damage_t damage, xcb_drawable_t drawable, uint8_t level) {
+  (void)c;
+  (void)damage;
+  (void)drawable;
+  (void)level;
+  return (xcb_void_cookie_t){0};
+}
+
+xcb_void_cookie_t xcb_damage_destroy(xcb_connection_t* c, xcb_damage_damage_t damage) {
+  (void)c;
+  (void)damage;
+  return (xcb_void_cookie_t){0};
+}
+
+xcb_void_cookie_t xcb_damage_subtract(xcb_connection_t* c, xcb_damage_damage_t damage, xcb_xfixes_region_t repair, xcb_xfixes_region_t parts) {
+  (void)c;
+  (void)damage;
+  (void)repair;
+  (void)parts;
+  return (xcb_void_cookie_t){0};
 }

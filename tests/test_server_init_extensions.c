@@ -27,8 +27,16 @@ const xcb_query_extension_reply_t* __real_xcb_get_extension_data(xcb_connection_
 const xcb_query_extension_reply_t* __wrap_xcb_get_extension_data(xcb_connection_t* c, xcb_extension_t* ext) {
   // Call real stub first to init
   const xcb_query_extension_reply_t* r = __real_xcb_get_extension_data(c, ext);
-  // Cast away const to force present=1 for our tests
-  ((xcb_query_extension_reply_t*)r)->present = 1;
+  xcb_query_extension_reply_t* rw = (xcb_query_extension_reply_t*)r;
+  rw->present = 1;
+  if (ext == &xcb_damage_id) {
+    rw->first_event = 91;
+    rw->first_error = 13;
+  }
+  else if (ext == &xcb_randr_id) {
+    rw->first_event = 111;
+    rw->first_error = 0;
+  }
   return r;
 }
 
@@ -102,14 +110,6 @@ xcb_get_property_reply_t* __wrap_xcb_get_property_reply(xcb_connection_t* c, xcb
   return __real_xcb_get_property_reply(c, cookie, e);
 }
 
-// Stub for damage query version (needed because xcb_stubs.c doesn't have it)
-xcb_damage_query_version_cookie_t xcb_damage_query_version(xcb_connection_t* c, uint32_t major, uint32_t minor) {
-  (void)c;
-  (void)major;
-  (void)minor;
-  return (xcb_damage_query_version_cookie_t){0};
-}
-
 // We need a way to check results. server_t is modified in place.
 
 void reset_mocks(void) {
@@ -131,6 +131,31 @@ void damage_fail_test(void) {
 
   if (s.damage_supported) {
     fprintf(stderr, "FAILED: damage_supported is true\n");
+    exit(1);
+  }
+  if (s.damage_event_base != 0 || s.damage_error_base != 0) {
+    fprintf(stderr, "FAILED: damage bases not cleared (%u,%u)\n", s.damage_event_base, s.damage_error_base);
+    exit(1);
+  }
+  server_cleanup(&s);
+  printf("PASSED\n");
+}
+
+void damage_success_test(void) {
+  printf("Running damage_success_test... ");
+  reset_mocks();
+
+  server_t s;
+  memset(&s, 0, sizeof(s));
+  s.is_test = true;
+  server_init(&s);
+
+  if (!s.damage_supported) {
+    fprintf(stderr, "FAILED: damage_supported is false\n");
+    exit(1);
+  }
+  if (s.damage_event_base != 91 || s.damage_error_base != 13) {
+    fprintf(stderr, "FAILED: damage bases (%u,%u), expected (91,13)\n", s.damage_event_base, s.damage_error_base);
     exit(1);
   }
   server_cleanup(&s);
@@ -174,6 +199,7 @@ void restore_active_test(void) {
 }
 
 int main(void) {
+  damage_success_test();
   damage_fail_test();
   randr_fail_test();
   restore_active_test();

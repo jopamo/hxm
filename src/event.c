@@ -116,23 +116,25 @@ void server_init(server_t* s) {
   }
 
   s->damage_supported = false;
-  /*
   s->damage_event_base = 0;
   s->damage_error_base = 0;
-  const xcb_query_extension_reply_t* damage_ext =
-  xcb_get_extension_data(s->conn, &xcb_damage_id); if (damage_ext &&
-  damage_ext->present) { s->damage_supported = true; s->damage_event_base =
-  damage_ext->first_event; s->damage_error_base = damage_ext->first_error;
-
-      xcb_damage_query_version_cookie_t cookie =
-  xcb_damage_query_version(s->conn, 1, 1); xcb_damage_query_version_reply_t*
-  reply = xcb_damage_query_version_reply(s->conn, cookie, NULL); if (!reply) {
-          s->damage_supported = false;
-          LOG_WARN("XDamage present but version query failed; disabling damage
-  tracking"); } else { free(reply);
-      }
+  const xcb_query_extension_reply_t* damage_ext = xcb_get_extension_data(s->conn, &xcb_damage_id);
+  if (damage_ext && damage_ext->present) {
+    s->damage_supported = true;
+    s->damage_event_base = damage_ext->first_event;
+    s->damage_error_base = damage_ext->first_error;
+    xcb_damage_query_version_cookie_t dc = xcb_damage_query_version(s->conn, 1, 1);
+    xcb_damage_query_version_reply_t* dr = xcb_damage_query_version_reply(s->conn, dc, NULL);
+    if (!dr) {
+      s->damage_supported = false;
+      s->damage_event_base = 0;
+      s->damage_error_base = 0;
+      LOG_WARN("XDamage present but version query failed; disabling damage tracking");
+    }
+    else {
+      free(dr);
+    }
   }
-  */
 
   s->randr_supported = false;
   s->randr_event_base = 0;
