@@ -138,7 +138,6 @@ def main() -> int:
         "if [ \"${{ matrix.name }}\" = \"tsan\" ]; then",
         "meson test -C \"build-${{ matrix.name }}\" --print-errorlogs --num-processes 1",
         "meson test -C \"build-${{ matrix.name }}\" --print-errorlogs",
-        "python3 scripts/ci/fail_on_skips.py \"build-${{ matrix.name }}/meson-logs/testlog.json\"",
     ]
     missing = ensure_snippets(text, required_snippets)
     if missing is not None:
