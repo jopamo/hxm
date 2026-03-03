@@ -1,267 +1,107 @@
-// tests/test_wm_input_keys.c
 #include <assert.h>
 #include <setjmp.h>
+#include <signal.h>
+#include <stdarg.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-// -----------------------------
-// Minimal types + constants used by src/wm_input_keys.c
-// -----------------------------
+#include <X11/keysym.h>
+#include <xcb/xcb.h>
+#include <xcb/xcb_keysyms.h>
 
-typedef uint32_t handle_t;
+#include "client.h"
+#include "config.h"
+#include "cookie_jar.h"
+#include "event.h"
+#include "wm.h"
+#include "../src/wm_internal.h"
 
-#define HANDLE_INVALID 0
+volatile sig_atomic_t g_reload_pending = 0;
+volatile sig_atomic_t g_shutdown_pending = 0;
+volatile sig_atomic_t g_restart_pending = 0;
 
-// Modifier masks (match what the module expects to mask out)
-#define XCB_MOD_MASK_LOCK (1u << 1)
-#define XCB_MOD_MASK_2 (1u << 4)
-#define XCB_MOD_MASK_5 (1u << 7)
+void hxm_log(enum log_level level, const char* fmt, ...) {
+  (void)level;
+  (void)fmt;
 
-// XCB "current time" used in wm_start_interaction call
-#define XCB_CURRENT_TIME 0
-
-// XCB "none" / grab constants used in wm_setup_keys or resize path
-#define XCB_NONE 0
-#define XCB_GRAB_ANY 0
-#define XCB_MOD_MASK_ANY 0
-#define XCB_GRAB_MODE_ASYNC 0
-
-// Window types from your WM (subset used by is_focusable)
-typedef enum {
-  WINDOW_TYPE_NORMAL = 0,
-  WINDOW_TYPE_DOCK,
-  WINDOW_TYPE_NOTIFICATION,
-  WINDOW_TYPE_DESKTOP,
-  WINDOW_TYPE_MENU,
-  WINDOW_TYPE_DROPDOWN_MENU,
-  WINDOW_TYPE_POPUP_MENU,
-  WINDOW_TYPE_TOOLTIP,
-  WINDOW_TYPE_COMBO,
-  WINDOW_TYPE_DND
-} window_type_t;
-
-// Client mapping state
-typedef enum { STATE_UNMAPPED = 0, STATE_MAPPED = 1 } client_state_t;
-
-// Actions from config
-typedef enum {
-  ACTION_NONE = 0,
-  ACTION_CLOSE,
-  ACTION_FOCUS_NEXT,
-  ACTION_FOCUS_PREV,
-  ACTION_TERMINAL,
-  ACTION_EXEC,
-  ACTION_RESTART,
-  ACTION_EXIT,
-  ACTION_WORKSPACE,
-  ACTION_WORKSPACE_PREV,
-  ACTION_WORKSPACE_NEXT,
-  ACTION_MOVE_TO_WORKSPACE,
-  ACTION_MOVE_TO_WORKSPACE_FOLLOW,
-  ACTION_TOGGLE_STICKY,
-  ACTION_MOVE,
-  ACTION_RESIZE
-} action_t;
-
-// Resize flags used by RESIZE path (values don't matter for logic tests)
-#define RESIZE_BOTTOM (1u << 1)
-#define RESIZE_RIGHT (1u << 2)
-
-// Simple intrusive list node, sentinel-based
-typedef struct list_node {
-  struct list_node* prev;
-  struct list_node* next;
-} list_node_t;
-
-static inline void list_init(list_node_t* head) {
-  head->prev = head;
-  head->next = head;
+  va_list args;
+  va_start(args, fmt);
+  va_end(args);
 }
 
-static inline bool list_empty(list_node_t* head) {
-  return head->next == head;
-}
+static jmp_buf g_exit_jmp_buf;
 
-static inline void list_push_back(list_node_t* head, list_node_t* node) {
-  node->prev = head->prev;
-  node->next = head;
-  head->prev->next = node;
-  head->prev = node;
-}
-
-// Key binding structure used by module
-typedef struct key_binding {
-  uint32_t keysym;
-  uint32_t modifiers;
-  int action;
-  const char* exec_cmd;
-} key_binding_t;
-
-typedef struct {
-  size_t length;
-  key_binding_t** items;
-} key_bindings_vec_t;
-
-typedef struct {
-  key_bindings_vec_t key_bindings;
-} config_t;
-
-typedef struct {
-  size_t length;
-} small_vec_t;
-
-// Minimal xcb structs used by wm_handle_key_press
-typedef uint32_t xcb_keysym_t;
-typedef uint8_t xcb_keycode_t;
-
-typedef struct {
-  uint8_t detail;
-  uint16_t state;
-} xcb_key_press_event_t;
-
-typedef struct {
-  uint8_t detail;
-  uint16_t state;
-} xcb_key_release_event_t;
-
-// "Menu" state referenced by wm_handle_key_press
-typedef struct {
-  bool visible;
-  bool is_switcher;
-  handle_t selected_client;
-  int32_t selected_index;
-} menu_state_t;
-
-// Client geometry subset used by RESIZE warp math
-typedef struct {
-  int16_t x, y;
-  int16_t w, h;
-} geom_t;
-
-// client_hot_t contains focus_node and fields touched by is_focusable + resize
-// path
-typedef struct client_hot {
-  list_node_t focus_node;
-
-  client_state_t state;
-  int32_t desktop;
-  bool sticky;
-  window_type_t type;
-  handle_t self;
-  bool show_desktop_hidden;
-
-  geom_t server;
-} client_hot_t;
-
-// Cookie jar / reply plumbing is referenced only in MOVE branch
-// For these unit tests, we avoid ACTION_MOVE and ACTION_RESIZE,
-// but the file references these types anyway
-typedef struct {
-  int dummy;
-} cookie_jar_t;
-
-#define COOKIE_QUERY_POINTER 0
-
-// server_t contains what this module touches
-typedef struct server {
-  void* conn;
-  uint32_t root;
-  void* keysyms;
-
-  config_t config;
-
-  list_node_t focus_history;
-  handle_t focused_client;
-  handle_t switcher_origin;
-  bool switcher_active;
-  uint32_t current_desktop;
-  bool showing_desktop;
-
-  small_vec_t active_clients;
-
-  cookie_jar_t cookie_jar;
-  uint64_t txn_id;
-
-  menu_state_t menu;
-} server_t;
-
-// Global referenced by ACTION_RESTART
-int g_restart_pending = 0;
-
-// Logging macros used in module
-#define LOG_DEBUG(...) \
-  do {                 \
-    (void)0;           \
-  } while (0)
-#define LOG_INFO(...) \
-  do {                \
-    (void)0;          \
-  } while (0)
-#define LOG_ERROR(...) \
-  do {                 \
-    (void)0;           \
-  } while (0)
-
-// -----------------------------
-// Stubs/spies for external WM functions called by module
-// -----------------------------
-
-static int spy_menu_hide_calls;
-static int spy_menu_handle_key_press_calls;
-static int spy_menu_show_switcher_calls;
-static handle_t spy_menu_show_switcher_last_origin;
-static int spy_menu_switcher_step_calls;
-static int spy_menu_switcher_step_last_dir;
-static int spy_client_close_calls;
-static handle_t spy_client_close_last;
-
-static int spy_wm_set_focus_calls;
-static handle_t spy_wm_set_focus_last;
-
-static int spy_stack_raise_calls;
-static handle_t spy_stack_raise_last;
-
-static int spy_cycle_focus_calls;
-static bool spy_cycle_focus_last_forward;
-
-static int spy_switch_workspace_calls;
-static uint32_t spy_switch_workspace_last;
-
-static int spy_switch_ws_rel_calls;
-static int spy_switch_ws_rel_last_delta;
-
-static int spy_move_to_ws_calls;
-static handle_t spy_move_to_ws_last_client;
-static uint32_t spy_move_to_ws_last_ws;
-static bool spy_move_to_ws_last_follow;
-static int spy_wm_client_restore_calls;
-static handle_t spy_wm_client_restore_last;
-
-static int spy_toggle_sticky_calls;
-static handle_t spy_toggle_sticky_last;
-
-static int spy_spawn_calls;
-static char spy_spawn_last_cmd[256];
-
-static int spy_exit_calls;
-static int spy_exit_last_code;
-static int spy_cookie_jar_push_calls;
-static uint32_t spy_cookie_jar_push_last_seq;
-static bool spy_cookie_jar_push_should_fail;
-static int spy_wm_start_interaction_calls;
+static xcb_keysym_t g_fake_keysym = 0;
 static uint32_t g_query_pointer_sequence = 1;
+static bool g_cookie_jar_push_should_fail = false;
+static bool g_client_can_move = true;
+static bool g_client_can_resize = true;
+static handle_t g_menu_selected_client = HANDLE_INVALID;
 
-// spies reset
+static int spy_menu_hide_calls = 0;
+static int spy_menu_handle_key_press_calls = 0;
+static int spy_menu_show_switcher_calls = 0;
+static handle_t spy_menu_show_switcher_last_origin = HANDLE_INVALID;
+static int spy_menu_switcher_step_calls = 0;
+static int spy_menu_switcher_step_last_dir = 0;
+
+static int spy_client_close_calls = 0;
+static handle_t spy_client_close_last = HANDLE_INVALID;
+
+static int spy_wm_set_focus_calls = 0;
+static handle_t spy_wm_set_focus_last = HANDLE_INVALID;
+
+static int spy_stack_raise_calls = 0;
+static handle_t spy_stack_raise_last = HANDLE_INVALID;
+
+static int spy_switch_workspace_calls = 0;
+static uint32_t spy_switch_workspace_last = 0;
+
+static int spy_switch_workspace_relative_calls = 0;
+static int spy_switch_workspace_relative_last_delta = 0;
+
+static int spy_move_to_workspace_calls = 0;
+static handle_t spy_move_to_workspace_last_client = HANDLE_INVALID;
+static uint32_t spy_move_to_workspace_last_workspace = 0;
+static bool spy_move_to_workspace_last_follow = false;
+
+static int spy_wm_client_restore_calls = 0;
+static handle_t spy_wm_client_restore_last = HANDLE_INVALID;
+
+static int spy_toggle_sticky_calls = 0;
+static handle_t spy_toggle_sticky_last = HANDLE_INVALID;
+
+static int spy_cookie_jar_push_calls = 0;
+static uint32_t spy_cookie_jar_push_last_sequence = 0;
+static cookie_type_t spy_cookie_jar_push_last_type = COOKIE_NONE;
+static handle_t spy_cookie_jar_push_last_client = HANDLE_INVALID;
+
+static int spy_wm_start_interaction_calls = 0;
+static bool spy_wm_start_interaction_last_start_move = false;
+static bool spy_wm_start_interaction_last_is_keyboard = false;
+
+static int spy_warp_pointer_calls = 0;
+
+static int spy_exit_calls = 0;
+static int spy_exit_last_code = 0;
+
 static void reset_spies(void) {
+  g_fake_keysym = 0;
+  g_query_pointer_sequence = 1;
+  g_cookie_jar_push_should_fail = false;
+  g_client_can_move = true;
+  g_client_can_resize = true;
+  g_menu_selected_client = HANDLE_INVALID;
+
   spy_menu_hide_calls = 0;
   spy_menu_handle_key_press_calls = 0;
   spy_menu_show_switcher_calls = 0;
   spy_menu_show_switcher_last_origin = HANDLE_INVALID;
   spy_menu_switcher_step_calls = 0;
   spy_menu_switcher_step_last_dir = 0;
+
   spy_client_close_calls = 0;
   spy_client_close_last = HANDLE_INVALID;
 
@@ -271,313 +111,292 @@ static void reset_spies(void) {
   spy_stack_raise_calls = 0;
   spy_stack_raise_last = HANDLE_INVALID;
 
-  spy_cycle_focus_calls = 0;
-  spy_cycle_focus_last_forward = false;
-
   spy_switch_workspace_calls = 0;
   spy_switch_workspace_last = 0;
 
-  spy_switch_ws_rel_calls = 0;
-  spy_switch_ws_rel_last_delta = 0;
+  spy_switch_workspace_relative_calls = 0;
+  spy_switch_workspace_relative_last_delta = 0;
 
-  spy_move_to_ws_calls = 0;
-  spy_move_to_ws_last_client = HANDLE_INVALID;
-  spy_move_to_ws_last_ws = 0;
-  spy_move_to_ws_last_follow = false;
+  spy_move_to_workspace_calls = 0;
+  spy_move_to_workspace_last_client = HANDLE_INVALID;
+  spy_move_to_workspace_last_workspace = 0;
+  spy_move_to_workspace_last_follow = false;
+
   spy_wm_client_restore_calls = 0;
   spy_wm_client_restore_last = HANDLE_INVALID;
 
   spy_toggle_sticky_calls = 0;
   spy_toggle_sticky_last = HANDLE_INVALID;
 
-  spy_spawn_calls = 0;
-  spy_spawn_last_cmd[0] = 0;
+  spy_cookie_jar_push_calls = 0;
+  spy_cookie_jar_push_last_sequence = 0;
+  spy_cookie_jar_push_last_type = COOKIE_NONE;
+  spy_cookie_jar_push_last_client = HANDLE_INVALID;
+
+  spy_wm_start_interaction_calls = 0;
+  spy_wm_start_interaction_last_start_move = false;
+  spy_wm_start_interaction_last_is_keyboard = false;
+
+  spy_warp_pointer_calls = 0;
 
   spy_exit_calls = 0;
   spy_exit_last_code = 0;
-  spy_cookie_jar_push_calls = 0;
-  spy_cookie_jar_push_last_seq = 0;
-  spy_cookie_jar_push_should_fail = false;
-  spy_wm_start_interaction_calls = 0;
-  g_query_pointer_sequence = 1;
 
   g_restart_pending = 0;
 }
 
-// externs used by module
-void menu_hide(server_t* s) {
-  (void)s;
-  spy_menu_hide_calls++;
+static void setup_server(server_t* s) {
+  memset(s, 0, sizeof(*s));
+
+  s->keysyms = (xcb_key_symbols_t*)0x1;
+  s->root = 1;
+  s->current_desktop = 0;
+  s->menu.selected_index = -1;
+
+  list_init(&s->focus_history);
+
+  bool ok = slotmap_init(&s->clients, 16u, sizeof(client_hot_t), sizeof(client_cold_t));
+  assert(ok);
+
+  s->active_clients.length = 0;
+  s->active_clients.items = NULL;
 }
 
-void menu_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
+static void teardown_server(server_t* s) {
+  slotmap_destroy(&s->clients);
+}
+
+static client_hot_t* add_client(server_t* s, int32_t desktop, bool sticky, client_state_t state, window_type_t type, handle_t* out_handle) {
+  void* hot_ptr = NULL;
+  handle_t h = slotmap_alloc(&s->clients, &hot_ptr, NULL);
+  assert(h != HANDLE_INVALID);
+
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
+  memset(hot, 0, sizeof(*hot));
+
+  hot->self = h;
+  hot->desktop = desktop;
+  hot->sticky = sticky;
+  hot->state = (uint8_t)state;
+  hot->type = (uint8_t)type;
+
+  hot->server.x = 10;
+  hot->server.y = 10;
+  hot->server.w = 100;
+  hot->server.h = 50;
+
+  list_init(&hot->focus_node);
+
+  s->active_clients.length++;
+
+  if (out_handle)
+    *out_handle = h;
+
+  return hot;
+}
+
+static void set_bindings(server_t* s, key_binding_t** bindings, size_t nbindings) {
+  s->config.key_bindings.items = (void**)bindings;
+  s->config.key_bindings.length = nbindings;
+}
+
+void __wrap_menu_hide(server_t* s) {
+  spy_menu_hide_calls++;
+  if (!s)
+    return;
+  s->menu.visible = false;
+  s->menu.is_switcher = false;
+  s->menu.selected_index = -1;
+}
+
+void __wrap_menu_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
   (void)s;
   (void)ev;
   spy_menu_handle_key_press_calls++;
 }
 
-void menu_show_switcher(server_t* s, handle_t origin) {
+void __wrap_menu_show_switcher(server_t* s, handle_t origin) {
   spy_menu_show_switcher_calls++;
   spy_menu_show_switcher_last_origin = origin;
-  if (s) {
-    s->menu.visible = true;
-    s->menu.is_switcher = true;
-    s->menu.selected_client = origin;
-    s->menu.selected_index = 0;
-  }
+  g_menu_selected_client = origin;
+
+  if (!s)
+    return;
+
+  s->menu.visible = true;
+  s->menu.is_switcher = true;
+  s->menu.selected_index = 0;
 }
 
-bool menu_switcher_step(server_t* s, int dir) {
+bool __wrap_menu_switcher_step(server_t* s, int dir) {
   (void)s;
   spy_menu_switcher_step_calls++;
   spy_menu_switcher_step_last_dir = dir;
   return true;
 }
 
-handle_t menu_switcher_selected_client(const server_t* s) {
-  if (!s)
-    return HANDLE_INVALID;
-  return s->menu.selected_client;
+handle_t __wrap_menu_switcher_selected_client(const server_t* s) {
+  (void)s;
+  return g_menu_selected_client;
 }
 
-void client_close(server_t* s, handle_t h) {
+void __wrap_client_close(server_t* s, handle_t h) {
   (void)s;
   spy_client_close_calls++;
   spy_client_close_last = h;
 }
 
-void wm_set_focus(server_t* s, handle_t h) {
+void __wrap_wm_set_focus(server_t* s, handle_t h) {
   (void)s;
   spy_wm_set_focus_calls++;
   spy_wm_set_focus_last = h;
 }
 
-void stack_raise(server_t* s, handle_t h) {
+void __wrap_stack_raise(server_t* s, handle_t h) {
   (void)s;
   spy_stack_raise_calls++;
   spy_stack_raise_last = h;
 }
 
-void wm_switch_workspace(server_t* s, uint32_t ws) {
+void __wrap_wm_switch_workspace(server_t* s, uint32_t ws) {
   (void)s;
   spy_switch_workspace_calls++;
   spy_switch_workspace_last = ws;
 }
 
-void wm_switch_workspace_relative(server_t* s, int delta) {
+void __wrap_wm_switch_workspace_relative(server_t* s, int delta) {
   (void)s;
-  spy_switch_ws_rel_calls++;
-  spy_switch_ws_rel_last_delta = delta;
+  spy_switch_workspace_relative_calls++;
+  spy_switch_workspace_relative_last_delta = delta;
 }
 
-void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t ws, bool follow) {
+void __wrap_wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t ws, bool follow) {
   (void)s;
-  spy_move_to_ws_calls++;
-  spy_move_to_ws_last_client = h;
-  spy_move_to_ws_last_ws = ws;
-  spy_move_to_ws_last_follow = follow;
+  spy_move_to_workspace_calls++;
+  spy_move_to_workspace_last_client = h;
+  spy_move_to_workspace_last_workspace = ws;
+  spy_move_to_workspace_last_follow = follow;
 }
 
-void wm_client_restore(server_t* s, handle_t h) {
+void __wrap_wm_client_restore(server_t* s, handle_t h) {
   (void)s;
   spy_wm_client_restore_calls++;
   spy_wm_client_restore_last = h;
 }
 
-void wm_client_toggle_sticky(server_t* s, handle_t h) {
+void __wrap_wm_client_toggle_sticky(server_t* s, handle_t h) {
   (void)s;
   spy_toggle_sticky_calls++;
   spy_toggle_sticky_last = h;
 }
 
-client_hot_t* server_chot(server_t* s, handle_t h) {
-  // Very small lookup for tests: we stash pointers in (void*)conn for
-  // convenience conn points to a NULL-terminated array of client_hot_t*
-  client_hot_t** arr = (client_hot_t**)s->conn;
-  if (!arr)
-    return NULL;
-  for (size_t i = 0; arr[i]; i++) {
-    if (arr[i]->self == h)
-      return arr[i];
-  }
-  return NULL;
+bool __wrap_client_can_move(const client_hot_t* hot) {
+  (void)hot;
+  return g_client_can_move;
 }
 
-// These are referenced by MOVE/RESIZE branches; tests avoid those actions
-bool client_can_move(client_hot_t* hot) {
+bool __wrap_client_can_resize(const client_hot_t* hot) {
   (void)hot;
-  return true;
-}
-bool client_can_resize(client_hot_t* hot) {
-  (void)hot;
-  return true;
+  return g_client_can_resize;
 }
 
-typedef struct {
-  uint32_t sequence;
-} xcb_query_pointer_cookie_t;
-xcb_query_pointer_cookie_t xcb_query_pointer(void* conn, uint32_t root) {
-  (void)conn;
-  (void)root;
-  xcb_query_pointer_cookie_t ck = {.sequence = g_query_pointer_sequence};
+xcb_query_pointer_cookie_t __wrap_xcb_query_pointer(xcb_connection_t* c, xcb_window_t window) {
+  (void)c;
+  (void)window;
+
+  xcb_query_pointer_cookie_t ck;
+  ck.sequence = g_query_pointer_sequence;
   return ck;
 }
 
-bool cookie_jar_push(cookie_jar_t* jar, uint32_t seq, int kind, handle_t h, uint32_t flags, uint64_t txn_id, void* cb) {
-  (void)jar;
-  spy_cookie_jar_push_calls++;
-  spy_cookie_jar_push_last_seq = seq;
-  (void)kind;
-  (void)h;
-  (void)flags;
+bool __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
+  (void)cj;
+  (void)data;
   (void)txn_id;
-  (void)cb;
-  return !spy_cookie_jar_push_should_fail;
+  (void)handler;
+
+  spy_cookie_jar_push_calls++;
+  spy_cookie_jar_push_last_sequence = sequence;
+  spy_cookie_jar_push_last_type = type;
+  spy_cookie_jar_push_last_client = client;
+
+  return !g_cookie_jar_push_should_fail;
 }
 
-void* wm_handle_reply = NULL;
-
-void xcb_warp_pointer(void* conn, uint32_t src, uint32_t dst, int16_t src_x, int16_t src_y, uint16_t src_w, uint16_t src_h, int16_t dst_x, int16_t dst_y) {
-  (void)conn;
-  (void)src;
-  (void)dst;
+xcb_void_cookie_t __wrap_xcb_warp_pointer(xcb_connection_t* c,
+                                          xcb_window_t src_window,
+                                          xcb_window_t dst_window,
+                                          int16_t src_x,
+                                          int16_t src_y,
+                                          uint16_t src_width,
+                                          uint16_t src_height,
+                                          int16_t dst_x,
+                                          int16_t dst_y) {
+  (void)c;
+  (void)src_window;
+  (void)dst_window;
   (void)src_x;
   (void)src_y;
-  (void)src_w;
-  (void)src_h;
+  (void)src_width;
+  (void)src_height;
   (void)dst_x;
   (void)dst_y;
+
+  spy_warp_pointer_calls++;
+
+  xcb_void_cookie_t ck;
+  ck.sequence = 1;
+  return ck;
 }
 
-void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start_move, int resize_dir, int16_t root_x, int16_t root_y, uint32_t time, bool is_keyboard) {
-  spy_wm_start_interaction_calls++;
+void __wrap_wm_start_interaction(server_t* s,
+                                 handle_t h,
+                                 client_hot_t* hot,
+                                 bool start_move,
+                                 int resize_dir,
+                                 int16_t root_x,
+                                 int16_t root_y,
+                                 uint32_t time,
+                                 bool is_keyboard) {
   (void)s;
   (void)h;
   (void)hot;
-  (void)start_move;
   (void)resize_dir;
   (void)root_x;
   (void)root_y;
   (void)time;
-  (void)is_keyboard;
+
+  spy_wm_start_interaction_calls++;
+  spy_wm_start_interaction_last_start_move = start_move;
+  spy_wm_start_interaction_last_is_keyboard = is_keyboard;
 }
 
-// -----------------------------
-// XCB keysyms stub
-// -----------------------------
-
-static xcb_keysym_t g_fake_keysym;
-
-xcb_keysym_t xcb_key_symbols_get_keysym(void* keysyms, xcb_keycode_t detail, int col) {
-  (void)keysyms;
-  (void)detail;
+xcb_keysym_t __wrap_xcb_key_symbols_get_keysym(xcb_key_symbols_t* syms, xcb_keycode_t keycode, int col) {
+  (void)syms;
+  (void)keycode;
   (void)col;
   return g_fake_keysym;
 }
 
-// X11 KeySym constants used by module logic
-// (Avoid pulling X11 headers into the test)
-#define XK_Escape 0xff1b
-#define XK_Alt_L 0xffe9
-#define XK_Alt_R 0xffea
-
-// -----------------------------
-// Override spawn() + exit() inside included module
-// -----------------------------
-
-static jmp_buf exit_jmp_buf;
-
-static void test_spawn(const char* cmd) {
-  spy_spawn_calls++;
-  if (!cmd) {
-    spy_spawn_last_cmd[0] = 0;
-    return;
-  }
-  snprintf(spy_spawn_last_cmd, sizeof(spy_spawn_last_cmd), "%s", cmd);
-}
-
-static void test_exit(int code) {
+__attribute__((noreturn)) void __wrap_exit(int code) {
   spy_exit_calls++;
   spy_exit_last_code = code;
-  longjmp(exit_jmp_buf, 1);
+  longjmp(g_exit_jmp_buf, 1);
 }
 
-// Make "static" helpers visible for direct unit testing
-#define static /* expose statics */
-
-// Redirect spawn/exit to spies
-#define spawn test_spawn
-#define exit test_exit
-
-// Include the module under test
-#include "../src/wm_input_keys.c"
-
-// Undo macros to avoid leaking to other includes
-#undef static
-#undef spawn
-#undef exit
-
-// -----------------------------
-// Helpers for building test servers/clients
-// -----------------------------
-
-static server_t make_server(key_binding_t** bindings, size_t nbindings, client_hot_t** clients) {
-  server_t s;
-  memset(&s, 0, sizeof(s));
-
-  s.keysyms = (void*)0x1;  // non-null to allow wm_handle_key_press
-  s.current_desktop = 0;
-  s.focused_client = HANDLE_INVALID;
-
-  // abuse conn as our client registry pointer for server_chot()
-  s.conn = clients;
-
-  // Count clients for active_clients.length
-  size_t count = 0;
-  if (clients) {
-    while (clients[count])
-      count++;
-  }
-  s.active_clients.length = count;
-
-  list_init(&s.focus_history);
-
-  s.config.key_bindings.length = nbindings;
-  s.config.key_bindings.items = bindings;
-
-  s.menu.visible = false;
-  s.menu.is_switcher = false;
-  s.menu.selected_client = HANDLE_INVALID;
-  s.menu.selected_index = -1;
-  return s;
+void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
+  (void)s;
+  (void)slot;
+  (void)reply;
+  (void)err;
 }
-
-static client_hot_t make_client(handle_t id, int32_t desktop, bool sticky, client_state_t st, window_type_t ty) {
-  client_hot_t c;
-  memset(&c, 0, sizeof(c));
-  c.self = id;
-  c.desktop = desktop;
-  c.sticky = sticky;
-  c.state = st;
-  c.type = ty;
-  list_init(&c.focus_node);
-  c.server.x = 10;
-  c.server.y = 10;
-  c.server.w = 100;
-  c.server.h = 50;
-  return c;
-}
-
-// -----------------------------
-// Tests
-// -----------------------------
 
 static void test_wm_clean_mods_masks_lock_num_scroll(void) {
   uint16_t in = 0;
   in |= XCB_MOD_MASK_LOCK;
   in |= XCB_MOD_MASK_2;
   in |= XCB_MOD_MASK_5;
-  in |= (1u << 0);  // some other mod bit
+  in |= (1u << 0);
 
   uint32_t out = wm_clean_mods(in);
   assert((out & XCB_MOD_MASK_LOCK) == 0);
@@ -586,207 +405,185 @@ static void test_wm_clean_mods_masks_lock_num_scroll(void) {
   assert((out & (1u << 0)) != 0);
 }
 
-static void test_safe_atoi_cases(void) {
-  assert(safe_atoi(NULL) == 0);
-  assert(safe_atoi("") == 0);
-  assert(safe_atoi("abc") == 0);
-  assert(safe_atoi("12") == 12);
-  assert(safe_atoi("12x") == 12);  // strtol stops at first non-digit
-  assert(safe_atoi("-3") == 0);    // clamped
-  assert(safe_atoi("-0") == 0);
-}
-
-static void test_is_focusable_rules(void) {
-  client_hot_t c = make_client(10, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL);
-  server_t s = make_server(NULL, 0, NULL);
-  s.current_desktop = 0;
-
-  // mapped, same desktop, normal -> true
-  assert(is_focusable(&c, &s) == true);
-
-  // unmapped -> false
-  c.state = STATE_UNMAPPED;
-  assert(is_focusable(&c, &s) == false);
-  c.state = STATE_MAPPED;
-
-  // other desktop, not sticky -> false
-  c.desktop = 1;
-  c.sticky = false;
-  assert(is_focusable(&c, &s) == false);
-
-  // other desktop but sticky -> true
-  c.sticky = true;
-  assert(is_focusable(&c, &s) == true);
-
-  // rejected types -> false
-  c.desktop = 0;
-  c.sticky = false;
-  c.type = WINDOW_TYPE_DOCK;
-  assert(is_focusable(&c, &s) == false);
-
-  c.type = WINDOW_TYPE_TOOLTIP;
-  assert(is_focusable(&c, &s) == false);
-
-  // show_desktop_hidden -> false if showing_desktop
-  c.type = WINDOW_TYPE_NORMAL;
-  c.show_desktop_hidden = true;
-  s.showing_desktop = true;
-  assert(is_focusable(&c, &s) == false);
-
-  s.showing_desktop = false;
-  assert(is_focusable(&c, &s) == true);
-}
-
 static void test_wm_cycle_focus_selects_next_focusable(void) {
   reset_spies();
 
-  client_hot_t a = make_client(100, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL);
-  client_hot_t b = make_client(200, 0, false, STATE_MAPPED,
-                               WINDOW_TYPE_DOCK);                                 // not focusable
-  client_hot_t c = make_client(300, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL);  // focusable
+  server_t s;
+  setup_server(&s);
 
-  // focus_history order: a, b, c
-  client_hot_t* registry[] = {&a, &b, &c, NULL};
-  server_t s = make_server(NULL, 0, registry);
-  list_init(&s.focus_history);
-  list_push_back(&s.focus_history, &a.focus_node);
-  list_push_back(&s.focus_history, &b.focus_node);
-  list_push_back(&s.focus_history, &c.focus_node);
+  handle_t a_handle = HANDLE_INVALID;
+  handle_t b_handle = HANDLE_INVALID;
+  handle_t c_handle = HANDLE_INVALID;
 
-  // start from a (focused)
-  s.focused_client = a.self;
+  client_hot_t* a = add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL, &a_handle);
+  client_hot_t* b = add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_DOCK, &b_handle);
+  client_hot_t* c = add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL, &c_handle);
+
+  list_push_back(&s.focus_history, &a->focus_node);
+  list_push_back(&s.focus_history, &b->focus_node);
+  list_push_back(&s.focus_history, &c->focus_node);
+
+  s.focused_client = a_handle;
 
   wm_cycle_focus(&s, true);
 
   assert(spy_wm_set_focus_calls == 1);
-  assert(spy_wm_set_focus_last == c.self);
+  assert(spy_wm_set_focus_last == c_handle);
   assert(spy_stack_raise_calls == 1);
-  assert(spy_stack_raise_last == c.self);
+  assert(spy_stack_raise_last == c_handle);
+
+  teardown_server(&s);
 }
 
 static void test_wm_cycle_focus_no_focusable_no_calls(void) {
   reset_spies();
 
-  client_hot_t a = make_client(100, 0, false, STATE_MAPPED, WINDOW_TYPE_DOCK);
-  client_hot_t b = make_client(200, 0, false, STATE_MAPPED, WINDOW_TYPE_TOOLTIP);
+  server_t s;
+  setup_server(&s);
 
-  client_hot_t* registry[] = {&a, &b, NULL};
-  server_t s = make_server(NULL, 0, registry);
-  list_init(&s.focus_history);
-  list_push_back(&s.focus_history, &a.focus_node);
-  list_push_back(&s.focus_history, &b.focus_node);
+  client_hot_t* a = add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_DOCK, NULL);
+  client_hot_t* b = add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_TOOLTIP, NULL);
 
-  s.focused_client = a.self;
+  list_push_back(&s.focus_history, &a->focus_node);
+  list_push_back(&s.focus_history, &b->focus_node);
+
+  s.focused_client = a->self;
 
   wm_cycle_focus(&s, true);
 
   assert(spy_wm_set_focus_calls == 0);
   assert(spy_stack_raise_calls == 0);
+
+  teardown_server(&s);
 }
 
 static void test_key_press_menu_delegates_to_menu(void) {
   reset_spies();
 
-  server_t s = make_server(NULL, 0, NULL);
+  server_t s;
+  setup_server(&s);
+
   s.menu.visible = true;
 
-  xcb_key_press_event_t ev;
-  ev.detail = 9;
-  ev.state = 0;
-
+  xcb_key_press_event_t ev = {.detail = 9, .state = 0};
   g_fake_keysym = XK_Escape;
 
   wm_handle_key_press(&s, &ev);
 
   assert(spy_menu_handle_key_press_calls == 1);
-  // Should NOT hide menu here (menu handle does it)
   assert(spy_menu_hide_calls == 0);
   assert(spy_client_close_calls == 0);
+
+  teardown_server(&s);
 }
 
 static void test_key_press_matches_binding_with_ignored_mods(void) {
   reset_spies();
 
-  // Binding expects mods without lock/num/scroll
-  key_binding_t bind = {.keysym = 0x1234,
-                        .modifiers = (1u << 0),  // some mod bit
-                        .action = ACTION_RESTART,
-                        .exec_cmd = NULL};
-  key_binding_t* binds[] = {&bind};
-  key_binding_t** binds_ptr = binds;
+  server_t s;
+  setup_server(&s);
 
-  server_t s = make_server(binds_ptr, 1, NULL);
+  key_binding_t bind = {
+    .keysym = 0x1234u,
+    .modifiers = (1u << 0),
+    .action = ACTION_RESTART,
+    .exec_cmd = NULL,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
 
   xcb_key_press_event_t ev;
   ev.detail = 10;
   ev.state = (uint16_t)((1u << 0) | XCB_MOD_MASK_LOCK | XCB_MOD_MASK_2 | XCB_MOD_MASK_5);
 
-  g_fake_keysym = 0x1234;
+  g_fake_keysym = 0x1234u;
 
   wm_handle_key_press(&s, &ev);
 
   assert(g_restart_pending == 1);
+
+  teardown_server(&s);
 }
 
 static void test_key_press_action_close_calls_client_close(void) {
   reset_spies();
 
-  key_binding_t bind = {.keysym = 0x2222, .modifiers = 0, .action = ACTION_CLOSE, .exec_cmd = NULL};
-  key_binding_t* binds[] = {&bind};
-  server_t s = make_server(binds, 1, NULL);
+  server_t s;
+  setup_server(&s);
 
-  s.focused_client = 0xBEEF;
+  key_binding_t bind = {
+    .keysym = 0x2222u,
+    .modifiers = 0,
+    .action = ACTION_CLOSE,
+    .exec_cmd = NULL,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
 
-  xcb_key_press_event_t ev;
-  ev.detail = 11;
-  ev.state = 0;
+  s.focused_client = 0xBEEFu;
 
-  g_fake_keysym = 0x2222;
+  xcb_key_press_event_t ev = {.detail = 11, .state = 0};
+  g_fake_keysym = 0x2222u;
 
   wm_handle_key_press(&s, &ev);
 
   assert(spy_client_close_calls == 1);
-  assert(spy_client_close_last == 0xBEEF);
+  assert(spy_client_close_last == 0xBEEFu);
+
+  teardown_server(&s);
 }
 
-static void test_key_press_action_focus_next_prev_dispatch(void) {
+static void test_key_press_action_focus_next_dispatch(void) {
   reset_spies();
 
-  client_hot_t a = make_client(10, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL);
-  client_hot_t b = make_client(20, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL);
-  client_hot_t* registry[] = {&a, &b, NULL};
+  server_t s;
+  setup_server(&s);
 
-  key_binding_t bind_next = {.keysym = 0x3333, .modifiers = 0, .action = ACTION_FOCUS_NEXT, .exec_cmd = NULL};
-  key_binding_t* binds[] = {&bind_next};
+  handle_t a_handle = HANDLE_INVALID;
+  client_hot_t* a = add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL, &a_handle);
+  client_hot_t* b = add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL, NULL);
 
-  server_t s = make_server(binds, 1, registry);
-  list_push_back(&s.focus_history, &a.focus_node);
-  list_push_back(&s.focus_history, &b.focus_node);
-  s.focused_client = a.self;
+  list_push_back(&s.focus_history, &a->focus_node);
+  list_push_back(&s.focus_history, &b->focus_node);
+  s.focused_client = a_handle;
+
+  key_binding_t bind = {
+    .keysym = 0x3333u,
+    .modifiers = 0,
+    .action = ACTION_FOCUS_NEXT,
+    .exec_cmd = NULL,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
 
   xcb_key_press_event_t ev = {.detail = 12, .state = 0};
-  g_fake_keysym = 0x3333;
+  g_fake_keysym = 0x3333u;
 
   wm_handle_key_press(&s, &ev);
 
   assert(spy_menu_show_switcher_calls == 1);
-  assert(spy_menu_show_switcher_last_origin == a.self);
+  assert(spy_menu_show_switcher_last_origin == a_handle);
   assert(spy_menu_switcher_step_calls == 1);
   assert(spy_menu_switcher_step_last_dir == 1);
   assert(spy_wm_set_focus_calls == 0);
+
+  teardown_server(&s);
 }
 
 static void test_switcher_commit_restores_and_focuses(void) {
   reset_spies();
 
-  client_hot_t a = make_client(42, 1, false, STATE_UNMAPPED, WINDOW_TYPE_NORMAL);
-  client_hot_t* registry[] = {&a, NULL};
-  server_t s = make_server(NULL, 0, registry);
+  server_t s;
+  setup_server(&s);
+
+  handle_t h = HANDLE_INVALID;
+  add_client(&s, 1, false, STATE_UNMAPPED, WINDOW_TYPE_NORMAL, &h);
+
   s.current_desktop = 0;
   s.switcher_active = true;
   s.menu.visible = true;
   s.menu.is_switcher = true;
-  s.menu.selected_client = a.self;
+  g_menu_selected_client = h;
 
   wm_switcher_commit(&s);
 
@@ -794,155 +591,236 @@ static void test_switcher_commit_restores_and_focuses(void) {
   assert(spy_switch_workspace_calls == 1);
   assert(spy_switch_workspace_last == 1u);
   assert(spy_wm_client_restore_calls == 1);
-  assert(spy_wm_client_restore_last == a.self);
+  assert(spy_wm_client_restore_last == h);
   assert(spy_wm_set_focus_calls == 1);
-  assert(spy_wm_set_focus_last == a.self);
+  assert(spy_wm_set_focus_last == h);
   assert(spy_stack_raise_calls == 1);
-  assert(spy_stack_raise_last == a.self);
+  assert(spy_stack_raise_last == h);
+
+  teardown_server(&s);
 }
 
 static void test_key_press_action_workspace_uses_safe_atoi(void) {
   reset_spies();
 
-  key_binding_t bind = {.keysym = 0x4444, .modifiers = 0, .action = ACTION_WORKSPACE, .exec_cmd = "2"};
-  key_binding_t* binds[] = {&bind};
+  server_t s;
+  setup_server(&s);
 
-  server_t s = make_server(binds, 1, NULL);
+  char workspace_str[] = "2";
+  key_binding_t bind = {
+    .keysym = 0x4444u,
+    .modifiers = 0,
+    .action = ACTION_WORKSPACE,
+    .exec_cmd = workspace_str,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
 
   xcb_key_press_event_t ev = {.detail = 13, .state = 0};
-  g_fake_keysym = 0x4444;
+  g_fake_keysym = 0x4444u;
 
   wm_handle_key_press(&s, &ev);
 
   assert(spy_switch_workspace_calls == 1);
   assert(spy_switch_workspace_last == 2u);
+
+  teardown_server(&s);
 }
 
 static void test_key_press_action_move_to_workspace_follow(void) {
   reset_spies();
 
-  key_binding_t bind = {.keysym = 0x5555, .modifiers = 0, .action = ACTION_MOVE_TO_WORKSPACE_FOLLOW, .exec_cmd = "7"};
-  key_binding_t* binds[] = {&bind};
+  server_t s;
+  setup_server(&s);
 
-  server_t s = make_server(binds, 1, NULL);
-  s.focused_client = 0xCAFE;
+  char workspace_str[] = "7";
+  key_binding_t bind = {
+    .keysym = 0x5555u,
+    .modifiers = 0,
+    .action = ACTION_MOVE_TO_WORKSPACE_FOLLOW,
+    .exec_cmd = workspace_str,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
+
+  s.focused_client = 0xCAFEu;
 
   xcb_key_press_event_t ev = {.detail = 14, .state = 0};
-  g_fake_keysym = 0x5555;
+  g_fake_keysym = 0x5555u;
 
   wm_handle_key_press(&s, &ev);
 
-  assert(spy_move_to_ws_calls == 1);
-  assert(spy_move_to_ws_last_client == 0xCAFE);
-  assert(spy_move_to_ws_last_ws == 7u);
-  assert(spy_move_to_ws_last_follow == true);
+  assert(spy_move_to_workspace_calls == 1);
+  assert(spy_move_to_workspace_last_client == 0xCAFEu);
+  assert(spy_move_to_workspace_last_workspace == 7u);
+  assert(spy_move_to_workspace_last_follow == true);
+
+  teardown_server(&s);
 }
 
 static void test_key_press_action_toggle_sticky(void) {
   reset_spies();
 
-  key_binding_t bind = {.keysym = 0x6666, .modifiers = 0, .action = ACTION_TOGGLE_STICKY, .exec_cmd = NULL};
-  key_binding_t* binds[] = {&bind};
+  server_t s;
+  setup_server(&s);
 
-  server_t s = make_server(binds, 1, NULL);
-  s.focused_client = 0x123;
+  key_binding_t bind = {
+    .keysym = 0x6666u,
+    .modifiers = 0,
+    .action = ACTION_TOGGLE_STICKY,
+    .exec_cmd = NULL,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
+
+  s.focused_client = 0x123u;
 
   xcb_key_press_event_t ev = {.detail = 15, .state = 0};
-  g_fake_keysym = 0x6666;
+  g_fake_keysym = 0x6666u;
 
   wm_handle_key_press(&s, &ev);
 
   assert(spy_toggle_sticky_calls == 1);
-  assert(spy_toggle_sticky_last == 0x123);
+  assert(spy_toggle_sticky_last == 0x123u);
+
+  teardown_server(&s);
 }
 
 static void test_key_press_action_move_zero_query_sequence_skips_cookie_enqueue(void) {
   reset_spies();
 
-  key_binding_t bind = {.keysym = 0x6A6A, .modifiers = 0, .action = ACTION_MOVE, .exec_cmd = NULL};
-  key_binding_t* binds[] = {&bind};
+  server_t s;
+  setup_server(&s);
 
-  client_hot_t focused = make_client(0xDEAD, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL);
-  client_hot_t* registry[] = {&focused, NULL};
+  handle_t focused_handle = HANDLE_INVALID;
+  add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL, &focused_handle);
+  s.focused_client = focused_handle;
 
-  server_t s = make_server(binds, 1, registry);
-  s.focused_client = focused.self;
+  key_binding_t bind = {
+    .keysym = 0x6A6Au,
+    .modifiers = 0,
+    .action = ACTION_MOVE,
+    .exec_cmd = NULL,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
 
   g_query_pointer_sequence = 0;
 
   xcb_key_press_event_t ev = {.detail = 19, .state = 0};
-  g_fake_keysym = 0x6A6A;
+  g_fake_keysym = 0x6A6Au;
 
   wm_handle_key_press(&s, &ev);
 
   assert(spy_cookie_jar_push_calls == 0);
   assert(spy_wm_start_interaction_calls == 0);
+
+  teardown_server(&s);
 }
 
-static void test_key_press_action_exec_and_terminal_spawn(void) {
+static void test_key_press_action_resize_starts_interaction(void) {
   reset_spies();
 
-  key_binding_t bind_exec = {.keysym = 0x7777, .modifiers = 0, .action = ACTION_EXEC, .exec_cmd = "echo hi"};
-  key_binding_t bind_term = {.keysym = 0x8888, .modifiers = 0, .action = ACTION_TERMINAL, .exec_cmd = NULL};
+  server_t s;
+  setup_server(&s);
 
-  key_binding_t* binds1[] = {&bind_exec};
-  server_t s1 = make_server(binds1, 1, NULL);
+  handle_t focused_handle = HANDLE_INVALID;
+  client_hot_t* focused = add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL, &focused_handle);
+  focused->server.x = 20;
+  focused->server.y = 30;
+  focused->server.w = 120;
+  focused->server.h = 80;
+  s.focused_client = focused_handle;
 
-  xcb_key_press_event_t ev1 = {.detail = 16, .state = 0};
-  g_fake_keysym = 0x7777;
-  wm_handle_key_press(&s1, &ev1);
+  key_binding_t bind = {
+    .keysym = 0x6B6Bu,
+    .modifiers = 0,
+    .action = ACTION_RESIZE,
+    .exec_cmd = NULL,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
 
-  assert(spy_spawn_calls == 1);
-  assert(strcmp(spy_spawn_last_cmd, "echo hi") == 0);
+  xcb_key_press_event_t ev = {.detail = 20, .state = 0};
+  g_fake_keysym = 0x6B6Bu;
 
-  reset_spies();
+  wm_handle_key_press(&s, &ev);
 
-  key_binding_t* binds2[] = {&bind_term};
-  server_t s2 = make_server(binds2, 1, NULL);
+  assert(spy_warp_pointer_calls == 1);
+  assert(spy_wm_start_interaction_calls == 1);
+  assert(spy_wm_start_interaction_last_start_move == false);
+  assert(spy_wm_start_interaction_last_is_keyboard == true);
 
-  xcb_key_press_event_t ev2 = {.detail = 17, .state = 0};
-  g_fake_keysym = 0x8888;
-  wm_handle_key_press(&s2, &ev2);
-
-  assert(spy_spawn_calls == 1);
-  assert(strstr(spy_spawn_last_cmd, "st") != NULL);
+  teardown_server(&s);
 }
 
 static void test_key_press_action_exit_intercepted(void) {
   reset_spies();
 
-  key_binding_t bind = {.keysym = 0x9999, .modifiers = 0, .action = ACTION_EXIT, .exec_cmd = NULL};
-  key_binding_t* binds[] = {&bind};
-  server_t s = make_server(binds, 1, NULL);
+  server_t s;
+  setup_server(&s);
+
+  key_binding_t bind = {
+    .keysym = 0x9999u,
+    .modifiers = 0,
+    .action = ACTION_EXIT,
+    .exec_cmd = NULL,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
 
   xcb_key_press_event_t ev = {.detail = 18, .state = 0};
-  g_fake_keysym = 0x9999;
+  g_fake_keysym = 0x9999u;
 
-  if (setjmp(exit_jmp_buf) == 0) {
+  if (setjmp(g_exit_jmp_buf) == 0) {
     wm_handle_key_press(&s, &ev);
   }
 
   assert(spy_exit_calls == 1);
   assert(spy_exit_last_code == 0);
+
+  teardown_server(&s);
+}
+
+static void test_key_release_alt_commits_switcher(void) {
+  reset_spies();
+
+  server_t s;
+  setup_server(&s);
+
+  s.switcher_active = true;
+  s.switcher_origin = HANDLE_INVALID;
+  s.menu.visible = true;
+  s.menu.is_switcher = true;
+  g_menu_selected_client = HANDLE_INVALID;
+
+  xcb_key_release_event_t ev = {.detail = 21, .state = 0};
+  g_fake_keysym = XK_Alt_L;
+
+  wm_handle_key_release(&s, &ev);
+
+  assert(spy_menu_hide_calls == 1);
+  assert(s.switcher_active == false);
+
+  teardown_server(&s);
 }
 
 int main(void) {
   test_wm_clean_mods_masks_lock_num_scroll();
-  test_safe_atoi_cases();
-  test_is_focusable_rules();
   test_wm_cycle_focus_selects_next_focusable();
   test_wm_cycle_focus_no_focusable_no_calls();
   test_key_press_menu_delegates_to_menu();
   test_key_press_matches_binding_with_ignored_mods();
   test_key_press_action_close_calls_client_close();
-  test_key_press_action_focus_next_prev_dispatch();
+  test_key_press_action_focus_next_dispatch();
   test_switcher_commit_restores_and_focuses();
   test_key_press_action_workspace_uses_safe_atoi();
   test_key_press_action_move_to_workspace_follow();
   test_key_press_action_toggle_sticky();
   test_key_press_action_move_zero_query_sequence_skips_cookie_enqueue();
-  test_key_press_action_exec_and_terminal_spawn();
+  test_key_press_action_resize_starts_interaction();
   test_key_press_action_exit_intercepted();
+  test_key_release_alt_commits_switcher();
 
   puts("test_wm_input_keys: OK");
   return 0;

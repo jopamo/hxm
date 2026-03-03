@@ -164,8 +164,32 @@ test('workspaces', test_workspaces)
 
 test_wm_input_keys = executable(
   'test_wm_input_keys',
-  'tests/test_wm_input_keys.c',
-  c_args: ['-DTEST_WM_INPUT_KEYS'],
+  ['tests/test_wm_input_keys.c', 'src/wm_input_keys.c'],
+  include_directories: incdir,
+  dependencies: deps,
+  link_args: [
+    '-Wl,--wrap=menu_hide',
+    '-Wl,--wrap=menu_handle_key_press',
+    '-Wl,--wrap=menu_show_switcher',
+    '-Wl,--wrap=menu_switcher_step',
+    '-Wl,--wrap=menu_switcher_selected_client',
+    '-Wl,--wrap=client_close',
+    '-Wl,--wrap=wm_set_focus',
+    '-Wl,--wrap=stack_raise',
+    '-Wl,--wrap=wm_switch_workspace',
+    '-Wl,--wrap=wm_switch_workspace_relative',
+    '-Wl,--wrap=wm_client_move_to_workspace',
+    '-Wl,--wrap=wm_client_restore',
+    '-Wl,--wrap=wm_client_toggle_sticky',
+    '-Wl,--wrap=client_can_move',
+    '-Wl,--wrap=client_can_resize',
+    '-Wl,--wrap=xcb_query_pointer',
+    '-Wl,--wrap=cookie_jar_push',
+    '-Wl,--wrap=xcb_warp_pointer',
+    '-Wl,--wrap=wm_start_interaction',
+    '-Wl,--wrap=xcb_key_symbols_get_keysym',
+    '-Wl,--wrap=exit',
+  ],
 )
 
 test('wm_input_keys', test_wm_input_keys)
