@@ -184,6 +184,27 @@ bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, ha
   return true;
 }
 
+size_t cookie_jar_remove_client(cookie_jar_t* cj, handle_t client) {
+  if (!cj || !cj->slots || client == HANDLE_INVALID || cj->live_count == 0)
+    return 0;
+
+  size_t removed = 0;
+  for (size_t idx = 0; idx < cj->cap && cj->live_count > 0;) {
+    cookie_slot_t* slot = &cj->slots[idx];
+    if (slot->live && slot->client == client) {
+      cookie_jar_remove(cj, idx);
+      removed++;
+      continue;
+    }
+    idx++;
+  }
+
+  if (cj->scan_cursor >= cj->cap)
+    cj->scan_cursor = 0;
+
+  return removed;
+}
+
 /*
  * cookie_jar_drain:
  * Check for available replies or timeouts.

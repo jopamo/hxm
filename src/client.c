@@ -123,6 +123,11 @@ void client_abort_manage(server_t* s, handle_t h) {
   if (!hot || !cold)
     return;
 
+  size_t purged = cookie_jar_remove_client(&s->cookie_jar, h);
+  if (purged > 0) {
+    LOG_DEBUG("Purged %zu pending cookies for aborted client handle %lx", purged, h);
+  }
+
   if (hot->xid != XCB_NONE) {
     // If we are aborting management (e.g. override_redirect or setup failure),
     // make sure the window is mapped so it appears.

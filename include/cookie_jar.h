@@ -140,6 +140,11 @@ void cookie_jar_destroy(cookie_jar_t* cj);
  */
 bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
 
+/* Remove all pending cookies associated with a client handle.
+ * Returns number of removed slots.
+ */
+size_t cookie_jar_remove_client(cookie_jar_t* cj, handle_t client);
+
 /* Drain ready replies (non-blocking)
  * Polls up to max_replies ready replies and dispatches handlers
  * Also expires timed out cookies (handler called with reply=NULL)
