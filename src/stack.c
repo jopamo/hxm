@@ -64,6 +64,37 @@ static bool stack_locate_any_layer(server_t* s, handle_t h, int* layer_out, int3
   return false;
 }
 
+bool stack_can_anchor_to_sibling(server_t* s, handle_t h, handle_t sibling_h) {
+  if (!s)
+    return false;
+
+  client_hot_t* c = server_chot(s, h);
+  client_hot_t* sib = server_chot(s, sibling_h);
+  if (!c || !sib)
+    return false;
+
+  int layer = stack_current_layer(c);
+  if (layer != stack_current_layer(sib))
+    return false;
+
+  small_vec_t* v = layer_vec(s, layer);
+  if (!v || v->length == 0)
+    return false;
+
+  int32_t idx = c->stacking_index;
+  if (idx < 0 || (size_t)idx >= v->length || ptr_to_handle(v->items[idx]) != h) {
+    idx = stack_find_index(v, h);
+    if (idx < 0)
+      return false;
+  }
+
+  int32_t sib_idx = sib->stacking_index;
+  if (sib_idx < 0 || (size_t)sib_idx >= v->length || ptr_to_handle(v->items[sib_idx]) != sibling_h) {
+    sib_idx = stack_find_index(v, sibling_h);
+  }
+  return sib_idx >= 0;
+}
+
 static void stack_update_indices(server_t* s, const small_vec_t* v, size_t start) {
   for (size_t i = start; i < v->length; i++) {
     handle_t h = ptr_to_handle(v->items[i]);

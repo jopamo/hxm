@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -146,6 +147,27 @@ static void send_net_active_window(server_t* s, xcb_window_t win, uint32_t sourc
   ev.data.data32[1] = timestamp;
   ev.data.data32[2] = XCB_NONE;
   wm_handle_client_message(s, &ev);
+}
+
+static void send_net_restack_window(server_t* s, xcb_window_t win, xcb_window_t sibling, uint32_t detail) {
+  xcb_client_message_event_t ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.response_type = XCB_CLIENT_MESSAGE;
+  ev.format = 32;
+  ev.window = win;
+  ev.type = atoms._NET_RESTACK_WINDOW;
+  ev.data.data32[0] = 2;
+  ev.data.data32[1] = sibling;
+  ev.data.data32[2] = detail;
+  wm_handle_client_message(s, &ev);
+}
+
+static void assert_layer_order(const server_t* s, int layer, const handle_t* expected, size_t expected_len) {
+  const small_vec_t* v = &s->layers[layer];
+  assert(v->length == expected_len);
+  for (size_t i = 0; i < expected_len; i++) {
+    assert((handle_t)(uintptr_t)v->items[i] == expected[i]);
+  }
 }
 
 static void test_malformed_wm_state_format_ignored(void) {
@@ -404,6 +426,113 @@ static void test_active_window_rejects_missing_timestamp_when_focus_time_known(v
   cleanup_server(&s);
 }
 
+static void test_restack_unknown_sibling_uses_no_sibling_semantics(void) {
+  struct mode_case {
+    uint32_t detail;
+    bool expect_raise;
+    const char* label;
+  };
+  static const struct mode_case cases[] = {
+      {XCB_STACK_MODE_ABOVE, true, "above"},
+      {XCB_STACK_MODE_BELOW, false, "below"},
+      {XCB_STACK_MODE_TOP_IF, true, "top_if"},
+      {XCB_STACK_MODE_BOTTOM_IF, false, "bottom_if"},
+      {XCB_STACK_MODE_OPPOSITE, true, "opposite"},
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    const struct mode_case* tc = &cases[i];
+
+    server_t s;
+    setup_server(&s);
+    xcb_stubs_reset();
+
+    handle_t h1 = add_mapped_client(&s, 9001, 9101);
+    handle_t h2 = add_mapped_client(&s, 9002, 9102);
+    handle_t h3 = add_mapped_client(&s, 9003, 9103);
+    stack_raise(&s, h1);
+    stack_raise(&s, h2);
+    stack_raise(&s, h3);
+
+    send_net_restack_window(&s, 9002, 0xDEADBEEFu, tc->detail);
+
+    if (tc->expect_raise) {
+      handle_t order[] = {h1, h3, h2};
+      assert_layer_order(&s, LAYER_NORMAL, order, 3);
+    }
+    else {
+      handle_t order[] = {h2, h1, h3};
+      assert_layer_order(&s, LAYER_NORMAL, order, 3);
+    }
+
+    printf("test_restack_unknown_sibling_uses_no_sibling_semantics (%s) passed\n", tc->label);
+    cleanup_server(&s);
+  }
+}
+
+static void test_restack_desktop_mismatch_sibling_is_ignored(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  s.desktop_count = 2;
+  s.current_desktop = 0;
+
+  handle_t h_helper = add_mapped_client(&s, 9101, 9201);
+  handle_t h_sibling = add_mapped_client(&s, 9102, 9202);
+  handle_t h_target = add_mapped_client(&s, 9103, 9203);
+
+  client_hot_t* helper = server_chot(&s, h_helper);
+  client_hot_t* sibling = server_chot(&s, h_sibling);
+  client_hot_t* target = server_chot(&s, h_target);
+  assert(helper && sibling && target);
+
+  helper->desktop = 0;
+  target->desktop = 0;
+  sibling->desktop = 1;
+
+  stack_raise(&s, h_helper);
+  stack_raise(&s, h_sibling);
+  stack_raise(&s, h_target);
+
+  send_net_restack_window(&s, target->xid, sibling->xid, XCB_STACK_MODE_BOTTOM_IF);
+
+  handle_t order[] = {h_target, h_helper, h_sibling};
+  assert_layer_order(&s, LAYER_NORMAL, order, 3);
+
+  printf("test_restack_desktop_mismatch_sibling_is_ignored passed\n");
+  cleanup_server(&s);
+}
+
+static void test_restack_iconified_sibling_is_ignored(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h_helper = add_mapped_client(&s, 9201, 9301);
+  handle_t h_target = add_mapped_client(&s, 9202, 9302);
+  handle_t h_sibling = add_mapped_client(&s, 9203, 9303);
+
+  client_hot_t* target = server_chot(&s, h_target);
+  client_hot_t* sibling = server_chot(&s, h_sibling);
+  assert(target && sibling);
+
+  stack_raise(&s, h_helper);
+  stack_raise(&s, h_target);
+  stack_raise(&s, h_sibling);
+
+  wm_client_iconify(&s, h_sibling);
+  assert(sibling->state == STATE_UNMAPPED);
+
+  send_net_restack_window(&s, target->xid, sibling->xid, XCB_STACK_MODE_BOTTOM_IF);
+
+  handle_t order[] = {h_target, h_helper};
+  assert_layer_order(&s, LAYER_NORMAL, order, 2);
+
+  printf("test_restack_iconified_sibling_is_ignored passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_malformed_wm_state_format_ignored();
   test_unknown_window_type_ignored();
@@ -413,5 +542,8 @@ int main(void) {
   test_active_window_rejects_non_user_cross_desktop_activation();
   test_active_window_user_request_can_switch_desktop();
   test_active_window_rejects_missing_timestamp_when_focus_time_known();
+  test_restack_unknown_sibling_uses_no_sibling_semantics();
+  test_restack_desktop_mismatch_sibling_is_ignored();
+  test_restack_iconified_sibling_is_ignored();
   return 0;
 }

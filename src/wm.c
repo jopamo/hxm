@@ -190,6 +190,30 @@ static bool wm_is_above_in_layer(const server_t* s, const client_hot_t* a, const
   return false;
 }
 
+static bool wm_restack_desktop_compatible(const client_hot_t* hot, const client_hot_t* sibling) {
+  if (!hot || !sibling)
+    return false;
+  if (hot->sticky || sibling->sticky)
+    return true;
+  if (hot->desktop < 0 || sibling->desktop < 0)
+    return true;
+  return hot->desktop == sibling->desktop;
+}
+
+static bool wm_restack_sibling_eligible(server_t* s, handle_t h, const client_hot_t* hot, handle_t sibling_h, const client_hot_t* sibling) {
+  if (!s || !hot || !sibling)
+    return false;
+  if (sibling_h == HANDLE_INVALID || sibling_h == h)
+    return false;
+  if (sibling->state != STATE_MAPPED)
+    return false;
+  if (!wm_restack_desktop_compatible(hot, sibling))
+    return false;
+  if (!stack_can_anchor_to_sibling(s, h, sibling_h))
+    return false;
+  return true;
+}
+
 void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecorated) {
   uint32_t bw = undecorated ? 0 : s->config.theme.border_width;
   uint32_t th = undecorated ? 0 : s->config.theme.title_height;
@@ -2082,10 +2106,23 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     xcb_window_t sibling_win = (xcb_window_t)ev->data.data32[1];
     uint32_t detail = ev->data.data32[2];
     TRACE_LOG("_NET_RESTACK_WINDOW h=%lx sibling=%u detail=%u", h, sibling_win, detail);
-    handle_t sibling_h = (sibling_win != XCB_NONE) ? server_get_client_by_window(s, sibling_win) : HANDLE_INVALID;
-    client_hot_t* sib = (sibling_h != HANDLE_INVALID) ? server_chot(s, sibling_h) : NULL;
+    handle_t raw_sibling_h = (sibling_win != XCB_NONE) ? server_get_client_by_window(s, sibling_win) : HANDLE_INVALID;
+    client_hot_t* raw_sib = (raw_sibling_h != HANDLE_INVALID) ? server_chot(s, raw_sibling_h) : NULL;
+
+    handle_t sibling_h = HANDLE_INVALID;
+    client_hot_t* sib = NULL;
+    if (wm_restack_sibling_eligible(s, h, hot, raw_sibling_h, raw_sib)) {
+      sibling_h = raw_sibling_h;
+      sib = raw_sib;
+    }
+    else if (raw_sibling_h != HANDLE_INVALID) {
+      TRACE_LOG(
+          "_NET_RESTACK_WINDOW h=%lx ignoring invalid sibling=%u state=%u desktop=%d sticky=%d",
+          h, sibling_win, raw_sib ? raw_sib->state : UINT8_MAX, raw_sib ? raw_sib->desktop : -999, raw_sib ? raw_sib->sticky : 0);
+    }
+
     bool have_sibling = (sib != NULL);
-    bool same_layer = have_sibling && stack_current_layer(hot) == stack_current_layer(sib);
+    bool same_layer = have_sibling;
 
     switch (detail) {
       case XCB_STACK_MODE_ABOVE:

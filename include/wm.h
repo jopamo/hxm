@@ -128,6 +128,7 @@ void stack_lower(server_t* s, handle_t h);
 void stack_place_above(server_t* s, handle_t h, handle_t sibling_h);
 void stack_place_below(server_t* s, handle_t h, handle_t sibling_h);
 void stack_remove(server_t* s, handle_t h);
+bool stack_can_anchor_to_sibling(server_t* s, handle_t h, handle_t sibling_h);
 
 /* Move client to its configured layer (based on state/rules) */
 void stack_move_to_layer(server_t* s, handle_t h);
