@@ -1361,7 +1361,7 @@ static void test_randr_async_monitor_updates(void) {
     goto cleanup;
   }
   if (mid_work_x != old_work_x || mid_work_y != old_work_y || mid_work_w != old_work_w || mid_work_h != old_work_h) {
-    snprintf(fail_msg, sizeof(fail_msg), "_NET_WORKAREA changed before async RandR snapshot completion");
+    snprintf(fail_msg, sizeof(fail_msg), "_NET_WORKAREA changed before RandR cookie completion (ordering violation: pre-cookie update)");
     test_failed = true;
     goto cleanup;
   }
@@ -1374,7 +1374,7 @@ static void test_randr_async_monitor_updates(void) {
   }
   if (g_mid->width != old_win_w || g_mid->height != old_win_h) {
     free(g_mid);
-    snprintf(fail_msg, sizeof(fail_msg), "fullscreen geometry changed before async RandR snapshot completion");
+    snprintf(fail_msg, sizeof(fail_msg), "fullscreen geometry changed before RandR cookie completion (ordering violation: pre-cookie update)");
     test_failed = true;
     goto cleanup;
   }
@@ -1384,12 +1384,12 @@ static void test_randr_async_monitor_updates(void) {
       wait_for_randr_snapshot_order(w, old_monitor_w, old_monitor_h, old_work_x, old_work_y, old_work_w, old_work_h, old_win_w, old_win_h, timeout_ms,
                                     &expect_monitor_w, &expect_monitor_h);
   if (snapshot_order == RANDR_SNAPSHOT_EARLY_WORKAREA) {
-    snprintf(fail_msg, sizeof(fail_msg), "_NET_WORKAREA changed before RandR monitor snapshot completion");
+    snprintf(fail_msg, sizeof(fail_msg), "_NET_WORKAREA changed before RandR cookie completion (monitor snapshot not finalized)");
     test_failed = true;
     goto cleanup;
   }
   if (snapshot_order == RANDR_SNAPSHOT_EARLY_FULLSCREEN) {
-    snprintf(fail_msg, sizeof(fail_msg), "fullscreen geometry changed before RandR monitor snapshot completion");
+    snprintf(fail_msg, sizeof(fail_msg), "fullscreen geometry changed before RandR cookie completion (monitor snapshot not finalized)");
     test_failed = true;
     goto cleanup;
   }

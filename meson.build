@@ -679,6 +679,7 @@ conky_script = find_program('tests/ewmh/run_conky_probe.sh', required: true)
 fail_on_skips_test_script = find_program('tests/test_fail_on_skips.sh', required: true)
 ci_workflow_test_script = find_program('tests/test_ci_workflow.py', required: true)
 integration_script_fallback_test_script = find_program('tests/test_integration_script_fallback.sh', required: true)
+integration_real_x11_script_test_script = find_program('tests/test_integration_real_x11_script.sh', required: true)
 sync_reply_allowlist_test_script = find_program('tests/test_sync_reply_allowlist.sh', required: true)
 cookie_handler_ownership_test_script = find_program('tests/test_cookie_handler_ownership.sh', required: true)
 
@@ -702,6 +703,12 @@ test('ci_workflow', ci_workflow_test_script,
 )
 
 test('integration_script_fallback', integration_script_fallback_test_script,
+  workdir: source_root,
+  is_parallel: true,
+  timeout: 30,
+)
+
+test('integration_real_x11_script', integration_real_x11_script_test_script,
   workdir: source_root,
   is_parallel: true,
   timeout: 30,

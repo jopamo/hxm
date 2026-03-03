@@ -145,6 +145,14 @@ Run integration-heavy tests directly:
 meson test -C build integration_script headless_script ewmh_xvfb conky_xvfb --print-errorlogs
 ```
 
+Run the integration client on a real X11 display (manual parity recipe, no Xvfb):
+
+```sh
+DISPLAY=:0 HXM_BIN=./build/hxm INTEGRATION_CLIENT=./build/integration_client ./scripts/test-integration-real-x11.sh
+```
+
+Use a dedicated X11 display/session where `hxm` can become the window manager.
+
 CI includes:
 
 * Full Xvfb-based suite
