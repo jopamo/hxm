@@ -567,6 +567,7 @@ test_wm_randr_pending = executable('test_wm_randr_pending',
   dependencies: deps,
   link_args: [
     '-Wl,--wrap=cookie_jar_push',
+    '-Wl,--wrap=xcb_randr_get_crtc_info',
     '-Wl,--wrap=xcb_randr_get_screen_resources_current_crtcs_length',
     '-Wl,--wrap=xcb_randr_get_screen_resources_current_crtcs',
   ],
@@ -579,6 +580,7 @@ test_manage_unmanage = executable('test_manage_unmanage',
   dependencies: deps,
   link_args: [
     '-Wl,--wrap=cookie_jar_push',
+    '-Wl,--wrap=xcb_get_window_attributes',
   ],
 )
 test('manage_unmanage', test_manage_unmanage)

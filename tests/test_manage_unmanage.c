@@ -18,6 +18,7 @@ extern void xcb_stubs_set_query_tree_children(const xcb_window_t* children, int 
 extern bool xcb_stubs_attr_request_window(uint32_t seq, xcb_window_t* out_window);
 extern int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request, void** reply, xcb_generic_error_t** error);
 extern int stub_map_window_count;
+extern xcb_window_t stub_last_mapped_window;
 extern int stub_unmap_window_count;
 extern int stub_mapped_windows_len;
 extern xcb_window_t stub_mapped_windows[256];
@@ -26,8 +27,10 @@ extern int stub_destroy_window_count;
 extern xcb_window_t stub_last_destroyed_window;
 
 bool __real_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
+xcb_get_window_attributes_cookie_t __real_xcb_get_window_attributes(xcb_connection_t* c, xcb_window_t window);
 
 static bool g_force_cookie_push_failure = false;
+static bool g_force_attr_query_zero_sequence = false;
 
 bool __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
   if (g_force_cookie_push_failure)
@@ -35,10 +38,20 @@ bool __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t t
   return __real_cookie_jar_push(cj, sequence, type, client, data, txn_id, handler);
 }
 
+xcb_get_window_attributes_cookie_t __wrap_xcb_get_window_attributes(xcb_connection_t* c, xcb_window_t window) {
+  if (g_force_attr_query_zero_sequence) {
+    (void)c;
+    (void)window;
+    return (xcb_get_window_attributes_cookie_t){0};
+  }
+  return __real_xcb_get_window_attributes(c, window);
+}
+
 static void setup_server(server_t* s) {
   memset(s, 0, sizeof(*s));
   s->is_test = true;
   g_force_cookie_push_failure = false;
+  g_force_attr_query_zero_sequence = false;
 
   xcb_stubs_reset();
   s->conn = xcb_connect(NULL, NULL);
@@ -816,6 +829,50 @@ static void test_manage_start_enqueue_failure_aborts_cleanly(void) {
   cleanup_server(&s);
 }
 
+static void test_map_request_enqueue_failure_maps_unmanaged(void) {
+  server_t s;
+  setup_server(&s);
+
+  xcb_map_request_event_t ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.window = 4545;
+  ev.parent = s.root;
+
+  g_force_cookie_push_failure = true;
+  wm_handle_map_request(&s, &ev);
+  g_force_cookie_push_failure = false;
+
+  assert(server_get_client_by_window(&s, ev.window) == HANDLE_INVALID);
+  assert(!cookie_jar_has_pending(&s.cookie_jar));
+  assert(stub_map_window_count == 1);
+  assert(stub_last_mapped_window == ev.window);
+
+  printf("test_map_request_enqueue_failure_maps_unmanaged passed\n");
+  cleanup_server(&s);
+}
+
+static void test_map_request_zero_sequence_maps_unmanaged(void) {
+  server_t s;
+  setup_server(&s);
+
+  xcb_map_request_event_t ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.window = 4646;
+  ev.parent = s.root;
+
+  g_force_attr_query_zero_sequence = true;
+  wm_handle_map_request(&s, &ev);
+  g_force_attr_query_zero_sequence = false;
+
+  assert(server_get_client_by_window(&s, ev.window) == HANDLE_INVALID);
+  assert(!cookie_jar_has_pending(&s.cookie_jar));
+  assert(stub_map_window_count == 1);
+  assert(stub_last_mapped_window == ev.window);
+
+  printf("test_map_request_zero_sequence_maps_unmanaged passed\n");
+  cleanup_server(&s);
+}
+
 static void test_should_focus_on_map_override(void) {
   client_hot_t hot = {0};
 
@@ -854,6 +911,8 @@ int main(void) {
   test_manage_start_slot_full();
   test_manage_start_defaults_desktop_current();
   test_manage_start_enqueue_failure_aborts_cleanly();
+  test_map_request_enqueue_failure_maps_unmanaged();
+  test_map_request_zero_sequence_maps_unmanaged();
   test_should_focus_on_map_override();
 
   return 0;

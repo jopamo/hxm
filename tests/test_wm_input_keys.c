@@ -718,6 +718,43 @@ static void test_key_press_action_move_zero_query_sequence_skips_cookie_enqueue(
   teardown_server(&s);
 }
 
+static void test_key_press_action_move_query_enqueue_failure_aborts_interaction(void) {
+  reset_spies();
+
+  server_t s;
+  setup_server(&s);
+
+  handle_t focused_handle = HANDLE_INVALID;
+  add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL, &focused_handle);
+  s.focused_client = focused_handle;
+
+  key_binding_t bind = {
+    .keysym = 0x6C6Cu,
+    .modifiers = 0,
+    .action = ACTION_MOVE,
+    .exec_cmd = NULL,
+  };
+  key_binding_t* bindings[] = {&bind};
+  set_bindings(&s, bindings, 1);
+
+  g_query_pointer_sequence = 321;
+  g_cookie_jar_push_should_fail = true;
+
+  xcb_key_press_event_t ev = {.detail = 21, .state = 0};
+  g_fake_keysym = 0x6C6Cu;
+
+  wm_handle_key_press(&s, &ev);
+  g_cookie_jar_push_should_fail = false;
+
+  assert(spy_cookie_jar_push_calls == 1);
+  assert(spy_cookie_jar_push_last_sequence == 321);
+  assert(spy_cookie_jar_push_last_type == COOKIE_QUERY_POINTER);
+  assert(spy_cookie_jar_push_last_client == focused_handle);
+  assert(spy_wm_start_interaction_calls == 0);
+
+  teardown_server(&s);
+}
+
 static void test_key_press_action_resize_starts_interaction(void) {
   reset_spies();
 
@@ -818,6 +855,7 @@ int main(void) {
   test_key_press_action_move_to_workspace_follow();
   test_key_press_action_toggle_sticky();
   test_key_press_action_move_zero_query_sequence_skips_cookie_enqueue();
+  test_key_press_action_move_query_enqueue_failure_aborts_interaction();
   test_key_press_action_resize_starts_interaction();
   test_key_press_action_exit_intercepted();
   test_key_release_alt_commits_switcher();

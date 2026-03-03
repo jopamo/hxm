@@ -793,7 +793,13 @@ void wm_adopt_children(server_t* s) {
     // Defer decision: use async attributes check via cookie jar and adopt in
     // reply handler
     xcb_get_window_attributes_cookie_t ck = xcb_get_window_attributes(s->conn, win);
-    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_WINDOW_ATTRIBUTES, HANDLE_INVALID, (uint64_t)win, s->txn_id, wm_handle_reply);
+    if (ck.sequence == 0) {
+      LOG_ERROR("Adopt attributes request returned zero sequence for window %u; skipping", win);
+      continue;
+    }
+    if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_WINDOW_ATTRIBUTES, HANDLE_INVALID, (uint64_t)win, s->txn_id, wm_handle_reply)) {
+      LOG_ERROR("Adopt attributes enqueue failed for window %u; skipping", win);
+    }
   }
 
   free(reply);
@@ -818,7 +824,15 @@ void wm_handle_map_request(server_t* s, xcb_map_request_event_t* ev) {
 
   // Check attributes asynchronously before managing
   xcb_get_window_attributes_cookie_t ck = xcb_get_window_attributes(s->conn, ev->window);
-  cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_CHECK_MANAGE_MAP_REQUEST, HANDLE_INVALID, (uint64_t)ev->window, s->txn_id, wm_handle_reply);
+  if (ck.sequence == 0) {
+    LOG_ERROR("MapRequest attributes query returned zero sequence for window %u; mapping unmanaged", ev->window);
+    xcb_map_window(s->conn, ev->window);
+    return;
+  }
+  if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_CHECK_MANAGE_MAP_REQUEST, HANDLE_INVALID, (uint64_t)ev->window, s->txn_id, wm_handle_reply)) {
+    LOG_ERROR("MapRequest attributes enqueue failed for window %u; mapping unmanaged", ev->window);
+    xcb_map_window(s->conn, ev->window);
+  }
 }
 
 void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
