@@ -25,9 +25,20 @@ extern bool xcb_stubs_enqueue_event(xcb_generic_event_t* ev);
 extern int stub_destroy_window_count;
 extern xcb_window_t stub_last_destroyed_window;
 
+bool __real_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
+
+static bool g_force_cookie_push_failure = false;
+
+bool __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
+  if (g_force_cookie_push_failure)
+    return false;
+  return __real_cookie_jar_push(cj, sequence, type, client, data, txn_id, handler);
+}
+
 static void setup_server(server_t* s) {
   memset(s, 0, sizeof(*s));
   s->is_test = true;
+  g_force_cookie_push_failure = false;
 
   xcb_stubs_reset();
   s->conn = xcb_connect(NULL, NULL);
@@ -787,6 +798,24 @@ static void test_manage_start_defaults_desktop_current(void) {
   cleanup_server(&s);
 }
 
+static void test_manage_start_enqueue_failure_aborts_cleanly(void) {
+  server_t s;
+  setup_server(&s);
+
+  xcb_window_t win = 4343;
+  g_force_cookie_push_failure = true;
+  client_manage_start(&s, win);
+  g_force_cookie_push_failure = false;
+
+  assert(server_get_client_by_window(&s, win) == HANDLE_INVALID);
+  assert(count_live_clients(&s) == 0);
+  assert(s.active_clients.length == 0);
+  assert(!cookie_jar_has_pending(&s.cookie_jar));
+
+  printf("test_manage_start_enqueue_failure_aborts_cleanly passed\n");
+  cleanup_server(&s);
+}
+
 static void test_should_focus_on_map_override(void) {
   client_hot_t hot = {0};
 
@@ -824,6 +853,7 @@ int main(void) {
   test_manage_start_requests_window_type();
   test_manage_start_slot_full();
   test_manage_start_defaults_desktop_current();
+  test_manage_start_enqueue_failure_aborts_cleanly();
   test_should_focus_on_map_override();
 
   return 0;

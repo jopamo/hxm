@@ -34,9 +34,18 @@
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 
-static void client_queue_get_property(server_t* s, handle_t h, xcb_window_t win, xcb_atom_t prop, xcb_atom_t type, uint32_t long_len) {
+static bool client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t h, uint32_t seq, cookie_type_t type, uintptr_t data, const char* request_name) {
+  if (!cookie_jar_push(&s->cookie_jar, seq, type, h, data, s->txn_id, wm_handle_reply)) {
+    LOG_ERROR("Failed to enqueue manage probe for window %u (%s, seq=%u)", hot->xid, request_name, seq);
+    return false;
+  }
+  hot->pending_replies++;
+  return true;
+}
+
+static bool client_queue_get_property(server_t* s, client_hot_t* hot, handle_t h, xcb_window_t win, xcb_atom_t prop, xcb_atom_t type, uint32_t long_len) {
   uint32_t seq = xcb_get_property(s->conn, 0, win, prop, type, 0, long_len).sequence;
-  cookie_jar_push(&s->cookie_jar, seq, COOKIE_GET_PROPERTY, h, ((uint64_t)win << 32) | prop, s->txn_id, wm_handle_reply);
+  return client_enqueue_manage_reply(s, hot, h, seq, COOKIE_GET_PROPERTY, ((uint64_t)win << 32) | prop, "get_property");
 }
 
 static bool str_contains_case(const char* haystack, const char* needle) {
@@ -106,6 +115,38 @@ static uint16_t clamp_u16_from_i64(int64_t v) {
   if (v > UINT16_MAX)
     return UINT16_MAX;
   return (uint16_t)v;
+}
+
+void client_abort_manage(server_t* s, handle_t h) {
+  client_hot_t* hot = server_chot(s, h);
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
+    return;
+
+  if (hot->xid != XCB_NONE) {
+    // If we are aborting management (e.g. override_redirect or setup failure),
+    // make sure the window is mapped so it appears.
+    xcb_map_window(s->conn, hot->xid);
+    hash_map_remove(&s->window_to_client, hot->xid);
+  }
+  if (hot->frame != XCB_NONE)
+    hash_map_remove(&s->frame_to_client, hot->frame);
+
+  arena_destroy(&cold->string_arena);
+  if (cold->colormap_windows) {
+    free(cold->colormap_windows);
+    cold->colormap_windows = NULL;
+    cold->colormap_windows_len = 0;
+  }
+  render_free(&hot->render_ctx);
+  if (hot->icon_surface)
+    cairo_surface_destroy(hot->icon_surface);
+
+  slotmap_free(&s->clients, h);
+  small_vec_remove(&s->active_clients, handle_to_ptr(h));
+
+  s->root_dirty |= ROOT_DIRTY_CLIENT_LIST;
+  s->workarea_dirty = true;
 }
 
 /*
@@ -212,10 +253,9 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   hot->gtk_extents.bottom = 0;
   hot->original_border_width = 0;
 
-  // Phase 1 reply budget
-  // Keep this in sync with the queued requests below
-  // Attributes + geometry + property batch
-  // When this counter hits zero, we can finish manage (or time out)
+  // Phase 1 probes. pending_replies tracks only successfully enqueued cookies.
+  // If any enqueue fails, management is aborted once remaining queued replies
+  // drain.
   struct {
     xcb_atom_t prop;
     xcb_atom_t type;
@@ -251,7 +291,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
       {atoms._NET_WM_BYPASS_COMPOSITOR, XCB_ATOM_CARDINAL, 1},
   };
 
-  hot->pending_replies = 2 + (uint8_t)ARRAY_LEN(props);
+  hot->pending_replies = 0;
   hot->late_probe_ticks = 0;
   hot->late_probe_attempts = 0;
   hot->late_probe_deadline_ns = 0;
@@ -275,16 +315,30 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   uint32_t early_events = XCB_EVENT_MASK_PROPERTY_CHANGE;
   xcb_change_window_attributes(s->conn, win, XCB_CW_EVENT_MASK, &early_events);
 
+  bool enqueue_failed = false;
+
   // Query window attributes (override_redirect, visual, etc)
   uint32_t c1 = xcb_get_window_attributes(s->conn, win).sequence;
-  cookie_jar_push(&s->cookie_jar, c1, COOKIE_GET_WINDOW_ATTRIBUTES, h, win, s->txn_id, wm_handle_reply);
+  if (!client_enqueue_manage_reply(s, hot, h, c1, COOKIE_GET_WINDOW_ATTRIBUTES, win, "get_window_attributes")) {
+    enqueue_failed = true;
+  }
 
   // Query initial geometry
   uint32_t c2 = xcb_get_geometry(s->conn, win).sequence;
-  cookie_jar_push(&s->cookie_jar, c2, COOKIE_GET_GEOMETRY, h, win, s->txn_id, wm_handle_reply);
+  if (!client_enqueue_manage_reply(s, hot, h, c2, COOKIE_GET_GEOMETRY, win, "get_geometry")) {
+    enqueue_failed = true;
+  }
 
   for (size_t i = 0; i < ARRAY_LEN(props); i++) {
-    client_queue_get_property(s, h, win, props[i].prop, props[i].type, props[i].long_len);
+    if (!client_queue_get_property(s, hot, h, win, props[i].prop, props[i].type, props[i].long_len)) {
+      enqueue_failed = true;
+    }
+  }
+
+  if (enqueue_failed) {
+    LOG_ERROR("Aborting manage for window %u: failed to enqueue initial probes (queued=%u)", win, hot->pending_replies);
+    client_abort_manage(s, h);
+    return;
   }
 
   LOG_DEBUG("Started management for window %u (handle %lx)", win, h);

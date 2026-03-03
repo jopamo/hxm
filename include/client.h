@@ -341,6 +341,7 @@ typedef struct server server_t;
 
 /* Client lifecycle */
 void client_manage_start(server_t* s, xcb_window_t win);
+void client_abort_manage(server_t* s, handle_t h);
 void client_finish_manage(server_t* s, handle_t h);
 void client_unmanage(server_t* s, handle_t h);
 void client_close(server_t* s, handle_t h);

@@ -313,27 +313,6 @@ static bool client_apply_decoration_hints(client_hot_t* hot) {
   return false;
 }
 
-static void abort_manage(server_t* s, handle_t h) {
-  client_hot_t* hot = server_chot(s, h);
-  client_cold_t* cold = server_ccold(s, h);
-  if (!hot || !cold)
-    return;
-
-  if (hot->xid != XCB_NONE) {
-    // If we are aborting management (e.g. override_redirect or special type),
-    // make sure the window is mapped so it appears.
-    xcb_map_window(s->conn, hot->xid);
-    hash_map_remove(&s->window_to_client, hot->xid);
-  }
-
-  arena_destroy(&cold->string_arena);
-  render_free(&hot->render_ctx);
-  if (hot->icon_surface)
-    cairo_surface_destroy(hot->icon_surface);
-
-  slotmap_free(&s->clients, h);
-}
-
 static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, client_cold_t* cold, xcb_atom_t atom, const xcb_get_property_reply_t* r) {
   int len = 0;
   char* str = prop_get_string(r, &len);
@@ -360,10 +339,14 @@ static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, c
         hot->dirty |= DIRTY_FRAME_STYLE;
       }
 
-      if (hot->manage_phase != MANAGE_DONE)
-        hot->pending_replies++;
       uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-      cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME, s->txn_id, wm_handle_reply);
+      if (cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME, s->txn_id, wm_handle_reply)) {
+        if (hot->manage_phase != MANAGE_DONE)
+          hot->pending_replies++;
+      }
+      else {
+        LOG_ERROR("Failed to enqueue WM_NAME fallback probe for window %u", hot->xid);
+      }
       return;
     }
 
@@ -386,10 +369,14 @@ static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, c
         hot->dirty |= DIRTY_FRAME_STYLE;
       }
 
-      if (hot->manage_phase != MANAGE_DONE)
-        hot->pending_replies++;
       uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_ICON_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-      cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_ICON_NAME, s->txn_id, wm_handle_reply);
+      if (cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_ICON_NAME, s->txn_id, wm_handle_reply)) {
+        if (hot->manage_phase != MANAGE_DONE)
+          hot->pending_replies++;
+      }
+      else {
+        LOG_ERROR("Failed to enqueue WM_ICON_NAME fallback probe for window %u", hot->xid);
+      }
       return;
     }
 
@@ -1540,7 +1527,7 @@ done_one:
     return;
 
   if (hot->manage_aborted) {
-    abort_manage(s, slot->client);
+    client_abort_manage(s, slot->client);
     return;
   }
 

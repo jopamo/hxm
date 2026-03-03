@@ -538,6 +538,9 @@ test_manage_unmanage = executable('test_manage_unmanage',
   ['tests/test_manage_unmanage.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
   dependencies: deps,
+  link_args: [
+    '-Wl,--wrap=cookie_jar_push',
+  ],
 )
 test('manage_unmanage', test_manage_unmanage)
 
