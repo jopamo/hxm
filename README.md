@@ -20,6 +20,12 @@ The goal is tight control over interaction paths and fewer “mystery stalls” 
 
 Experimental. The current Meson version is `0.1.0` and `TODO.md` tracks ongoing hardening and cleanup work.
 
+## Reference Code
+
+The repository includes `ref/openbox/`, which contains Openbox source code used as a local behavior reference during parity reviews and debugging.
+
+`ref/` is reference material only and is not part of the `hxm` build targets.
+
 ## Features
 
 * A stable event pipeline with clear ingest → process → commit phases.

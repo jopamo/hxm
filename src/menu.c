@@ -67,6 +67,86 @@ static char* xstrdup(const char* s) {
 static int menu_find_next_selectable(server_t* s, int start, int dir);
 static int menu_find_first_selectable(server_t* s);
 
+typedef enum menu_grab_context {
+  MENU_GRAB_CONTEXT_ROOT = 1,
+  MENU_GRAB_CONTEXT_CLIENT_LIST = 2,
+  MENU_GRAB_CONTEXT_SWITCHER = 3,
+} menu_grab_context_t;
+
+#if HXM_DIAG
+static const char* menu_grab_context_name(menu_grab_context_t ctx) {
+  switch (ctx) {
+    case MENU_GRAB_CONTEXT_ROOT:
+      return "menu_show";
+    case MENU_GRAB_CONTEXT_CLIENT_LIST:
+      return "menu_show_client_list";
+    case MENU_GRAB_CONTEXT_SWITCHER:
+      return "menu_show_switcher";
+    default:
+      return "menu_grab";
+  }
+}
+
+static const char* menu_grab_type_name(cookie_type_t type) {
+  switch (type) {
+    case COOKIE_GRAB_POINTER:
+      return "pointer";
+    case COOKIE_GRAB_KEYBOARD:
+      return "keyboard";
+    default:
+      return "unknown";
+  }
+}
+
+static void menu_handle_grab_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
+  (void)s;
+
+  if (!slot)
+    return;
+
+  menu_grab_context_t ctx = (menu_grab_context_t)slot->data;
+  const char* where = menu_grab_context_name(ctx);
+  const char* which = menu_grab_type_name(slot->type);
+
+  if (err || !reply) {
+    LOG_WARN("%s: %s grab async reply failed", where, which);
+    return;
+  }
+
+  uint8_t status = XCB_GRAB_STATUS_SUCCESS;
+  if (slot->type == COOKIE_GRAB_POINTER) {
+    status = ((xcb_grab_pointer_reply_t*)reply)->status;
+  }
+  else if (slot->type == COOKIE_GRAB_KEYBOARD) {
+    status = ((xcb_grab_keyboard_reply_t*)reply)->status;
+  }
+  else {
+    LOG_WARN("%s: unexpected grab cookie type=%d", where, slot->type);
+    return;
+  }
+
+  if (status != XCB_GRAB_STATUS_SUCCESS) {
+    LOG_WARN("%s: %s grab failed status=%u", where, which, status);
+  }
+}
+#endif
+
+static void menu_enqueue_grab_cookie(server_t* s, uint32_t sequence, cookie_type_t type, menu_grab_context_t ctx) {
+#if HXM_DIAG
+  if (!s || !s->cookie_jar.slots || sequence == 0)
+    return;
+
+  if (!cookie_jar_push(&s->cookie_jar, sequence, type, HANDLE_INVALID, (uintptr_t)ctx, s->txn_id, menu_handle_grab_reply)) {
+    LOG_WARN("%s: failed to enqueue %s grab cookie seq=%u", menu_grab_context_name(ctx), menu_grab_type_name(type), sequence);
+  }
+#else
+  (void)s;
+  (void)sequence;
+  (void)type;
+  (void)ctx;
+#endif
+}
+
 static bool switcher_is_candidate(const server_t* s, const client_hot_t* hot) {
   if (!s || !hot)
     return false;
@@ -465,26 +545,8 @@ void menu_show(server_t* s, int16_t x, int16_t y) {
   xcb_grab_pointer_cookie_t pc = xcb_grab_pointer(s->conn, 0, s->root, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION, XCB_GRAB_MODE_ASYNC,
                                                   XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
   xcb_grab_keyboard_cookie_t kc = xcb_grab_keyboard(s->conn, 0, s->root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-
-#if HXM_DIAG
-  xcb_grab_pointer_reply_t* pr = xcb_grab_pointer_reply(s->conn, pc, NULL);
-  if (pr) {
-    if (pr->status != XCB_GRAB_STATUS_SUCCESS) {
-      LOG_WARN("menu_show: pointer grab failed status=%d", pr->status);
-    }
-    free(pr);
-  }
-  xcb_grab_keyboard_reply_t* kr = xcb_grab_keyboard_reply(s->conn, kc, NULL);
-  if (kr) {
-    if (kr->status != XCB_GRAB_STATUS_SUCCESS) {
-      LOG_WARN("menu_show: keyboard grab failed status=%d", kr->status);
-    }
-    free(kr);
-  }
-#else
-  (void)pc;
-  (void)kc;
-#endif
+  menu_enqueue_grab_cookie(s, pc.sequence, COOKIE_GRAB_POINTER, MENU_GRAB_CONTEXT_ROOT);
+  menu_enqueue_grab_cookie(s, kc.sequence, COOKIE_GRAB_KEYBOARD, MENU_GRAB_CONTEXT_ROOT);
 
   menu_handle_expose(s);
 }
@@ -553,26 +615,8 @@ void menu_show_client_list(server_t* s, int16_t x, int16_t y) {
   xcb_grab_pointer_cookie_t pc = xcb_grab_pointer(s->conn, 0, s->root, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION, XCB_GRAB_MODE_ASYNC,
                                                   XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
   xcb_grab_keyboard_cookie_t kc = xcb_grab_keyboard(s->conn, 0, s->root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-
-#if HXM_DIAG
-  xcb_grab_pointer_reply_t* pr = xcb_grab_pointer_reply(s->conn, pc, NULL);
-  if (pr) {
-    if (pr->status != XCB_GRAB_STATUS_SUCCESS) {
-      LOG_WARN("menu_show_client_list: pointer grab failed status=%d", pr->status);
-    }
-    free(pr);
-  }
-  xcb_grab_keyboard_reply_t* kr = xcb_grab_keyboard_reply(s->conn, kc, NULL);
-  if (kr) {
-    if (kr->status != XCB_GRAB_STATUS_SUCCESS) {
-      LOG_WARN("menu_show_client_list: keyboard grab failed status=%d", kr->status);
-    }
-    free(kr);
-  }
-#else
-  (void)pc;
-  (void)kc;
-#endif
+  menu_enqueue_grab_cookie(s, pc.sequence, COOKIE_GRAB_POINTER, MENU_GRAB_CONTEXT_CLIENT_LIST);
+  menu_enqueue_grab_cookie(s, kc.sequence, COOKIE_GRAB_KEYBOARD, MENU_GRAB_CONTEXT_CLIENT_LIST);
 
   menu_handle_expose(s);
 }
@@ -818,26 +862,8 @@ void menu_show_switcher(server_t* s, handle_t origin) {
   xcb_grab_pointer_cookie_t pc = xcb_grab_pointer(s->conn, 0, s->root, XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_BUTTON_RELEASE | XCB_EVENT_MASK_POINTER_MOTION, XCB_GRAB_MODE_ASYNC,
                                                   XCB_GRAB_MODE_ASYNC, XCB_NONE, XCB_NONE, XCB_CURRENT_TIME);
   xcb_grab_keyboard_cookie_t kc = xcb_grab_keyboard(s->conn, 0, s->root, XCB_CURRENT_TIME, XCB_GRAB_MODE_ASYNC, XCB_GRAB_MODE_ASYNC);
-
-#if HXM_DIAG
-  xcb_grab_pointer_reply_t* pr = xcb_grab_pointer_reply(s->conn, pc, NULL);
-  if (pr) {
-    if (pr->status != XCB_GRAB_STATUS_SUCCESS) {
-      LOG_WARN("menu_show_switcher: pointer grab failed status=%d", pr->status);
-    }
-    free(pr);
-  }
-  xcb_grab_keyboard_reply_t* kr = xcb_grab_keyboard_reply(s->conn, kc, NULL);
-  if (kr) {
-    if (kr->status != XCB_GRAB_STATUS_SUCCESS) {
-      LOG_WARN("menu_show_switcher: keyboard grab failed status=%d", kr->status);
-    }
-    free(kr);
-  }
-#else
-  (void)pc;
-  (void)kc;
-#endif
+  menu_enqueue_grab_cookie(s, pc.sequence, COOKIE_GRAB_POINTER, MENU_GRAB_CONTEXT_SWITCHER);
+  menu_enqueue_grab_cookie(s, kc.sequence, COOKIE_GRAB_KEYBOARD, MENU_GRAB_CONTEXT_SWITCHER);
 
   menu_handle_expose(s);
 }

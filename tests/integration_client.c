@@ -291,32 +291,72 @@ static bool get_active_randr_monitor_size(uint16_t* out_w, uint16_t* out_h) {
   return found;
 }
 
-static bool wait_for_randr_monitor_size_snapshot(uint16_t old_w, uint16_t old_h, uint32_t timeout_ms, uint16_t* out_w, uint16_t* out_h, bool* out_changed) {
+typedef enum randr_snapshot_order {
+  RANDR_SNAPSHOT_MONITOR_CHANGED,
+  RANDR_SNAPSHOT_MONITOR_UNCHANGED,
+  RANDR_SNAPSHOT_EARLY_WORKAREA,
+  RANDR_SNAPSHOT_EARLY_FULLSCREEN,
+  RANDR_SNAPSHOT_MONITOR_QUERY_FAILED,
+} randr_snapshot_order_t;
+
+static randr_snapshot_order_t wait_for_randr_snapshot_order(xcb_window_t win,
+                                                            uint16_t old_monitor_w,
+                                                            uint16_t old_monitor_h,
+                                                            uint32_t old_work_x,
+                                                            uint32_t old_work_y,
+                                                            uint32_t old_work_w,
+                                                            uint32_t old_work_h,
+                                                            uint16_t old_win_w,
+                                                            uint16_t old_win_h,
+                                                            uint32_t timeout_ms,
+                                                            uint16_t* out_w,
+                                                            uint16_t* out_h) {
   uint64_t deadline = now_us() + (uint64_t)timeout_ms * 1000ull;
   bool got_any = false;
-  uint16_t cur_w = old_w;
-  uint16_t cur_h = old_h;
+  uint16_t cur_w = old_monitor_w;
+  uint16_t cur_h = old_monitor_h;
 
   while (now_us() < deadline) {
     if (get_active_randr_monitor_size(&cur_w, &cur_h)) {
       got_any = true;
-      if (cur_w != old_w || cur_h != old_h)
-        break;
+      if (cur_w != old_monitor_w || cur_h != old_monitor_h) {
+        if (out_w)
+          *out_w = cur_w;
+        if (out_h)
+          *out_h = cur_h;
+        return RANDR_SNAPSHOT_MONITOR_CHANGED;
+      }
     }
+
+    uint32_t work_x = 0;
+    uint32_t work_y = 0;
+    uint32_t work_w = 0;
+    uint32_t work_h = 0;
+    if (get_root_workarea(&work_x, &work_y, &work_w, &work_h)
+        && (work_x != old_work_x || work_y != old_work_y || work_w != old_work_w || work_h != old_work_h)) {
+      return RANDR_SNAPSHOT_EARLY_WORKAREA;
+    }
+
+    xcb_get_geometry_reply_t* g = get_geometry(win);
+    if (g) {
+      bool changed = (g->width != old_win_w || g->height != old_win_h);
+      free(g);
+      if (changed)
+        return RANDR_SNAPSHOT_EARLY_FULLSCREEN;
+    }
+
     drain_events(32);
     usleep(2000);
   }
 
   if (!got_any)
-    return false;
+    return RANDR_SNAPSHOT_MONITOR_QUERY_FAILED;
 
   if (out_w)
     *out_w = cur_w;
   if (out_h)
     *out_h = cur_h;
-  if (out_changed)
-    *out_changed = (cur_w != old_w || cur_h != old_h);
-  return true;
+  return RANDR_SNAPSHOT_MONITOR_UNCHANGED;
 }
 
 static bool window_has_child(xcb_window_t parent, xcb_window_t child) {
@@ -1340,11 +1380,25 @@ static void test_randr_async_monitor_updates(void) {
   }
   free(g_mid);
 
-  if (!wait_for_randr_monitor_size_snapshot(old_monitor_w, old_monitor_h, timeout_ms, &expect_monitor_w, &expect_monitor_h, &monitor_changed)) {
+  randr_snapshot_order_t snapshot_order =
+      wait_for_randr_snapshot_order(w, old_monitor_w, old_monitor_h, old_work_x, old_work_y, old_work_w, old_work_h, old_win_w, old_win_h, timeout_ms,
+                                    &expect_monitor_w, &expect_monitor_h);
+  if (snapshot_order == RANDR_SNAPSHOT_EARLY_WORKAREA) {
+    snprintf(fail_msg, sizeof(fail_msg), "_NET_WORKAREA changed before RandR monitor snapshot completion");
+    test_failed = true;
+    goto cleanup;
+  }
+  if (snapshot_order == RANDR_SNAPSHOT_EARLY_FULLSCREEN) {
+    snprintf(fail_msg, sizeof(fail_msg), "fullscreen geometry changed before RandR monitor snapshot completion");
+    test_failed = true;
+    goto cleanup;
+  }
+  if (snapshot_order == RANDR_SNAPSHOT_MONITOR_QUERY_FAILED) {
     snprintf(fail_msg, sizeof(fail_msg), "failed to query post-resize RandR monitor geometry");
     test_failed = true;
     goto cleanup;
   }
+  monitor_changed = (snapshot_order == RANDR_SNAPSHOT_MONITOR_CHANGED);
 
   if (monitor_changed) {
     if (!wait_for_root_workarea_size(expect_monitor_w, expect_monitor_h, timeout_ms)) {
