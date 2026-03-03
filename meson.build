@@ -534,6 +534,18 @@ test_event_ingest = executable('test_event_ingest',
 )
 test('event_ingest', test_event_ingest)
 
+test_wm_randr_pending = executable('test_wm_randr_pending',
+  ['tests/test_wm_randr_pending.c', 'tests/xcb_stubs.c'] + test_src,
+  include_directories: incdir,
+  dependencies: deps,
+  link_args: [
+    '-Wl,--wrap=cookie_jar_push',
+    '-Wl,--wrap=xcb_randr_get_screen_resources_current_crtcs_length',
+    '-Wl,--wrap=xcb_randr_get_screen_resources_current_crtcs',
+  ],
+)
+test('wm_randr_pending', test_wm_randr_pending)
+
 test_manage_unmanage = executable('test_manage_unmanage',
   ['tests/test_manage_unmanage.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,

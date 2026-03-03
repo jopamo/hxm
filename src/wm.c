@@ -209,7 +209,10 @@ static void wm_handle_randr_reply(server_t* s, const cookie_slot_t* slot, void* 
         s->randr_pending_replies--;
         continue;
       }
-      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_CRTC_INFO, HANDLE_INVALID, (uintptr_t)i, slot->txn_id, wm_handle_randr_reply);
+      if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_CRTC_INFO, HANDLE_INVALID, (uintptr_t)i, slot->txn_id, wm_handle_randr_reply)) {
+        LOG_ERROR("RandR CRTC info enqueue failed for index %d", i);
+        s->randr_pending_replies--;
+      }
     }
 
     if (s->randr_pending_replies == 0) {
@@ -298,7 +301,9 @@ void wm_update_monitors(server_t* s) {
     return;
   }
 
-  cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_SCREEN_RESOURCES, HANDLE_INVALID, 0, s->randr_pending_generation, wm_handle_randr_reply);
+  if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_SCREEN_RESOURCES, HANDLE_INVALID, 0, s->randr_pending_generation, wm_handle_randr_reply)) {
+    LOG_ERROR("RandR resources enqueue failed; async monitor update dropped");
+  }
 }
 
 void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
