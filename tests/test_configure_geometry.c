@@ -669,6 +669,41 @@ static void test_interactive_resize_configures_client_even_when_notify_matches(v
   cleanup_server(&s);
 }
 
+static void test_configure_notify_does_not_resync_desired_during_interactive_resize(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_client(&s, 7007, 7107);
+  client_hot_t* hot = server_chot(&s, h);
+  hot->manage_phase = MANAGE_DONE;
+  hot->desired = (rect_t){10, 20, 220, 140};
+  hot->dirty = DIRTY_GEOM;
+  hot->geometry_from_notify = true;
+  hot->geometry_notify_w = 111;
+  hot->geometry_notify_h = 99;
+  hot->notify_settle_pending = true;
+  hot->notify_settle_deadline_ns = monotonic_time_ns() + 40000000ULL;
+
+  s.interaction_mode = INTERACTION_RESIZE;
+  s.interaction_window = hot->frame;
+  s.interaction_handle = h;
+
+  xcb_configure_notify_event_t ev = {0};
+  ev.window = hot->xid;
+  ev.width = 111;
+  ev.height = 99;
+  wm_handle_configure_notify(&s, h, &ev);
+
+  assert(hot->desired.w == 220u);
+  assert(hot->desired.h == 140u);
+  assert(hot->geometry_from_notify == false);
+  assert(hot->notify_settle_pending == false);
+
+  printf("test_configure_notify_does_not_resync_desired_during_interactive_resize passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_configure_request_applies_and_extents();
   test_configure_request_mask_respects_existing();
@@ -684,5 +719,6 @@ int main(void) {
   test_configure_notify_resync_coalesces_pending_notify_resize();
   test_configure_notify_resync_settles_with_final_client_configure();
   test_interactive_resize_configures_client_even_when_notify_matches();
+  test_configure_notify_does_not_resync_desired_during_interactive_resize();
   return 0;
 }

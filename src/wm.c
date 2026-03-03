@@ -848,6 +848,26 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
     bool size_changed = (hot->server.w != ev->width || hot->server.h != ev->height);
     bool pending_geom = (hot->dirty & DIRTY_GEOM) != 0;
     bool can_resync_geom = (hot->manage_phase == MANAGE_DONE && hot->state == STATE_MAPPED && !pending_geom);
+    bool interactive_resize = (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame);
+
+    if (interactive_resize) {
+      /*
+       * During active interactive resize, desired geometry comes from pointer
+       * motion. Do not let ConfigureNotify drive desired-size resync here.
+       * We only track the latest server size when there is no pending
+       * geometry apply.
+       */
+      if (!pending_geom) {
+        hot->server.w = ev->width;
+        hot->server.h = ev->height;
+      }
+      hot->geometry_from_notify = false;
+      hot->notify_settle_pending = false;
+      hot->notify_settle_deadline_ns = 0;
+      LOG_DEBUG("Client %lx window size updated (interactive): %dx%d", h, ev->width, ev->height);
+      return;
+    }
+
     if (pending_geom && hot->geometry_from_notify) {
       uint16_t new_w = ev->width;
       uint16_t new_h = ev->height;
