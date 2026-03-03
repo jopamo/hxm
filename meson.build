@@ -581,6 +581,7 @@ test_manage_unmanage = executable('test_manage_unmanage',
   link_args: [
     '-Wl,--wrap=cookie_jar_push',
     '-Wl,--wrap=xcb_get_window_attributes',
+    '-Wl,--wrap=xcb_get_geometry',
   ],
 )
 test('manage_unmanage', test_manage_unmanage)
