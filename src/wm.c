@@ -74,6 +74,8 @@ static void add_ignore_unmaps(client_hot_t* hot, uint8_t n) {
 
 static bool check_wm_s0_available(server_t* s) {
   xcb_get_selection_owner_cookie_t cookie = xcb_get_selection_owner(s->conn, atoms.WM_S0);
+  // SYNC_REPLY_EXEMPT: startup WM_S0 probe only; bound<=12 blocking replies
+  // per wm_become attempt (not in hot event loop).
   xcb_get_selection_owner_reply_t* reply = xcb_get_selection_owner_reply(s->conn, cookie, NULL);
   if (!reply)
     return false;
@@ -664,6 +666,8 @@ void wm_become(server_t* s) {
   // Verify ownership (defensive)
   {
     xcb_get_selection_owner_cookie_t ck = xcb_get_selection_owner(conn, atoms.WM_S0);
+    // SYNC_REPLY_EXEMPT: startup WM_S0 verification only; bound<=12 blocking
+    // replies per wm_become attempt (not in hot event loop).
     xcb_get_selection_owner_reply_t* rep = xcb_get_selection_owner_reply(conn, ck, NULL);
     if (!rep || rep->owner != s->supporting_wm_check) {
       LOG_ERROR("Failed to acquire WM_S0 selection");
@@ -772,6 +776,8 @@ void wm_release(server_t* s) {
 void wm_adopt_children(server_t* s) {
   LOG_INFO("Adopting existing windows...");
   xcb_query_tree_cookie_t cookie = xcb_query_tree(s->conn, s->root);
+  // SYNC_REPLY_EXEMPT: startup adoption snapshot only; bound<=1 blocking reply
+  // per wm_adopt_children invocation.
   xcb_query_tree_reply_t* reply = xcb_query_tree_reply(s->conn, cookie, NULL);
   if (!reply)
     return;

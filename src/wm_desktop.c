@@ -99,8 +99,9 @@ void wm_publish_desktop_props(server_t* s) {
   bool publish_names = s->config.desktop_names && s->config.desktop_names_count > 0;
   if (!publish_names) {
     xcb_get_property_cookie_t ck = xcb_get_property(conn, 0, root, atoms._NET_DESKTOP_NAMES, atoms.UTF8_STRING, 0, 1024);
-    // Sync boundary: infrequent desktop updates, avoid overwriting external
-    // names.
+    // SYNC_REPLY_EXEMPT: infrequent desktop-name preservation probe to avoid
+    // overwriting externally-managed names; bound<=1 blocking reply per
+    // wm_publish_desktop_props call.
     xcb_get_property_reply_t* r = xcb_get_property_reply(conn, ck, NULL);
     if (!r || xcb_get_property_value_length(r) == 0) {
       publish_names = true;

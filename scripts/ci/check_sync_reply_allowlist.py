@@ -26,11 +26,21 @@ DEFAULT_TRACKED_FILES = (
 
 REPLY_RE = re.compile(r"\b(xcb_[A-Za-z0-9_]+_reply)\s*\(")
 IGNORED_REPLY_SYMBOLS = {"xcb_poll_for_reply"}
+EXEMPTION_ANNOTATION_TOKEN = "SYNC_REPLY_EXEMPT"
 
 
 def fail(message: str) -> int:
     print(f"error: {message}", file=sys.stderr)
     return 1
+
+
+def has_exemption_annotation(lines: list[str], zero_based_line: int) -> bool:
+    start = max(0, zero_based_line - 4)
+    end = min(len(lines) - 1, zero_based_line)
+    for idx in range(start, end + 1):
+        if EXEMPTION_ANNOTATION_TOKEN in lines[idx]:
+            return True
+    return False
 
 
 def parse_allowlist(
@@ -95,16 +105,18 @@ def parse_allowlist(
 
 def collect_actual(
     repo_root: pathlib.Path, tracked_files: tuple[str, ...]
-) -> tuple[Counter[tuple[str, str]], int]:
+) -> tuple[Counter[tuple[str, str]], int, list[str]]:
     actual: Counter[tuple[str, str]] = Counter()
     total = 0
+    missing_annotations: list[str] = []
 
     for rel_path in tracked_files:
         path = repo_root / rel_path
         if not path.is_file():
             raise ValueError(f"tracked file not found: {path}")
 
-        for raw in path.read_text(encoding="utf-8").splitlines():
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for lineno, raw in enumerate(lines, start=1):
             line = raw.strip()
             if line.startswith("//"):
                 continue
@@ -117,8 +129,10 @@ def collect_actual(
                     continue
                 actual[(rel_path, symbol)] += 1
                 total += 1
+                if not has_exemption_annotation(lines, lineno - 1):
+                    missing_annotations.append(f"{rel_path}:{lineno}: missing {EXEMPTION_ANNOTATION_TOKEN} for {symbol}")
 
-    return actual, total
+    return actual, total, missing_annotations
 
 
 def describe(counter: Counter[tuple[str, str]]) -> list[str]:
@@ -144,6 +158,15 @@ def main() -> int:
         default=None,
         help="Allowlist file path (default: scripts/ci/sync_reply_allowlist.txt).",
     )
+    parser.add_argument(
+        "--tracked-file",
+        action="append",
+        default=None,
+        help=(
+            "Relative runtime file path to scan. May be repeated. "
+            "Defaults to built-in runtime file set."
+        ),
+    )
     args = parser.parse_args()
 
     if args.root is None:
@@ -156,19 +179,36 @@ def main() -> int:
         if args.allowlist is not None
         else (repo_root / "scripts" / "ci" / "sync_reply_allowlist.txt")
     )
+    tracked_files = (
+        tuple(dict.fromkeys(args.tracked_file))
+        if args.tracked_file
+        else DEFAULT_TRACKED_FILES
+    )
 
     try:
-        expected, expected_total = parse_allowlist(allowlist, DEFAULT_TRACKED_FILES)
-        actual, actual_total = collect_actual(repo_root, DEFAULT_TRACKED_FILES)
+        expected, expected_total = parse_allowlist(allowlist, tracked_files)
+        actual, actual_total, missing_annotations = collect_actual(
+            repo_root, tracked_files
+        )
     except ValueError as exc:
         return fail(str(exc))
+
+    if missing_annotations:
+        print(
+            "error: sync reply exemption annotation missing\n"
+            f"required token: {EXEMPTION_ANNOTATION_TOKEN}\n"
+            "callsites:\n"
+            + "\n".join(missing_annotations),
+            file=sys.stderr,
+        )
+        return 1
 
     if expected != actual:
         expected_lines = "\n".join(describe(expected))
         actual_lines = "\n".join(describe(actual))
         print(
             "error: sync reply allowlist mismatch\n"
-            f"tracked files: {', '.join(DEFAULT_TRACKED_FILES)}\n"
+            f"tracked files: {', '.join(tracked_files)}\n"
             f"allowlist: {allowlist}\n"
             "expected (allowlist):\n"
             f"{expected_lines if expected_lines else '<none>'}\n"
@@ -180,7 +220,7 @@ def main() -> int:
 
     print(
         f"sync reply allowlist OK ({actual_total} callsites across "
-        f"{len(DEFAULT_TRACKED_FILES)} files)"
+        f"{len(tracked_files)} files)"
     )
     if expected_total != actual_total:
         return fail(

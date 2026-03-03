@@ -31,4 +31,34 @@ if python3 "$checker" --root "$repo_root" --allowlist "$stale" >/dev/null 2>&1; 
   exit 1
 fi
 
+# Negative check: missing SYNC_REPLY_EXEMPT annotation must fail.
+annot_root="$tmpdir/annot_root"
+mkdir -p "$annot_root/src"
+cat >"$annot_root/src/sync_missing_annotation.c" <<'EOF'
+void synthetic_missing_annotation(void* conn, int cookie) {
+  (void)xcb_get_property_reply(conn, cookie, 0);
+}
+EOF
+annot_allowlist="$tmpdir/annot_allowlist.txt"
+cat >"$annot_allowlist" <<'EOF'
+src/sync_missing_annotation.c|xcb_get_property_reply|1|synthetic test reply exemption bound<=1 per helper call
+EOF
+if python3 "$checker" --root "$annot_root" --allowlist "$annot_allowlist" --tracked-file src/sync_missing_annotation.c >/dev/null 2>&1; then
+  echo "expected allowlist checker to fail for missing SYNC_REPLY_EXEMPT annotation" >&2
+  exit 1
+fi
+
+# Positive check: callsite-level SYNC_REPLY_EXEMPT annotation passes.
+cat >"$annot_root/src/sync_with_annotation.c" <<'EOF'
+void synthetic_with_annotation(void* conn, int cookie) {
+  // SYNC_REPLY_EXEMPT: synthetic startup probe bound<=1 for test coverage.
+  (void)xcb_get_property_reply(conn, cookie, 0);
+}
+EOF
+annot_allowlist_ok="$tmpdir/annot_allowlist_ok.txt"
+cat >"$annot_allowlist_ok" <<'EOF'
+src/sync_with_annotation.c|xcb_get_property_reply|1|synthetic test reply exemption bound<=1 per helper call
+EOF
+python3 "$checker" --root "$annot_root" --allowlist "$annot_allowlist_ok" --tracked-file src/sync_with_annotation.c >/dev/null
+
 echo "test_sync_reply_allowlist passed"

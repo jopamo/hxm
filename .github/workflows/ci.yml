@@ -70,3 +70,4 @@ jobs:
           else
             meson test -C "build-${{ matrix.name }}" --print-errorlogs
           fi
+          python3 scripts/ci/fail_on_skips.py "build-${{ matrix.name }}/meson-logs/testlog.json"

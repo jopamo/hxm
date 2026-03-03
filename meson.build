@@ -264,6 +264,9 @@ test_wm_name_fallback = executable('test_wm_name_fallback',
   ['tests/test_wm_name_fallback.c', 'tests/xcb_stubs.c'] + test_src,
   include_directories: incdir,
   dependencies: deps,
+  link_args: [
+    '-Wl,--wrap=cookie_jar_push',
+  ],
 )
 test('wm_name_fallback', test_wm_name_fallback)
 
