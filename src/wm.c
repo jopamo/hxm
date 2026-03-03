@@ -1523,6 +1523,18 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
   hot->desired.h = h_val;
 
   hot->dirty |= DIRTY_GEOM;
+
+  /*
+   * Apply interactive resize directly from motion events so client content
+   * tracks frame size immediately instead of waiting for a later commit tick.
+   */
+  if (!s->is_test) {
+    uint64_t now = monotonic_time_ns();
+    if (wm_flush_dirty(s, now)) {
+      xcb_flush(s->conn);
+      s->pending_flush = false;
+    }
+  }
 }
 
 // EWMH client messages / state
