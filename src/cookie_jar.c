@@ -156,6 +156,9 @@ void cookie_jar_destroy(cookie_jar_t* cj) {
 }
 
 bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
+  if (!cj || !cj->slots || sequence == 0 || !handler)
+    return false;
+
   // Grow before insertion to preserve probe behavior and keep load bounded
   if (cj->live_count * COOKIE_JAR_MAX_LOAD_DEN >= cj->cap * COOKIE_JAR_MAX_LOAD_NUM) {
     cookie_jar_grow(cj, cj->cap * 2);
@@ -192,8 +195,10 @@ bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, ha
  * - It bounds work using `max_replies` to ensure fairness.
  */
 void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s, size_t max_replies) {
-  if (!cj || cj->live_count == 0 || max_replies == 0)
+  if (!cj || cj->live_count == 0)
     return;
+  if (max_replies == 0)
+    max_replies = COOKIE_JAR_MAX_REPLIES_PER_TICK;
 
   size_t processed = 0;
   size_t scanned = 0;

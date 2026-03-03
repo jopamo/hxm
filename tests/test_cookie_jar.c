@@ -88,6 +88,14 @@ static int mock_poll(xcb_connection_t* c, unsigned int request, void** reply, xc
   return 1;
 }
 
+static int mock_poll_all_ready(xcb_connection_t* c, unsigned int request, void** reply, xcb_generic_error_t** error) {
+  (void)c;
+  (void)request;
+  *reply = malloc(1);
+  *error = NULL;
+  return 1;
+}
+
 static uint64_t g_mock_time = 0;
 static bool g_use_mock_time = false;
 
@@ -187,6 +195,49 @@ static void test_push_and_drain(void) {
 
   cookie_jar_destroy(&cj);
   printf("test_push_and_drain passed\n");
+}
+
+static void test_push_rejects_zero_sequence(void) {
+  cookie_jar_t cj;
+  cookie_jar_init(&cj);
+
+  bool pushed = cookie_jar_push(&cj, 0, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+  assert(!pushed);
+  assert(cj.live_count == 0);
+
+  cookie_jar_destroy(&cj);
+  printf("test_push_rejects_zero_sequence passed\n");
+}
+
+static void test_push_rejects_null_handler(void) {
+  cookie_jar_t cj;
+  cookie_jar_init(&cj);
+
+  bool pushed = cookie_jar_push(&cj, 100, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, NULL);
+  assert(!pushed);
+  assert(cj.live_count == 0);
+
+  cookie_jar_destroy(&cj);
+  printf("test_push_rejects_null_handler passed\n");
+}
+
+static void test_drain_zero_budget_uses_default(void) {
+  cookie_jar_t cj;
+  cookie_jar_init(&cj);
+
+  stub_poll_for_reply_hook = mock_poll_all_ready;
+  const size_t total = COOKIE_JAR_MAX_REPLIES_PER_TICK + 5;
+  for (size_t i = 0; i < total; i++) {
+    bool ok = cookie_jar_push(&cj, (uint32_t)(i + 1), COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+    assert(ok);
+  }
+  assert(cj.live_count == total);
+
+  cookie_jar_drain(&cj, NULL, NULL, 0);
+  assert(cj.live_count == total - COOKIE_JAR_MAX_REPLIES_PER_TICK);
+
+  cookie_jar_destroy(&cj);
+  printf("test_drain_zero_budget_uses_default passed\n");
 }
 
 static void test_duplicate_push_rejected_or_replaced(void) {
@@ -614,6 +665,9 @@ static void test_alloc_fail_grow(void) {
 int main(void) {
   test_init_destroy();
   test_push_and_drain();
+  test_push_rejects_zero_sequence();
+  test_push_rejects_null_handler();
+  test_drain_zero_budget_uses_default();
   test_duplicate_push_rejected_or_replaced();
   test_drain_budget_respected();
   test_growth_and_reachability();
