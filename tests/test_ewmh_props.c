@@ -45,6 +45,21 @@ static const struct stub_prop_call* find_prop_call(xcb_window_t win, xcb_atom_t 
   return NULL;
 }
 
+static void assert_hidden_state_flag(const client_hot_t* hot, bool expected, xcb_atom_t net_wm_state, xcb_atom_t hidden_atom) {
+  const struct stub_prop_call* state = find_prop_call(hot->xid, net_wm_state, false);
+  assert(state != NULL);
+  bool has_hidden = atom_in_state_list((const xcb_atom_t*)state->data, state->len, hidden_atom);
+  assert(has_hidden == expected);
+}
+
+static void assert_wm_state_value(const client_hot_t* hot, xcb_atom_t wm_state_atom, uint32_t expected) {
+  const struct stub_prop_call* wm_state = find_prop_call(hot->xid, wm_state_atom, false);
+  assert(wm_state != NULL);
+  assert(wm_state->len == 2);
+  const uint32_t* vals = (const uint32_t*)wm_state->data;
+  assert(vals[0] == expected);
+}
+
 static void setup_server(server_t* s) {
   memset(s, 0, sizeof(*s));
   s->is_test = true;
@@ -1000,6 +1015,125 @@ static void test_state_below_sticky_skip_applies(void) {
   cleanup_server(&s);
 }
 
+static void test_hidden_state_not_toggled_by_off_desktop_visibility(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  atoms._NET_WM_STATE = 920;
+  atoms._NET_WM_STATE_HIDDEN = 921;
+  atoms._NET_WM_DESKTOP = 922;
+  atoms.WM_STATE = 923;
+
+  s.desktop_count = 2;
+  s.current_desktop = 0;
+
+  handle_t h = add_mapped_client(&s, 6201, 6301);
+  client_hot_t* hot = server_chot(&s, h);
+  assert(hot != NULL);
+  hot->desktop = 0;
+  hot->sticky = false;
+  hot->dirty |= DIRTY_STATE;
+
+  wm_flush_dirty(&s, monotonic_time_ns());
+  assert_hidden_state_flag(hot, false, atoms._NET_WM_STATE, atoms._NET_WM_STATE_HIDDEN);
+
+  wm_client_move_to_workspace(&s, h, 1, false);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  assert(stub_unmap_window_count == 1);
+  assert(stub_last_unmapped_window == hot->frame);
+  assert_wm_state_value(hot, atoms.WM_STATE, XCB_ICCCM_WM_STATE_ICONIC);
+  assert_hidden_state_flag(hot, false, atoms._NET_WM_STATE, atoms._NET_WM_STATE_HIDDEN);
+
+  wm_switch_workspace(&s, 1);
+  wm_flush_dirty(&s, monotonic_time_ns());
+  hot->dirty |= DIRTY_STATE;
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  assert(stub_map_window_count >= 1);
+  assert_wm_state_value(hot, atoms.WM_STATE, XCB_ICCCM_WM_STATE_NORMAL);
+  assert_hidden_state_flag(hot, false, atoms._NET_WM_STATE, atoms._NET_WM_STATE_HIDDEN);
+
+  printf("test_hidden_state_not_toggled_by_off_desktop_visibility passed\n");
+  cleanup_server(&s);
+}
+
+static void test_hidden_state_tracks_iconify_restore_and_wm_state(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  atoms._NET_WM_STATE = 924;
+  atoms._NET_WM_STATE_HIDDEN = 925;
+  atoms.WM_STATE = 926;
+
+  handle_t h = add_mapped_client(&s, 6202, 6302);
+  client_hot_t* hot = server_chot(&s, h);
+  assert(hot != NULL);
+
+  wm_client_update_state(&s, h, 1, atoms._NET_WM_STATE_HIDDEN);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  assert(hot->state == STATE_UNMAPPED);
+  assert_wm_state_value(hot, atoms.WM_STATE, XCB_ICCCM_WM_STATE_ICONIC);
+  assert_hidden_state_flag(hot, true, atoms._NET_WM_STATE, atoms._NET_WM_STATE_HIDDEN);
+
+  wm_client_update_state(&s, h, 0, atoms._NET_WM_STATE_HIDDEN);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  assert(hot->state == STATE_MAPPED);
+  assert_wm_state_value(hot, atoms.WM_STATE, XCB_ICCCM_WM_STATE_NORMAL);
+  assert_hidden_state_flag(hot, false, atoms._NET_WM_STATE, atoms._NET_WM_STATE_HIDDEN);
+
+  printf("test_hidden_state_tracks_iconify_restore_and_wm_state passed\n");
+  cleanup_server(&s);
+}
+
+static void test_show_desktop_round_trip_clears_hidden_state(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  atoms._NET_WM_STATE = 927;
+  atoms._NET_WM_STATE_HIDDEN = 928;
+  atoms._NET_SHOWING_DESKTOP = 929;
+  atoms.WM_STATE = 930;
+
+  handle_t h = add_mapped_client(&s, 6203, 6303);
+  client_hot_t* hot = server_chot(&s, h);
+  assert(hot != NULL);
+  hot->manage_phase = MANAGE_DONE;
+
+  wm_set_showing_desktop(&s, true);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const struct stub_prop_call* showing = find_prop_call(s.root, atoms._NET_SHOWING_DESKTOP, false);
+  assert(showing != NULL);
+  assert(showing->len == 1);
+  assert(((const uint32_t*)showing->data)[0] == 1u);
+  assert(s.showing_desktop == true);
+  assert(hot->show_desktop_hidden == true);
+  assert(hot->state == STATE_UNMAPPED);
+  assert_wm_state_value(hot, atoms.WM_STATE, XCB_ICCCM_WM_STATE_ICONIC);
+
+  wm_set_showing_desktop(&s, false);
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  showing = find_prop_call(s.root, atoms._NET_SHOWING_DESKTOP, false);
+  assert(showing != NULL);
+  assert(showing->len == 1);
+  assert(((const uint32_t*)showing->data)[0] == 0u);
+  assert(s.showing_desktop == false);
+  assert(hot->show_desktop_hidden == false);
+  assert(hot->state == STATE_MAPPED);
+  assert_wm_state_value(hot, atoms.WM_STATE, XCB_ICCCM_WM_STATE_NORMAL);
+  assert_hidden_state_flag(hot, false, atoms._NET_WM_STATE, atoms._NET_WM_STATE_HIDDEN);
+
+  printf("test_show_desktop_round_trip_clears_hidden_state passed\n");
+  cleanup_server(&s);
+}
+
 static void test_state_idempotent_and_unknown(void) {
   server_t s;
   setup_server(&s);
@@ -1103,6 +1237,9 @@ int main(void) {
   test_maximize_and_fullscreen_use_client_desktop_monitor_workarea();
   test_window_type_dock_layer();
   test_state_below_sticky_skip_applies();
+  test_hidden_state_not_toggled_by_off_desktop_visibility();
+  test_hidden_state_tracks_iconify_restore_and_wm_state();
+  test_show_desktop_round_trip_clears_hidden_state();
   test_state_idempotent_and_unknown();
   test_urgency_hint_maps_to_ewmh_state();
   return 0;

@@ -34,11 +34,10 @@
 #include "wm_internal.h"
 
 static bool wm_client_is_hidden(const server_t* s, const client_hot_t* hot) {
-  if (hot->state != STATE_MAPPED)
-    return true;
-  if (!hot->sticky && hot->desktop != (int32_t)s->current_desktop)
-    return true;
-  return false;
+  (void)s;
+  if (!hot)
+    return false;
+  return hot->state == STATE_UNMAPPED;
 }
 
 void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, uint32_t time) {
