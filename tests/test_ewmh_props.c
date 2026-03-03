@@ -93,6 +93,9 @@ static void cleanup_server(server_t* s) {
   small_vec_destroy(&s->active_clients);
   hash_map_destroy(&s->window_to_client);
   hash_map_destroy(&s->frame_to_client);
+  free(s->monitors);
+  s->monitors = NULL;
+  s->monitor_count = 0;
   for (int i = 0; i < LAYER_COUNT; i++)
     small_vec_destroy(&s->layers[i]);
   arena_destroy(&s->tick_arena);
@@ -783,6 +786,116 @@ static void test_strut_updates_workarea(void) {
   cleanup_server(&s);
 }
 
+static void test_workarea_publishes_per_desktop_array(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  atoms._NET_WORKAREA = 550;
+  s.desktop_count = 3;
+  s.current_desktop = 0;
+
+  handle_t h_top = add_mapped_client(&s, 3201, 3301);
+  handle_t h_left = add_mapped_client(&s, 3202, 3302);
+  client_hot_t* top_hot = server_chot(&s, h_top);
+  client_hot_t* left_hot = server_chot(&s, h_left);
+  client_cold_t* top_cold = server_ccold(&s, h_top);
+  client_cold_t* left_cold = server_ccold(&s, h_left);
+  assert(top_hot && left_hot && top_cold && left_cold);
+
+  top_hot->type = WINDOW_TYPE_DOCK;
+  top_hot->desktop = 0;
+  top_hot->sticky = false;
+  top_cold->strut.top = 30;
+  top_cold->strut_full_active = true;
+
+  left_hot->type = WINDOW_TYPE_DOCK;
+  left_hot->desktop = 1;
+  left_hot->sticky = false;
+  left_cold->strut.left = 40;
+  left_cold->strut_full_active = true;
+
+  s.root_dirty |= ROOT_DIRTY_WORKAREA;
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  const struct stub_prop_call* wa = find_prop_call(s.root, atoms._NET_WORKAREA, false);
+  assert(wa != NULL);
+  assert(wa->len == 12);
+  const uint32_t* vals = (const uint32_t*)wa->data;
+  assert(vals[0] == 0);
+  assert(vals[1] == 30);
+  assert(vals[2] == 1920);
+  assert(vals[3] == 1050);
+  assert(vals[4] == 40);
+  assert(vals[5] == 0);
+  assert(vals[6] == 1880);
+  assert(vals[7] == 1080);
+  assert(vals[8] == 0);
+  assert(vals[9] == 0);
+  assert(vals[10] == 1920);
+  assert(vals[11] == 1080);
+
+  printf("test_workarea_publishes_per_desktop_array passed\n");
+  cleanup_server(&s);
+}
+
+static void test_maximize_and_fullscreen_use_client_desktop_monitor_workarea(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  atoms._NET_WM_STATE_FULLSCREEN = 560;
+  s.desktop_count = 2;
+  s.current_desktop = 0;
+  s.config.theme.border_width = 0;
+  s.config.theme.title_height = 0;
+  s.config.fullscreen_use_workarea = true;
+
+  s.monitors = calloc(2, sizeof(monitor_t));
+  assert(s.monitors != NULL);
+  s.monitor_count = 2;
+  s.monitors[0].geom = (rect_t){0, 0, 960, 1080};
+  s.monitors[1].geom = (rect_t){960, 0, 960, 1080};
+  s.monitors[0].workarea = s.monitors[0].geom;
+  s.monitors[1].workarea = s.monitors[1].geom;
+
+  handle_t h_dock = add_mapped_client(&s, 3401, 3501);
+  client_hot_t* dock_hot = server_chot(&s, h_dock);
+  client_cold_t* dock_cold = server_ccold(&s, h_dock);
+  assert(dock_hot && dock_cold);
+  dock_hot->type = WINDOW_TYPE_DOCK;
+  dock_hot->desktop = 1;
+  dock_hot->sticky = false;
+  dock_cold->strut.top = 50;
+  dock_cold->strut_partial_active = true;
+  dock_cold->strut.top_start_x = 960;
+  dock_cold->strut.top_end_x = 1920;
+
+  handle_t h = add_mapped_client(&s, 3402, 3502);
+  client_hot_t* hot = server_chot(&s, h);
+  assert(hot != NULL);
+  hot->desktop = 1;
+  hot->sticky = false;
+  hot->server = (rect_t){1200, 200, 300, 200};
+  hot->desired = hot->server;
+
+  wm_client_set_maximize(&s, hot, true, true);
+  assert(hot->desired.x == 960);
+  assert(hot->desired.y == 50);
+  assert(hot->desired.w == 960);
+  assert(hot->desired.h == 1030);
+
+  wm_client_update_state(&s, h, 1, atoms._NET_WM_STATE_FULLSCREEN);
+  assert(hot->layer == LAYER_FULLSCREEN);
+  assert(hot->desired.x == 960);
+  assert(hot->desired.y == 50);
+  assert(hot->desired.w == 960);
+  assert(hot->desired.h == 1030);
+
+  printf("test_maximize_and_fullscreen_use_client_desktop_monitor_workarea passed\n");
+  cleanup_server(&s);
+}
+
 static void test_window_type_dock_layer(void) {
   server_t s;
   setup_server(&s);
@@ -986,6 +1099,8 @@ int main(void) {
   test_window_type_desktop_respects_net_wm_desktop();
   test_desktop_type_then_net_wm_desktop_updates();
   test_strut_updates_workarea();
+  test_workarea_publishes_per_desktop_array();
+  test_maximize_and_fullscreen_use_client_desktop_monitor_workarea();
   test_window_type_dock_layer();
   test_state_below_sticky_skip_applies();
   test_state_idempotent_and_unknown();

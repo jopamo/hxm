@@ -437,18 +437,21 @@ static void wm_apply_monitor_snapshot(server_t* s, monitor_t* next_monitors, uin
 }
 
 static void wm_client_apply_maximize(server_t* s, client_hot_t* hot) {
+  rect_t wa = s->workarea;
+  wm_get_client_workarea(s, hot, &wa);
+
   uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
   uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
 
   if (hot->maximized_horz) {
-    int32_t w = (int32_t)s->workarea.w - 2 * (int32_t)bw;
-    hot->desired.x = s->workarea.x;
+    int32_t w = (int32_t)wa.w - 2 * (int32_t)bw;
+    hot->desired.x = wa.x;
     hot->desired.w = (uint16_t)((w > 0) ? w : 0);
   }
 
   if (hot->maximized_vert) {
-    int32_t h = (int32_t)s->workarea.h - (int32_t)th - (int32_t)bw;
-    hot->desired.y = s->workarea.y;
+    int32_t h = (int32_t)wa.h - (int32_t)th - (int32_t)bw;
+    hot->desired.y = wa.y;
     hot->desired.h = (uint16_t)((h > 0) ? h : 0);
   }
 }
@@ -1712,7 +1715,7 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
       }
 
       if (s->config.fullscreen_use_workarea) {
-        hot->desired = s->workarea;
+        wm_get_client_workarea(s, hot, &hot->desired);
       }
       else {
         wm_get_monitor_geometry(s, hot, &hot->desired);

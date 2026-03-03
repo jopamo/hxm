@@ -23,6 +23,8 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
 void wm_client_set_maximize(server_t* s, client_hot_t* hot, bool max_horz, bool max_vert);
 
 void wm_publish_workarea(server_t* s, const rect_t* wa);
+void wm_compute_workareas(server_t* s, rect_t* out_workareas, uint32_t count);
+void wm_get_client_workarea(server_t* s, const client_hot_t* hot, rect_t* out_workarea);
 void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, uint32_t time);
 
 bool wm_flush_dirty(server_t* s, uint64_t now);

@@ -224,57 +224,80 @@ static void wa_shrink_bottom(rect_t* wa, int32_t new_bottom) {
   wa->h = (uint16_t)(new_bottom - y);
 }
 
-/*
- * wm_compute_workarea:
- * Calculate the usable screen geometry (minus panels/docks).
- *
- * Logic:
- * 1. Start with full monitor geometry.
- * 2. Iterate all mapped clients with _NET_WM_STRUT_PARTIAL.
- * 3. If a strut edge intersects a monitor edge, shrink the workarea.
- * 4. This is an O(N*M) operation, but N (struts) and M (monitors) are usually
- * small.
- */
-void wm_compute_workarea(server_t* s, rect_t* out) {
-  if (!s || !out)
-    return;
+static uint32_t wm_effective_desktop_count(const server_t* s) {
+  if (!s || s->desktop_count == 0)
+    return 1;
+  return s->desktop_count;
+}
 
-  uint32_t m_count = s->monitor_count;
-  monitor_t default_mon;
-  monitor_t* mons = s->monitors;
+static uint32_t wm_desktop_index_for_client(const server_t* s, const client_hot_t* hot) {
+  uint32_t desktop_count = wm_effective_desktop_count(s);
+  if (!hot || hot->sticky || hot->desktop < 0)
+    return s ? s->current_desktop % desktop_count : 0;
+  if ((uint32_t)hot->desktop >= desktop_count)
+    return s ? s->current_desktop % desktop_count : 0;
+  return (uint32_t)hot->desktop;
+}
+
+static bool wm_strut_applies_to_desktop(const client_hot_t* hot, uint32_t desktop) {
+  if (!hot)
+    return false;
+  if (hot->sticky || hot->desktop < 0)
+    return true;
+  return (uint32_t)hot->desktop == desktop;
+}
+
+static uint32_t wm_monitor_set(server_t* s, monitor_t* default_mon, monitor_t** out_mons, int32_t* out_screen_w, int32_t* out_screen_h) {
+  if (!s || !default_mon || !out_mons)
+    return 0;
 
   xcb_screen_t* screen = xcb_setup_roots_iterator(xcb_get_setup(s->conn)).data;
   int32_t screen_w = (int32_t)screen->width_in_pixels;
   int32_t screen_h = (int32_t)screen->height_in_pixels;
+  if (out_screen_w)
+    *out_screen_w = screen_w;
+  if (out_screen_h)
+    *out_screen_h = screen_h;
 
-  if (m_count == 0) {
-    m_count = 1;
-    default_mon.geom.x = 0;
-    default_mon.geom.y = 0;
-    default_mon.geom.w = (uint16_t)screen_w;
-    default_mon.geom.h = (uint16_t)screen_h;
-    default_mon.workarea = default_mon.geom;
-    mons = &default_mon;
-  }
-  else {
-    // 1. Initialize monitor workareas
-    for (uint32_t m = 0; m < m_count; m++) {
-      s->monitors[m].workarea = s->monitors[m].geom;
-    }
+  if (s->monitor_count > 0 && s->monitors) {
+    *out_mons = s->monitors;
+    return s->monitor_count;
   }
 
-  // 2. Iterate clients and subtract struts
+  default_mon->geom.x = 0;
+  default_mon->geom.y = 0;
+  default_mon->geom.w = (uint16_t)screen_w;
+  default_mon->geom.h = (uint16_t)screen_h;
+  default_mon->workarea = default_mon->geom;
+  *out_mons = default_mon;
+  return 1;
+}
+
+static void wm_reset_monitor_workareas(monitor_t* mons, uint32_t m_count) {
+  if (!mons || m_count == 0)
+    return;
+  for (uint32_t m = 0; m < m_count; m++) {
+    mons[m].workarea = mons[m].geom;
+  }
+}
+
+static void wm_apply_struts_for_desktop(server_t* s, uint32_t desktop, monitor_t* mons, uint32_t m_count, int32_t screen_w, int32_t screen_h) {
+  if (!s || !mons || m_count == 0)
+    return;
+
   for (size_t i = 0; i < s->active_clients.length; i++) {
     handle_t h = ptr_to_handle(s->active_clients.items[i]);
     client_hot_t* c = server_chot(s, h);
     client_cold_t* cold = server_ccold(s, h);
     if (!c || !cold)
       continue;
-    bool has_strut = cold->strut_partial_active || cold->strut_full_active;
-    if (c->state != STATE_MAPPED && !has_strut)
+
+    bool has_strut = cold->strut_partial_active || cold->strut_full_active || cold->strut.left > 0 || cold->strut.right > 0 || cold->strut.top > 0 || cold->strut.bottom > 0;
+    if (!has_strut)
+      continue;
+    if (!wm_strut_applies_to_desktop(c, desktop))
       continue;
 
-    // Apply strut to intersecting monitors
     for (uint32_t m = 0; m < m_count; m++) {
       monitor_t* mon = &mons[m];
       int32_t ml = mon->geom.x;
@@ -283,7 +306,6 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
       int32_t mb = mon->geom.y + mon->geom.h;
 
       if (cold->strut.left > 0) {
-        // Check if strut vertical range overlaps monitor
         bool overlap = true;
         if (cold->strut_partial_active) {
           overlap = (cold->strut.left_start_y < (uint32_t)mb && cold->strut.left_end_y > (uint32_t)mt);
@@ -329,14 +351,118 @@ void wm_compute_workarea(server_t* s, rect_t* out) {
       }
     }
   }
+}
 
-  // 3. Set output workarea to the primary monitor's workarea (first monitor)
-  if (s->monitor_count > 0) {
-    *out = s->monitors[0].workarea;
+void wm_compute_workareas(server_t* s, rect_t* out_workareas, uint32_t count) {
+  if (!s || !out_workareas || count == 0)
+    return;
+
+  monitor_t default_mon;
+  monitor_t* base_mons = NULL;
+  int32_t screen_w = 0;
+  int32_t screen_h = 0;
+  uint32_t m_count = wm_monitor_set(s, &default_mon, &base_mons, &screen_w, &screen_h);
+  if (m_count == 0)
+    return;
+
+  monitor_t* scratch = calloc(m_count, sizeof(*scratch));
+  if (!scratch) {
+    rect_t fallback = base_mons[0].geom;
+    for (uint32_t d = 0; d < count; d++) {
+      out_workareas[d] = fallback;
+    }
+    return;
   }
-  else {
-    *out = default_mon.workarea;
+
+  uint32_t desktop_count = wm_effective_desktop_count(s);
+  if (desktop_count > count)
+    desktop_count = count;
+
+  for (uint32_t d = 0; d < desktop_count; d++) {
+    memcpy(scratch, base_mons, m_count * sizeof(*scratch));
+    wm_reset_monitor_workareas(scratch, m_count);
+    wm_apply_struts_for_desktop(s, d, scratch, m_count, screen_w, screen_h);
+    out_workareas[d] = scratch[0].workarea;
   }
+
+  for (uint32_t d = desktop_count; d < count; d++) {
+    out_workareas[d] = out_workareas[desktop_count - 1];
+  }
+
+  free(scratch);
+}
+
+/*
+ * wm_compute_workarea:
+ * Calculate the current desktop usable geometry (minus panels/docks).
+ *
+ * Logic:
+ * 1. Start with full monitor geometry.
+ * 2. Apply only struts that scope to the current desktop (or sticky clients).
+ * 3. If a strut edge intersects a monitor edge, shrink the workarea.
+ * 4. This is an O(N*M) operation, but N (struts) and M (monitors) are usually
+ * small.
+ */
+void wm_compute_workarea(server_t* s, rect_t* out) {
+  if (!s || !out)
+    return;
+
+  monitor_t default_mon;
+  monitor_t* mons = NULL;
+  int32_t screen_w = 0;
+  int32_t screen_h = 0;
+  uint32_t m_count = wm_monitor_set(s, &default_mon, &mons, &screen_w, &screen_h);
+  if (m_count == 0)
+    return;
+
+  uint32_t desktop = s->current_desktop;
+  uint32_t desktop_count = wm_effective_desktop_count(s);
+  if (desktop >= desktop_count)
+    desktop = 0;
+
+  wm_reset_monitor_workareas(mons, m_count);
+  wm_apply_struts_for_desktop(s, desktop, mons, m_count, screen_w, screen_h);
+  *out = mons[0].workarea;
+}
+
+void wm_get_client_workarea(server_t* s, const client_hot_t* hot, rect_t* out_workarea) {
+  if (!s || !out_workarea)
+    return;
+
+  monitor_t default_mon;
+  monitor_t* base_mons = NULL;
+  int32_t screen_w = 0;
+  int32_t screen_h = 0;
+  uint32_t m_count = wm_monitor_set(s, &default_mon, &base_mons, &screen_w, &screen_h);
+  if (m_count == 0) {
+    *out_workarea = s->workarea;
+    return;
+  }
+
+  uint32_t desktop = wm_desktop_index_for_client(s, hot);
+  uint32_t monitor_idx = 0;
+  if (hot && m_count > 1) {
+    int center_x = hot->server.x + (int32_t)hot->server.w / 2;
+    int center_y = hot->server.y + (int32_t)hot->server.h / 2;
+    int idx = wm_monitor_at_point(s, center_x, center_y);
+    if (idx >= 0 && (uint32_t)idx < m_count)
+      monitor_idx = (uint32_t)idx;
+  }
+
+  monitor_t* scratch = calloc(m_count, sizeof(*scratch));
+  if (!scratch) {
+    if (monitor_idx < m_count)
+      *out_workarea = base_mons[monitor_idx].workarea;
+    else
+      *out_workarea = base_mons[0].workarea;
+    return;
+  }
+
+  memcpy(scratch, base_mons, m_count * sizeof(*scratch));
+  wm_reset_monitor_workareas(scratch, m_count);
+  wm_apply_struts_for_desktop(s, desktop, scratch, m_count, screen_w, screen_h);
+  *out_workarea = scratch[monitor_idx < m_count ? monitor_idx : 0].workarea;
+  free(scratch);
 }
 
 int wm_monitor_at_point(const server_t* s, int root_x, int root_y) {
@@ -383,7 +509,8 @@ void wm_switch_workspace(server_t* s, uint32_t new_desktop) {
 
   s->current_desktop = new_desktop;
 
-  s->root_dirty |= ROOT_DIRTY_VISIBILITY | ROOT_DIRTY_CURRENT_DESKTOP;
+  s->root_dirty |= ROOT_DIRTY_VISIBILITY | ROOT_DIRTY_CURRENT_DESKTOP | ROOT_DIRTY_WORKAREA;
+  s->workarea_dirty = true;
 
   bool focused_visible = false;
   if (s->focused_client != HANDLE_INVALID) {
@@ -420,6 +547,7 @@ void wm_switch_workspace_relative(server_t* s, int delta) {
 
 void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool follow) {
   client_hot_t* c = server_chot(s, h);
+  client_cold_t* cold = server_ccold(s, h);
   if (!c)
     return;
 
@@ -442,6 +570,10 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
 
   c->desktop = new_desk;
   c->sticky = (new_desk == -1);
+  if (cold && (cold->strut_partial_active || cold->strut_full_active)) {
+    s->root_dirty |= ROOT_DIRTY_WORKAREA;
+    s->workarea_dirty = true;
+  }
 
   if (follow && !c->sticky) {
     wm_switch_workspace(s, desktop);
@@ -470,12 +602,17 @@ void wm_client_move_to_workspace(server_t* s, handle_t h, uint32_t desktop, bool
 
 void wm_client_toggle_sticky(server_t* s, handle_t h) {
   client_hot_t* c = server_chot(s, h);
+  client_cold_t* cold = server_ccold(s, h);
   if (!c)
     return;
 
   c->sticky = !c->sticky;
   if (c->sticky && (c->type == WINDOW_TYPE_DOCK || c->type == WINDOW_TYPE_DESKTOP)) {
     c->desktop = -1;
+  }
+  if (cold && (cold->strut_partial_active || cold->strut_full_active)) {
+    s->root_dirty |= ROOT_DIRTY_WORKAREA;
+    s->workarea_dirty = true;
   }
 
   LOG_INFO("Client %u sticky toggled to %d", c->xid, c->sticky);

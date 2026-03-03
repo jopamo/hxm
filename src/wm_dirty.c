@@ -156,26 +156,27 @@ void wm_publish_workarea(server_t* s, const rect_t* wa) {
   if (!s || !wa)
     return;
 
-  bool changed = (memcmp(&s->workarea, wa, sizeof(rect_t)) != 0);
   s->workarea = *wa;
 
-  if (changed) {
-    uint32_t n = s->desktop_count ? s->desktop_count : 1;
-    uint32_t* wa_vals = malloc(n * 4 * sizeof(uint32_t));
-    if (wa_vals) {
-      for (uint32_t i = 0; i < n; i++) {
-        wa_vals[i * 4 + 0] = (uint32_t)s->workarea.x;
-        wa_vals[i * 4 + 1] = (uint32_t)s->workarea.y;
-        wa_vals[i * 4 + 2] = (uint32_t)s->workarea.w;
-        wa_vals[i * 4 + 3] = (uint32_t)s->workarea.h;
-      }
-      xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_WORKAREA, XCB_ATOM_CARDINAL, 32, n * 4, wa_vals);
-      free(wa_vals);
-    }
+  uint32_t n = s->desktop_count ? s->desktop_count : 1;
+  rect_t* desktop_workareas = calloc(n, sizeof(*desktop_workareas));
+  if (desktop_workareas) {
+    wm_compute_workareas(s, desktop_workareas, n);
   }
 
-  if (!changed)
-    return;
+  uint32_t* wa_vals = malloc(n * 4 * sizeof(uint32_t));
+  if (wa_vals) {
+    for (uint32_t i = 0; i < n; i++) {
+      rect_t wa_i = desktop_workareas ? desktop_workareas[i] : s->workarea;
+      wa_vals[i * 4 + 0] = (uint32_t)wa_i.x;
+      wa_vals[i * 4 + 1] = (uint32_t)wa_i.y;
+      wa_vals[i * 4 + 2] = (uint32_t)wa_i.w;
+      wa_vals[i * 4 + 3] = (uint32_t)wa_i.h;
+    }
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_WORKAREA, XCB_ATOM_CARDINAL, 32, n * 4, wa_vals);
+    free(wa_vals);
+  }
+  free(desktop_workareas);
 
   // Re-apply workarea-dependent geometry for maximized/fullscreen windows
   for (size_t i = 0; i < s->active_clients.length; i++) {
@@ -188,7 +189,7 @@ void wm_publish_workarea(server_t* s, const rect_t* wa) {
       continue;
 
     if (hot->layer == LAYER_FULLSCREEN && s->config.fullscreen_use_workarea) {
-      hot->desired = s->workarea;
+      wm_get_client_workarea(s, hot, &hot->desired);
       hot->dirty |= DIRTY_GEOM;
     }
     else if (hot->maximized_horz || hot->maximized_vert) {
