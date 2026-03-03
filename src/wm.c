@@ -1456,6 +1456,9 @@ void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
     LOG_INFO("ButtonRelease in interaction");
   }
 
+  bool had_interaction = (s->interaction_mode != INTERACTION_NONE);
+  handle_t interaction_h = s->interaction_handle;
+
   if (s->interaction_mode == INTERACTION_MOVE) {
     handle_t h = s->interaction_handle;
     client_hot_t* hot = server_chot(s, h);
@@ -1474,6 +1477,19 @@ void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
   }
 
   wm_cancel_interaction(s);
+
+  if (!had_interaction || s->is_test || interaction_h == HANDLE_INVALID)
+    return;
+
+  client_hot_t* hot = server_chot(s, interaction_h);
+  if (!hot || (hot->dirty & DIRTY_GEOM) == 0)
+    return;
+
+  uint64_t now = monotonic_time_ns();
+  if (wm_flush_dirty(s, now)) {
+    xcb_flush(s->conn);
+    s->pending_flush = false;
+  }
 }
 
 void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {

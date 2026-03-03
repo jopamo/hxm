@@ -22,6 +22,7 @@ extern int stub_ungrab_key_count;
 extern uint16_t stub_last_grab_key_mods;
 extern xcb_keycode_t stub_last_grab_keycode;
 extern int stub_sync_await_count;
+extern int stub_config_calls_len;
 extern void xcb_stubs_set_query_pointer_sequence(uint32_t sequence);
 
 bool __real_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
@@ -389,6 +390,47 @@ static void test_resize_no_sync_await(void) {
   cleanup_server(&s);
 }
 
+static void test_button_release_flushes_pending_resize(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_cookie_push_spy();
+
+  s.is_test = false;
+
+  handle_t h = add_mapped_client(&s, 6101, 6201);
+  client_hot_t* hot = server_chot(&s, h);
+  small_vec_init(&s.active_clients);
+  small_vec_push(&s.active_clients, handle_to_ptr(h));
+
+  s.interaction_mode = INTERACTION_RESIZE;
+  s.interaction_window = hot->frame;
+  s.interaction_handle = h;
+  s.interaction_resize_dir = RESIZE_BOTTOM | RESIZE_RIGHT;
+
+  hot->desired.w = (uint16_t)(hot->server.w + 32);
+  hot->desired.h = (uint16_t)(hot->server.h + 24);
+  hot->dirty |= DIRTY_GEOM;
+
+  stub_config_calls_len = 0;
+
+  xcb_button_release_event_t ev = {0};
+  ev.root_x = 200;
+  ev.root_y = 180;
+
+  wm_handle_button_release(&s, &ev);
+
+  assert(s.interaction_mode == INTERACTION_NONE);
+  assert((hot->dirty & DIRTY_GEOM) == 0);
+  assert(hot->server.w == hot->desired.w);
+  assert(hot->server.h == hot->desired.h);
+  assert(stub_config_calls_len >= 2);
+
+  printf("test_button_release_flushes_pending_resize passed\n");
+  small_vec_destroy(&s.active_clients);
+  cleanup_server(&s);
+}
+
 static void test_keybinding_clean_mods(void) {
   server_t s;
   setup_server(&s);
@@ -524,6 +566,7 @@ int main(void) {
   test_resize_corner_top_left();
   test_cancel_interaction_resets_cursor();
   test_resize_no_sync_await();
+  test_button_release_flushes_pending_resize();
   test_keybinding_clean_mods();
   test_keybinding_conflict_deterministic();
   test_key_grabs_from_config();
