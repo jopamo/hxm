@@ -536,14 +536,6 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
           }
         }
 
-        uint32_t frame_values[4];
-        frame_values[0] = (uint32_t)frame_x;
-        frame_values[1] = (uint32_t)frame_y;
-        frame_values[2] = frame_w;
-        frame_values[3] = frame_h;
-
-        xcb_configure_window(s->conn, hot->frame, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, frame_values);
-
         uint32_t client_values[4];
         int32_t local_x = bw;
         int32_t local_y = th;
@@ -558,11 +550,22 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         client_values[2] = client_w;
         client_values[3] = client_h;
 
+        uint32_t frame_values[4];
+        frame_values[0] = (uint32_t)frame_x;
+        frame_values[1] = (uint32_t)frame_y;
+        frame_values[2] = frame_w;
+        frame_values[3] = frame_h;
+
+        /*
+         * Keep client/frame geometry coherent during live resize: update the
+         * child first, then resize/move the reparent frame.
+         */
         if (!client_size_from_notify) {
           xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
           hot->notify_settle_pending = false;
           hot->notify_settle_deadline_ns = 0;
         }
+        xcb_configure_window(s->conn, hot->frame, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, frame_values);
 
         // Set _NET_FRAME_EXTENTS
         uint16_t bottom_h = bw;

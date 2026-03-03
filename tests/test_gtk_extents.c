@@ -157,19 +157,19 @@ static void test_gtk_extents_inflation_order_and_state(void) {
   const uint32_t exp_client_w = 400;
   const uint32_t exp_client_h = 300;
 
-  // Two configures: frame then client
+  // Two configures: client then frame
   assert(stub_configure_window_count == 2);
   assert(stub_config_calls_len == 2);
 
-  assert_call_eq(&stub_config_calls[0], 200, exp_frame_x, exp_frame_y, exp_frame_w, exp_frame_h);
-  assert_call_eq(&stub_config_calls[1], 100, exp_client_x, exp_client_y, exp_client_w, exp_client_h);
+  assert_call_eq(&stub_config_calls[0], 100, exp_client_x, exp_client_y, exp_client_w, exp_client_h);
+  assert_call_eq(&stub_config_calls[1], 200, exp_frame_x, exp_frame_y, exp_frame_w, exp_frame_h);
 
-  // Last call should be the client
-  assert(stub_last_config_window == 100);
-  assert(stub_last_config_x == exp_client_x);
-  assert(stub_last_config_y == exp_client_y);
-  assert(stub_last_config_w == exp_client_w);
-  assert(stub_last_config_h == exp_client_h);
+  // Last call should be the frame
+  assert(stub_last_config_window == 200);
+  assert(stub_last_config_x == exp_frame_x);
+  assert(stub_last_config_y == exp_frame_y);
+  assert(stub_last_config_w == exp_frame_w);
+  assert(stub_last_config_h == exp_frame_h);
 
   // Server state should reflect frame geometry
   assert(hot->server.x == exp_frame_x);
@@ -213,8 +213,8 @@ static void test_no_gtk_extents_no_inflation(void) {
   assert(stub_configure_window_count == 2);
   assert(stub_config_calls_len == 2);
 
-  assert_call_eq(&stub_config_calls[0], 201, exp_frame_x, exp_frame_y, exp_frame_w, exp_frame_h);
-  assert_call_eq(&stub_config_calls[1], 101, (int32_t)ts.s.config.theme.border_width, (int32_t)ts.s.config.theme.title_height, exp_client_w, exp_client_h);
+  assert_call_eq(&stub_config_calls[0], 101, (int32_t)ts.s.config.theme.border_width, (int32_t)ts.s.config.theme.title_height, exp_client_w, exp_client_h);
+  assert_call_eq(&stub_config_calls[1], 201, exp_frame_x, exp_frame_y, exp_frame_w, exp_frame_h);
 
   assert(hot->server.x == exp_frame_x);
   assert(hot->server.y == exp_frame_y);
@@ -259,8 +259,8 @@ static void test_theme_decoration_change_reconfigures_frame(void) {
 
   const uint32_t exp_frame_w = 320 + 2 * 9;
   const uint32_t exp_frame_h = 240 + 26 + 9;
-  assert_call_eq(&stub_config_calls[0], 204, 20, 30, exp_frame_w, exp_frame_h);
-  assert_call_eq(&stub_config_calls[1], 104, 9, 26, 320, 240);
+  assert_call_eq(&stub_config_calls[0], 104, 9, 26, 320, 240);
+  assert_call_eq(&stub_config_calls[1], 204, 20, 30, exp_frame_w, exp_frame_h);
 
   printf("test_theme_decoration_change_reconfigures_frame passed\n");
 
@@ -358,7 +358,7 @@ static void test_two_clients_both_configured(void) {
   assert(stub_configure_window_count == 4);
   assert(stub_config_calls_len == 4);
 
-  // Find paired calls frame->client for A and B without assuming inter-client
+  // Find paired calls client->frame for A and B without assuming inter-client
   // order
   bool found_a = false;
   bool found_b = false;
@@ -367,7 +367,7 @@ static void test_two_clients_both_configured(void) {
     const stub_config_call_t* c0 = &stub_config_calls[i];
     const stub_config_call_t* c1 = &stub_config_calls[i + 1];
 
-    if (!found_a && c0->win == 210 && c1->win == 110) {
+    if (!found_a && c0->win == 110 && c1->win == 210) {
       // Client A: Now CSD Window (Extents Respected)
       const int32_t fx = 10 - 5;
       const int32_t fy = 20 - 7;
@@ -379,12 +379,12 @@ static void test_two_clients_both_configured(void) {
       const uint32_t cw = 100;
       const uint32_t ch = 200;
 
-      assert_call_eq(c0, 210, fx, fy, fw, fh);
-      assert_call_eq(c1, 110, cx, cy, cw, ch);
+      assert_call_eq(c0, 110, cx, cy, cw, ch);
+      assert_call_eq(c1, 210, fx, fy, fw, fh);
       found_a = true;
     }
 
-    if (!found_b && c0->win == 211 && c1->win == 111) {
+    if (!found_b && c0->win == 111 && c1->win == 211) {
       uint16_t bw = ts.s.config.theme.border_width;
       uint16_t hh = ts.s.config.theme.handle_height;
       uint16_t bottom = (hh > bw) ? hh : bw;
@@ -393,8 +393,8 @@ static void test_two_clients_both_configured(void) {
       const int32_t fy = 40;
       const uint32_t frame_w = 300 + 2 * bw;
       const uint32_t frame_h = 400 + ts.s.config.theme.title_height + bottom;
-      assert_call_eq(c0, 211, fx, fy, frame_w, frame_h);
-      assert_call_eq(c1, 111, (int32_t)ts.s.config.theme.border_width, (int32_t)ts.s.config.theme.title_height, 300, 400);
+      assert_call_eq(c0, 111, (int32_t)ts.s.config.theme.border_width, (int32_t)ts.s.config.theme.title_height, 300, 400);
+      assert_call_eq(c1, 211, fx, fy, frame_w, frame_h);
       found_b = true;
     }
   }
