@@ -205,6 +205,35 @@ size_t cookie_jar_remove_client(cookie_jar_t* cj, handle_t client) {
   return removed;
 }
 
+int32_t cookie_jar_next_timeout_ms(const cookie_jar_t* cj, uint64_t now_ns) {
+  if (!cj || !cj->slots || cj->live_count == 0)
+    return -1;
+
+  uint64_t min_remaining_ns = UINT64_MAX;
+  for (size_t i = 0; i < cj->cap; i++) {
+    const cookie_slot_t* slot = &cj->slots[i];
+    if (!slot->live)
+      continue;
+
+    uint64_t age_ns = (now_ns > slot->timestamp_ns) ? (now_ns - slot->timestamp_ns) : 0;
+    if (age_ns >= COOKIE_JAR_TIMEOUT_NS)
+      return 0;
+
+    uint64_t remaining_ns = COOKIE_JAR_TIMEOUT_NS - age_ns;
+    if (remaining_ns < min_remaining_ns) {
+      min_remaining_ns = remaining_ns;
+    }
+  }
+
+  if (min_remaining_ns == UINT64_MAX)
+    return -1;
+
+  uint64_t timeout_ms = (min_remaining_ns + 999999ULL) / 1000000ULL;
+  if (timeout_ms > (uint64_t)INT32_MAX)
+    return INT32_MAX;
+  return (int32_t)timeout_ms;
+}
+
 /*
  * cookie_jar_drain:
  * Check for available replies or timeouts.

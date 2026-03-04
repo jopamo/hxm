@@ -107,7 +107,29 @@ static void test_save_set_insert_and_delete(void) {
   cleanup_server(&s);
 }
 
+static void test_save_set_delete_skipped_when_destroyed(void) {
+  server_t s;
+  setup_server(&s);
+
+  handle_t h = add_client(&s, 2002, 2102);
+  client_hot_t* hot = server_chot(&s, h);
+
+  stub_save_set_insert_count = 0;
+  stub_save_set_delete_count = 0;
+
+  client_finish_manage(&s, h);
+  assert(stub_save_set_insert_count == 1);
+
+  hot->state = STATE_DESTROYED;
+  client_unmanage(&s, h);
+  assert(stub_save_set_delete_count == 0);
+
+  printf("test_save_set_delete_skipped_when_destroyed passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_save_set_insert_and_delete();
+  test_save_set_delete_skipped_when_destroyed();
   return 0;
 }

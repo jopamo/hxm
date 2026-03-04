@@ -1403,21 +1403,28 @@ static bool server_wait_for_events(server_t* s, int timeout_ms) {
     return false;
   }
 
-  // If we have pending cookies, make sure requests are flushed so replies can
-  // arrive
-  if (cookie_jar_has_pending(&s->cookie_jar)) {
-    static rl_t rl_cookie_flush = {0};
-    uint64_t now = monotonic_time_ns();
-    if (rl_allow(&rl_cookie_flush, now, 1000000)) {
-      xcb_flush(s->conn);
-      HXM_COUNTER_X_FLUSH();
-    }
-  }
-
   struct epoll_event evs[8];
 
   for (;;) {
-    int n = epoll_wait(s->epoll_fd, evs, 8, timeout_ms);
+    int wait_timeout = timeout_ms;
+
+    // If we have pending cookies, ensure we wake up in time to expire stale
+    // requests even when no X traffic or other timers arrive.
+    if (cookie_jar_has_pending(&s->cookie_jar)) {
+      static rl_t rl_cookie_flush = {0};
+      uint64_t now = monotonic_time_ns();
+      if (rl_allow(&rl_cookie_flush, now, 1000000)) {
+        xcb_flush(s->conn);
+        HXM_COUNTER_X_FLUSH();
+      }
+
+      int32_t cookie_timeout = cookie_jar_next_timeout_ms(&s->cookie_jar, now);
+      if (cookie_timeout >= 0 && (wait_timeout < 0 || cookie_timeout < wait_timeout)) {
+        wait_timeout = cookie_timeout;
+      }
+    }
+
+    int n = epoll_wait(s->epoll_fd, evs, 8, wait_timeout);
     if (n > 0) {
       bool x_ready = false;
       for (int i = 0; i < n; i++) {

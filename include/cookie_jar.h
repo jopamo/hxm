@@ -153,6 +153,12 @@ size_t cookie_jar_remove_client(cookie_jar_t* cj, handle_t client);
  */
 void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s, size_t max_replies);
 
+/* Return milliseconds until the next cookie timeout, clamped to INT32_MAX.
+ * -1 means there are no pending cookies.
+ * 0 means at least one cookie is already timed out and should be drained now.
+ */
+int32_t cookie_jar_next_timeout_ms(const cookie_jar_t* cj, uint64_t now_ns);
+
 static inline bool cookie_jar_has_pending(const cookie_jar_t* cj) {
   return cj && cj->live_count > 0;
 }

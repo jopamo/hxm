@@ -872,8 +872,10 @@ void client_unmanage(server_t* s, handle_t h) {
     wm_set_focus(s, next_h);
   }
 
-  // Remove from SaveSet
-  xcb_change_save_set(s->conn, XCB_SET_MODE_DELETE, hot->xid);
+  // Remove from SaveSet only if the client window still exists.
+  if (!destroyed) {
+    xcb_change_save_set(s->conn, XCB_SET_MODE_DELETE, hot->xid);
+  }
 
   // Reparent back to root if window still exists
   if (!destroyed) {

@@ -537,6 +537,80 @@ static void test_timeout_then_late_reply_ignored(void) {
   printf("test_timeout_then_late_reply_ignored passed\n");
 }
 
+static void test_next_timeout_ms_no_pending(void) {
+  cookie_jar_t cj;
+  cookie_jar_init(&cj);
+
+  int32_t timeout_ms = cookie_jar_next_timeout_ms(&cj, monotonic_time_ns());
+  assert(timeout_ms == -1);
+
+  cookie_jar_destroy(&cj);
+  printf("test_next_timeout_ms_no_pending passed\n");
+}
+
+static void test_next_timeout_ms_earliest_deadline(void) {
+  cookie_jar_t cj;
+  cookie_jar_init(&cj);
+
+  stub_poll_for_reply_hook = mock_poll;
+  g_use_mock_time = true;
+  g_mock_time = 1000000000ULL;
+
+  bool pushed = cookie_jar_push(&cj, 2001, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+  assert(pushed);
+
+  g_mock_time += 2000000000ULL;  // first cookie has 3s remaining
+  pushed = cookie_jar_push(&cj, 2002, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+  assert(pushed);
+
+  int32_t timeout_ms = cookie_jar_next_timeout_ms(&cj, g_mock_time);
+  assert(timeout_ms == 3000);
+
+  g_use_mock_time = false;
+  cookie_jar_destroy(&cj);
+  printf("test_next_timeout_ms_earliest_deadline passed\n");
+}
+
+static void test_next_timeout_ms_expired_is_zero(void) {
+  cookie_jar_t cj;
+  cookie_jar_init(&cj);
+
+  stub_poll_for_reply_hook = mock_poll;
+  g_use_mock_time = true;
+  g_mock_time = 2000000000ULL;
+
+  bool pushed = cookie_jar_push(&cj, 3001, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+  assert(pushed);
+
+  g_mock_time += COOKIE_JAR_TIMEOUT_NS + 1000ULL;
+  int32_t timeout_ms = cookie_jar_next_timeout_ms(&cj, g_mock_time);
+  assert(timeout_ms == 0);
+
+  g_use_mock_time = false;
+  cookie_jar_destroy(&cj);
+  printf("test_next_timeout_ms_expired_is_zero passed\n");
+}
+
+static void test_next_timeout_ms_subms_rounds_up(void) {
+  cookie_jar_t cj;
+  cookie_jar_init(&cj);
+
+  stub_poll_for_reply_hook = mock_poll;
+  g_use_mock_time = true;
+  g_mock_time = 3000000000ULL;
+
+  bool pushed = cookie_jar_push(&cj, 4001, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+  assert(pushed);
+
+  g_mock_time += COOKIE_JAR_TIMEOUT_NS - 100ULL;
+  int32_t timeout_ms = cookie_jar_next_timeout_ms(&cj, g_mock_time);
+  assert(timeout_ms == 1);
+
+  g_use_mock_time = false;
+  cookie_jar_destroy(&cj);
+  printf("test_next_timeout_ms_subms_rounds_up passed\n");
+}
+
 static void test_cursor_fairness_progress(void) {
   cookie_jar_t cj;
   cookie_jar_init(&cj);
@@ -677,6 +751,10 @@ int main(void) {
   test_reply_and_error_both();
   test_timeout();
   test_timeout_then_late_reply_ignored();
+  test_next_timeout_ms_no_pending();
+  test_next_timeout_ms_earliest_deadline();
+  test_next_timeout_ms_expired_is_zero();
+  test_next_timeout_ms_subms_rounds_up();
   test_cursor_fairness_progress();
   test_performance_smoke();
   test_alloc_fail_init();
