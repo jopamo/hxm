@@ -1,16 +1,85 @@
 /* src/client.c
- * Client state management and handling
  *
- * Lifecycle:
- *  - manage_start: Allocate slot, send initial property queries (async)
+ * Client lifecycle and state management.
+ *
+ * In hxm, a "client" is one managed X11 application window. Client storage is
+ * split into:
+ *
+ *   hot state  - frequently accessed runtime fields (geometry, focus, stacking,
+ *                protocol/state flags)
+ *
+ *   cold state - less frequently accessed metadata (strings, class/title data,
+ *                colormap window lists)
+ *
+ * This split keeps hot paths cache-friendly during event dispatch, stacking, and
+ * focus/geometry updates.
+ *
+ * ---------------------------------------------------------------------------
+ * Lifecycle and State Machine
+ * ---------------------------------------------------------------------------
+ *
+ * 1) Discovery (MapRequest or startup scan)
+ *    client_manage_start():
+ *      - allocate slotmap entry (hot + cold)
+ *      - register window -> client lookup
+ *      - issue async probes for attributes/geometry/properties
  *    State: STATE_NEW
- *  - wm_handle_reply (callbacks): Process replies, populate client struct
- *    State: STATE_NEW (gathering data)
- *  - client_finish_manage: All critical data ready. Create frame, reparent, map
- *    State: STATE_MAPPED (or STATE_UNMAPPED if iconic)
- *  - Running: Handle configure/property/focus events
- *  - client_unmanage: Window destroyed or withdrawn. Cleanup resources
- *    State: STATE_UNMANAGING -> Free
+ *
+ * 2) Async reply collection
+ *    wm_handle_reply():
+ *      - cookie jar maps sequence -> (client handle, probe metadata)
+ *      - updates client fields as replies arrive
+ *      - decrements hot->pending_replies
+ *    State: STATE_NEW
+ *
+ *    Invariant: hot management paths do not block waiting for X replies.
+ *
+ * 3) Finalization when critical metadata is available
+ *    client_finish_manage():
+ *      - apply rules and placement
+ *      - create frame
+ *      - add client to SaveSet
+ *      - reparent client into frame
+ *      - publish WM/EWMH authoritative properties
+ *      - map frame/client if visible
+ *    State transition:
+ *      STATE_NEW -> STATE_MAPPED or STATE_UNMAPPED
+ *
+ * 4) Runtime management
+ *    ConfigureRequest, PropertyNotify, focus, EWMH ClientMessage, damage events
+ *    State: STATE_MAPPED or STATE_UNMAPPED
+ *
+ * 5) Teardown
+ *    client_unmanage():
+ *      - remove stacking/focus/transient links
+ *      - remove SaveSet and reparent client back to root when possible
+ *      - destroy frame and free slot
+ *    State transition:
+ *      STATE_MAPPED/STATE_UNMAPPED -> STATE_UNMANAGING -> slot freed
+ *
+ * ---------------------------------------------------------------------------
+ * WM Correctness Constraints
+ * ---------------------------------------------------------------------------
+ *
+ * SaveSet and reparent safety:
+ *   Clients are inserted into SaveSet before reparenting so a WM crash does not
+ *   orphan or destroy application windows.
+ *
+ * Synthetic Unmap handling:
+ *   Reparenting emits synthetic UnmapNotify; these must be ignored as internal
+ *   bookkeeping rather than interpreted as client withdraw.
+ *
+ * Override-redirect handling:
+ *   override_redirect clients are intentionally not framed/managed and are
+ *   returned to normal X11 behavior after probe resolution.
+ *
+ * Mapping consistency:
+ *   Frame and client map/unmap decisions are kept coherent to avoid half-mapped
+ *   artifacts and stacking desync.
+ *
+ * State authority:
+ *   The WM is authoritative for WM_STATE, _NET_WM_STATE, _NET_WM_DESKTOP, and
+ *   _NET_FRAME_EXTENTS while a client is managed.
  */
 
 #include "client.h"
@@ -34,6 +103,16 @@
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 
+/*
+ * Register one async manage probe in the cookie jar.
+ *
+ * Replies are keyed by X request sequence number:
+ *   sequence -> (client handle, cookie type, data) -> wm_handle_reply()
+ *
+ * pending_replies counts successfully enqueued probes for this manage pass.
+ * If enqueue fails, management is aborted so probe accounting stays
+ * consistent.
+ */
 static bool client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t h, uint32_t seq, cookie_type_t type, uintptr_t data, const char* request_name) {
   if (!cookie_jar_push(&s->cookie_jar, seq, type, h, data, s->txn_id, wm_handle_reply)) {
     LOG_ERROR("Failed to enqueue manage probe for window %u (%s, seq=%u)", hot->xid, request_name, seq);
@@ -43,6 +122,16 @@ static bool client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t
   return true;
 }
 
+/*
+ * Queue async GetProperty and register its reply callback context.
+ *
+ * data packs:
+ *   high 32 bits: window id
+ *   low  32 bits: queried property atom
+ *
+ * This avoids extra allocations while still allowing the reply handler to
+ * identify the exact probe.
+ */
 static bool client_queue_get_property(server_t* s, client_hot_t* hot, handle_t h, xcb_window_t win, xcb_atom_t prop, xcb_atom_t type, uint32_t long_len) {
   uint32_t seq = xcb_get_property(s->conn, 0, win, prop, type, 0, long_len).sequence;
   return client_enqueue_manage_reply(s, hot, h, seq, COOKIE_GET_PROPERTY, ((uint64_t)win << 32) | prop, "get_property");
@@ -67,6 +156,13 @@ static bool str_contains_case(const char* haystack, const char* needle) {
   return false;
 }
 
+/*
+ * Heuristic detection for Conky-style widget windows.
+ *
+ * Conky frequently behaves closer to desktop widgets than ordinary toplevel
+ * clients, so behavior like desktop stacking can differ from normal windows.
+ * We detect via WM_CLASS/instance matching.
+ */
 static bool client_is_conky(const client_cold_t* cold) {
   if (!cold)
     return false;
@@ -155,19 +251,32 @@ void client_abort_manage(server_t* s, handle_t h) {
 }
 
 /*
- * client_manage_start:
- * Begin the management process for a new window.
+ * Begin management of a newly discovered client window.
  *
- * Strategy: zero-blocking initialization
- *  - Allocate internal structures (hot/cold)
- *  - Issue a batch of X requests (attributes, geometry, ICCCM/EWMH properties)
- *    No reply is waited on here
- *  - Track replies via cookie_jar (sequence -> callback + context)
- *  - Keep client in STATE_NEW until critical data is present
+ * This is stage 1 of the manage pipeline and intentionally performs no blocking
+ * reply waits.
  *
- * The main loop will wake up as replies arrive, populating the client struct
- * piece-by-piece. When all critical data is present, `client_finish_manage` is
- * called.
+ * Responsibilities:
+ *   1) allocate client hot/cold storage
+ *   2) register lookup mappings
+ *   3) subscribe to minimal early events
+ *   4) batch async ICCCM/EWMH probes
+ *
+ * Early event subscription:
+ *   PROPERTY_CHANGE is enabled immediately so we do not miss property updates
+ *   while initial probes are still in flight.
+ *
+ * Override edge case:
+ *   override_redirect is resolved from async attributes; those windows are
+ *   aborted out of normal management and left to the X server/compositor.
+ *
+ * Failure policy:
+ *   If probe cookie registration fails at any point, management is aborted and
+ *   the client is mapped unframed so the window remains visible.
+ *
+ * Finalization:
+ *   wm_handle_reply() decrements hot->pending_replies as probes resolve. Once
+ *   critical metadata is ready, client_finish_manage() completes framing.
  */
 void client_manage_start(server_t* s, xcb_window_t win) {
   TRACE_LOG("manage_start win=%u", win);
@@ -439,18 +548,28 @@ static void client_apply_rules(server_t* s, handle_t h) {
 }
 
 /*
- * client_finish_manage:
- * Called when all critical initial properties have been received (or timed
- * out).
+ * Finalize management after critical metadata has been collected.
  *
- * The "Reparenting Dance":
- *  - Create a frame window (parent of the client)
- *  - Add client to SaveSet (so it survives if we crash)
- *  - Reparent client -> frame
- *  - Map both windows (if visible)
+ * This performs the X11 reparenting sequence used by stacking WMs:
+ *   1) create frame window
+ *   2) insert client into SaveSet
+ *   3) reparent client -> frame
+ *   4) configure geometry
+ *   5) map according to visibility policy
  *
- * This function transitions the client from STATE_NEW to STATE_MAPPED (or
- * UNMAPPED).
+ * Why SaveSet first:
+ *   If the WM dies, X can automatically restore client parentage to root.
+ *
+ * Geometry/state authority:
+ *   After successful reparenting, WM-maintained geometry and exported EWMH/ICCCM
+ *   properties become authoritative for this client.
+ *
+ * Visibility policy:
+ *   Client is mapped only when on the current desktop (or sticky) and not
+ *   starting iconic.
+ *
+ * State transition:
+ *   STATE_NEW -> STATE_MAPPED or STATE_UNMAPPED
  */
 void client_finish_manage(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
@@ -798,14 +917,26 @@ void client_finish_manage(server_t* s, handle_t h) {
 }
 
 /*
- * client_unmanage:
- * Stop managing a window (e.g., it was closed or destroyed).
+ * Stop managing a client window and release all WM-side resources.
  *
- * Critical Safety:
- *  - Remove the window from the SaveSet
- *  - If the client still exists, reparent it back to root so it doesn't vanish
- * with the frame
- *  - Cleanup internal maps so stale handles cannot be resolved
+ * Called for destroy, withdraw, and restart paths.
+ *
+ * Cleanup order matters:
+ *   1) unlink stacking/focus/transient relations
+ *   2) repair focus target if needed
+ *   3) remove SaveSet entry (if client still exists)
+ *   4) reparent client back to root (if client still exists)
+ *   5) destroy frame and damage objects
+ *   6) remove lookup mappings and WM properties
+ *   7) free hot/cold slot storage
+ *
+ * Reparent edge case:
+ *   Frame must not be the final parent for surviving clients; otherwise frame
+ *   destruction would make the app disappear.
+ *
+ * Focus edge case:
+ *   If the focused client is removed, focus prefers its transient parent, then
+ *   falls back to the MRU mapped client.
  */
 void client_unmanage(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
@@ -1020,6 +1151,18 @@ void client_close(server_t* s, handle_t h) {
   }
 }
 
+/*
+ * Apply ICCCM size hints to requested client width/height.
+ *
+ * Enforced constraints can include:
+ *   - min/max size
+ *   - aspect ratio bounds
+ *   - resize increments
+ *
+ * Resize increments are common for terminal/grid clients. Requested dimensions
+ * are snapped to the nearest legal increment relative to BASE_SIZE (or MIN_SIZE
+ * fallback when BASE_SIZE is absent).
+ */
 void client_constrain_size(const size_hints_t* s, uint32_t flags, uint16_t* w, uint16_t* h) {
   // Min/Max size
   if (flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
@@ -1095,6 +1238,13 @@ void client_constrain_size(const size_hints_t* s, uint32_t flags, uint16_t* w, u
   }
 }
 
+/*
+ * Install passive button grabs used by WM pointer interactions.
+ *
+ * Buttons 1/2/3 are grabbed with SYNC pointer mode so the WM can inspect the
+ * press first, then either consume it (focus/move/resize workflows) or release
+ * events back to the client.
+ */
 void client_setup_grabs(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
   if (!hot)
