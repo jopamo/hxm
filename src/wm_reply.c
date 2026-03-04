@@ -43,6 +43,16 @@ typedef struct {
   uint32_t status;
 } motif_wm_hints_t;
 
+static inline void wm_focus_recommit_if_current(server_t* s, handle_t h) {
+  if (!s)
+    return;
+  if (s->focused_client != h)
+    return;
+  // Force focus commit path to resend focus delivery for the currently focused
+  // client when capabilities changed while focus target stayed the same.
+  s->committed_focus = XCB_NONE;
+}
+
 static bool client_apply_motif_hints(server_t* s, handle_t h, const xcb_get_property_reply_t* r) {
   client_hot_t* hot = server_chot(s, h);
   if (!hot)
@@ -1114,6 +1124,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
         }
       }
       else if (atom == atoms.WM_PROTOCOLS) {
+        protocol_flags_t prev_protocols = (protocol_flags_t)cold->protocols;
         cold->protocols = 0;
         hot->sync_enabled = false;
         int num_protocols = 0;
@@ -1138,6 +1149,12 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               cold->protocols |= PROTOCOL_PING;
             }
           }
+        }
+
+        bool had_take_focus = (prev_protocols & PROTOCOL_TAKE_FOCUS) != 0;
+        bool has_take_focus = (cold->protocols & PROTOCOL_TAKE_FOCUS) != 0;
+        if (!had_take_focus && has_take_focus) {
+          wm_focus_recommit_if_current(s, slot->client);
         }
       }
       else if (atom == atoms._NET_WM_DESKTOP) {
@@ -1219,6 +1236,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
         }
       }
       else if (atom == atoms.WM_HINTS) {
+        bool prev_can_focus = cold->can_focus;
         if (prop_is_empty(r)) {
           bool changed_any = (cold->can_focus != true || hot->initial_state != XCB_ICCCM_WM_STATE_NORMAL);
           cold->can_focus = true;
@@ -1262,6 +1280,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               changed = true;
             }
           }
+        }
+
+        if (!prev_can_focus && cold->can_focus) {
+          wm_focus_recommit_if_current(s, slot->client);
         }
       }
       else if (atom == atoms._NET_WM_ICON) {

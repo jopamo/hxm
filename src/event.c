@@ -658,6 +658,14 @@ static bool focus_detail_is_noise(uint8_t detail) {
   return detail == XCB_NOTIFY_DETAIL_INFERIOR || detail == XCB_NOTIFY_DETAIL_POINTER;
 }
 
+static bool pointer_mode_is_authoritative(uint8_t mode) {
+  return mode == XCB_NOTIFY_MODE_NORMAL;
+}
+
+static bool pointer_enter_detail_is_noise(uint8_t detail) {
+  return detail == XCB_NOTIFY_DETAIL_INFERIOR || detail == XCB_NOTIFY_DETAIL_VIRTUAL || detail == XCB_NOTIFY_DETAIL_NONLINEAR_VIRTUAL;
+}
+
 static bool focus_out_indicates_loss(uint8_t detail) {
   switch (detail) {
     case XCB_NOTIFY_DETAIL_VIRTUAL:
@@ -767,6 +775,31 @@ static void event_reduce_pointer_hints(server_t* s) {
     newest = s->buckets.pointer_notify.leave.time;
   }
   s->last_pointer_hint_time = newest;
+
+  if (!s->config.focus_follows_mouse)
+    return;
+  if (s->interaction_mode != INTERACTION_NONE)
+    return;
+  if (!s->buckets.pointer_notify.enter_valid)
+    return;
+
+  const xcb_enter_notify_event_t* ev = &s->buckets.pointer_notify.enter;
+  if (!x11_time_after_or_equal_u32(ev->time, newest))
+    return;
+  if (!pointer_mode_is_authoritative(ev->mode) || pointer_enter_detail_is_noise(ev->detail))
+    return;
+
+  handle_t target = focus_handle_from_event_window(s, ev->event);
+  if (target == HANDLE_INVALID || target == s->focused_client)
+    return;
+
+  client_hot_t* hot = server_chot(s, target);
+  if (!hot || hot->state != STATE_MAPPED)
+    return;
+  if (hash_map_get(&s->buckets.destroyed_windows, hot->xid))
+    return;
+
+  wm_set_focus(s, target);
 }
 
 void event_ingest(server_t* s, bool x_ready) {
@@ -1231,7 +1264,7 @@ void event_process(server_t* s) {
 
   // 6. focus and pointer signals
   event_reduce_focus(s);
-  // Enter/Leave remain hints only; they intentionally do not drive focus.
+  // Enter/Leave update pointer-hint time and may drive focus when configured.
   event_reduce_pointer_hints(s);
   if (s->buckets.motion_notifies.capacity > 0) {
     for (size_t i = 0; i < s->buckets.motion_notifies.capacity; i++) {

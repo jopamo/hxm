@@ -30,6 +30,7 @@ static void test_defaults(void) {
   assert(c.theme.border_width == 2);
   assert(strcmp(c.font_name, "fixed") == 0);
   assert(c.focus_raise == true);
+  assert(c.focus_follows_mouse == false);
   assert(c.fullscreen_use_workarea == false);
   assert(c.key_bindings.length > 0);
 
@@ -53,6 +54,7 @@ static void test_load_simple(void) {
       "border_width=5\n"
       "font_name=Monospace 12\n"
       "focus_raise=false\n"
+      "focus_follows_mouse=true\n"
       "active_bg=#FF0000\n"
       "desktop_names=Web,Code,Music\n";
 
@@ -67,6 +69,7 @@ static void test_load_simple(void) {
   assert(c.theme.border_width == 5);
   assert(strcmp(c.font_name, "Monospace 12") == 0);
   assert(!c.focus_raise);
+  assert(c.focus_follows_mouse);
   assert(c.theme.window_active_title.color == 0xFF0000);
 
   assert(c.desktop_names_count == 3);

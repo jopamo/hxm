@@ -124,6 +124,7 @@ typedef struct config {
 
   /* Policy flags */
   bool focus_raise;
+  bool focus_follows_mouse;
   bool fullscreen_use_workarea;
 
   /* Snap-to-edge */

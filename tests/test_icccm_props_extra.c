@@ -12,6 +12,9 @@
 
 extern int stub_set_input_focus_count;
 extern xcb_window_t stub_last_input_focus_window;
+extern int stub_send_event_count;
+extern xcb_window_t stub_last_send_event_destination;
+extern char stub_last_event[32];
 
 static void reset_atoms(void) {
   memset(&atoms, 0, sizeof(atoms));
@@ -500,6 +503,126 @@ static void test_property_deletions_reset_defaults(void) {
   cleanup_server(&s);
 }
 
+static void test_focused_client_recommits_on_wm_protocols_take_focus_enable(void) {
+  server_t s;
+  reset_atoms();
+  memset(&s, 0, sizeof(s));
+  s.is_test = true;
+  s.root = 1;
+  s.root_depth = 24;
+  s.root_visual_type = xcb_get_visualtype(NULL, 0);
+  s.conn = (xcb_connection_t*)malloc(1);
+  atoms.WM_PROTOCOLS = 10;
+  atoms.WM_TAKE_FOCUS = 11;
+
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
+    return;
+  list_init(&s.focus_history);
+
+  void *hot_ptr = NULL, *cold_ptr = NULL;
+  handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
+  memset(hot, 0, sizeof(*hot));
+  memset(cold, 0, sizeof(*cold));
+  render_init(&hot->render_ctx);
+  arena_init(&cold->string_arena, 512);
+  hot->self = h;
+  hot->xid = 901;
+  hot->state = STATE_MAPPED;
+  hot->user_time = 1234;
+  list_init(&hot->focus_node);
+  cold->can_focus = false;
+  cold->protocols = 0;
+
+  s.focused_client = h;
+  s.committed_focus = hot->xid;
+
+  cookie_slot_t slot = {0};
+  slot.type = COOKIE_GET_PROPERTY;
+  slot.client = h;
+  slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_PROTOCOLS;
+
+  xcb_atom_t proto = atoms.WM_TAKE_FOCUS;
+  xcb_get_property_reply_t* proto_reply = make_atom_reply(&proto, 1);
+  wm_handle_reply(&s, &slot, proto_reply, NULL);
+  free(proto_reply);
+
+  stub_send_event_count = 0;
+  wm_flush_dirty(&s, monotonic_time_ns());
+
+  assert(stub_send_event_count == 1);
+  assert(stub_last_send_event_destination == hot->xid);
+  xcb_client_message_event_t* ev = (xcb_client_message_event_t*)stub_last_event;
+  assert(ev->type == atoms.WM_PROTOCOLS);
+  assert(ev->data.data32[0] == atoms.WM_TAKE_FOCUS);
+  assert(ev->data.data32[1] == hot->user_time);
+
+  printf("test_focused_client_recommits_on_wm_protocols_take_focus_enable passed\n");
+  cleanup_server(&s);
+}
+
+static void test_focused_client_recommits_on_wm_hints_input_enable(void) {
+  server_t s;
+  reset_atoms();
+  memset(&s, 0, sizeof(s));
+  s.is_test = true;
+  s.root = 1;
+  s.root_depth = 24;
+  s.root_visual_type = xcb_get_visualtype(NULL, 0);
+  s.conn = (xcb_connection_t*)malloc(1);
+  atoms.WM_HINTS = 13;
+
+  if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
+    return;
+  list_init(&s.focus_history);
+
+  void *hot_ptr = NULL, *cold_ptr = NULL;
+  handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
+  memset(hot, 0, sizeof(*hot));
+  memset(cold, 0, sizeof(*cold));
+  render_init(&hot->render_ctx);
+  arena_init(&cold->string_arena, 512);
+  hot->self = h;
+  hot->xid = 902;
+  hot->state = STATE_MAPPED;
+  list_init(&hot->focus_node);
+  cold->can_focus = false;
+  cold->protocols = 0;
+
+  s.focused_client = h;
+  s.committed_focus = hot->xid;
+
+  cookie_slot_t slot = {0};
+  slot.type = COOKIE_GET_PROPERTY;
+  slot.client = h;
+  slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_HINTS;
+
+  struct {
+    xcb_get_property_reply_t r;
+    uint32_t data[9];
+  } reply;
+  memset(&reply, 0, sizeof(reply));
+  reply.r.format = 32;
+  reply.r.value_len = 9;
+  reply.r.type = XCB_ATOM_WM_HINTS;
+  reply.data[0] = XCB_ICCCM_WM_HINT_INPUT;
+  reply.data[1] = 1;
+
+  wm_handle_reply(&s, &slot, &reply.r, NULL);
+
+  stub_set_input_focus_count = 0;
+  stub_last_input_focus_window = 0;
+  wm_flush_dirty(&s, monotonic_time_ns());
+  assert(stub_set_input_focus_count == 1);
+  assert(stub_last_input_focus_window == hot->xid);
+
+  printf("test_focused_client_recommits_on_wm_hints_input_enable passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_wm_icon_name_fallback();
   test_wm_class_invalid_no_nul();
@@ -508,5 +631,7 @@ int main(void) {
   test_wm_hints_input_affects_focus();
   test_wm_hints_icon_safe();
   test_property_deletions_reset_defaults();
+  test_focused_client_recommits_on_wm_protocols_take_focus_enable();
+  test_focused_client_recommits_on_wm_hints_input_enable();
   return 0;
 }

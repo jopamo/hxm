@@ -522,6 +522,59 @@ static void test_6_13_stale_root_focus_out_after_focus_commit_is_filtered(void) 
   cleanup_server(&s);
 }
 
+static void test_6_14_pointer_enter_focuses_when_enabled(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_counters();
+
+  s.config.focus_follows_mouse = true;
+  handle_t h = add_mapped_client(&s, 0x708, 0x808);
+
+  s.last_pointer_hint_time = 100;
+  s.buckets.pointer_notify.enter_valid = true;
+  s.buckets.pointer_notify.enter.event = 0x808;
+  s.buckets.pointer_notify.enter.mode = XCB_NOTIFY_MODE_NORMAL;
+  s.buckets.pointer_notify.enter.detail = XCB_NOTIFY_DETAIL_NONLINEAR;
+  s.buckets.pointer_notify.enter.time = 200;
+
+  event_process(&s);
+
+  assert(call_wm_set_focus == 1);
+  assert(call_wm_set_focus_last == h);
+  assert(s.last_pointer_hint_time == 200);
+
+  printf("test_6_14_pointer_enter_focuses_when_enabled passed\n");
+  cleanup_server(&s);
+}
+
+static void test_6_15_pointer_enter_older_than_leave_is_ignored(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_counters();
+
+  s.config.focus_follows_mouse = true;
+  add_mapped_client(&s, 0x709, 0x809);
+
+  s.last_pointer_hint_time = 100;
+  s.buckets.pointer_notify.enter_valid = true;
+  s.buckets.pointer_notify.enter.event = 0x809;
+  s.buckets.pointer_notify.enter.mode = XCB_NOTIFY_MODE_NORMAL;
+  s.buckets.pointer_notify.enter.detail = XCB_NOTIFY_DETAIL_NONLINEAR;
+  s.buckets.pointer_notify.enter.time = 150;
+  s.buckets.pointer_notify.leave_valid = true;
+  s.buckets.pointer_notify.leave.time = 200;
+
+  event_process(&s);
+
+  assert(call_wm_set_focus == 0);
+  assert(s.last_pointer_hint_time == 200);
+
+  printf("test_6_15_pointer_enter_older_than_leave_is_ignored passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_6_1_key_press_dispatch();
   test_6_2_button_events_dispatch();
@@ -536,5 +589,7 @@ int main(void) {
   test_6_11_focus_out_clears_focus();
   test_6_12_pointer_notify_is_hint_only();
   test_6_13_stale_root_focus_out_after_focus_commit_is_filtered();
+  test_6_14_pointer_enter_focuses_when_enabled();
+  test_6_15_pointer_enter_older_than_leave_is_ignored();
   return 0;
 }

@@ -85,6 +85,7 @@ void config_init_defaults(config_t* config) {
   config->desktop_names = NULL;
 
   config->focus_raise = true;
+  config->focus_follows_mouse = false;
   config->fullscreen_use_workarea = false;
   config->snap_enable = true;
   config->snap_threshold_px = DEFAULT_SNAP_THRESHOLD;
@@ -551,6 +552,9 @@ bool config_load(config_t* config, const char* path) {
     }
     else if (strcmp(key, "focus_raise") == 0) {
       config->focus_raise = (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0);
+    }
+    else if (strcmp(key, "focus_follows_mouse") == 0) {
+      config->focus_follows_mouse = (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0);
     }
     else if (strcmp(key, "fullscreen_use_workarea") == 0) {
       config->fullscreen_use_workarea = (strcasecmp(val, "true") == 0 || strcmp(val, "1") == 0);
