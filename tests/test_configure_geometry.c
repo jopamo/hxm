@@ -441,14 +441,18 @@ static void test_configure_notify_client_resize_resyncs_decorated_frame(void) {
   stub_config_calls_len = 0;
   wm_flush_dirty(&s, monotonic_time_ns());
 
-  const stub_config_call_t* frame_call = stub_config_call_at(0);
+  const stub_config_call_t* client_call = stub_config_call_at(0);
+  const stub_config_call_t* frame_call = stub_config_call_at(1);
   assert(frame_call);
-  assert(stub_config_call_at(1) == NULL);
+  assert(client_call);
 
   uint16_t bw = s.config.theme.border_width;
   uint16_t hh = s.config.theme.handle_height;
   uint16_t bottom = (hh > bw) ? hh : bw;
 
+  assert(client_call->win == hot->xid);
+  assert(client_call->w == 140u);
+  assert(client_call->h == 120u);
   assert(frame_call->win == hot->frame);
   assert(frame_call->w == (uint32_t)(140 + 2 * bw));
   assert(frame_call->h == (uint32_t)(120 + s.config.theme.title_height + bottom));
@@ -487,10 +491,14 @@ static void test_configure_notify_client_resize_resyncs_extents_frame(void) {
   stub_config_calls_len = 0;
   wm_flush_dirty(&s, monotonic_time_ns());
 
-  const stub_config_call_t* frame_call = stub_config_call_at(0);
+  const stub_config_call_t* client_call = stub_config_call_at(0);
+  const stub_config_call_t* frame_call = stub_config_call_at(1);
   assert(frame_call);
-  assert(stub_config_call_at(1) == NULL);
+  assert(client_call);
 
+  assert(client_call->win == hot->xid);
+  assert(client_call->w == 150u);
+  assert(client_call->h == 110u);
   assert(frame_call->win == hot->frame);
   assert(frame_call->w == 150u);
   assert(frame_call->h == 110u);
@@ -573,14 +581,18 @@ static void test_configure_notify_resync_coalesces_pending_notify_resize(void) {
   stub_config_calls_len = 0;
   wm_flush_dirty(&s, monotonic_time_ns());
 
-  const stub_config_call_t* frame_call = stub_config_call_at(0);
+  const stub_config_call_t* client_call = stub_config_call_at(0);
+  const stub_config_call_t* frame_call = stub_config_call_at(1);
   assert(frame_call);
-  assert(stub_config_call_at(1) == NULL);
+  assert(client_call);
 
   uint16_t bw = s.config.theme.border_width;
   uint16_t hh = s.config.theme.handle_height;
   uint16_t bottom = (hh > bw) ? hh : bw;
 
+  assert(client_call->win == hot->xid);
+  assert(client_call->w == 180u);
+  assert(client_call->h == 130u);
   assert(frame_call->win == hot->frame);
   assert(frame_call->w == (uint32_t)(180 + 2 * bw));
   assert(frame_call->h == (uint32_t)(130 + s.config.theme.title_height + bottom));
@@ -613,20 +625,21 @@ static void test_configure_notify_resync_settles_with_final_client_configure(voi
   stub_config_calls_len = 0;
   wm_flush_dirty(&s, now);
 
-  const stub_config_call_t* frame_call = stub_config_call_at(0);
+  const stub_config_call_t* client_call = stub_config_call_at(0);
+  const stub_config_call_t* frame_call = stub_config_call_at(1);
   assert(frame_call);
+  assert(client_call);
+  assert(client_call->win == hot->xid);
+  assert(client_call->w == 160u);
+  assert(client_call->h == 130u);
   assert(frame_call->win == hot->frame);
-  assert(stub_config_call_at(1) == NULL);
-  assert(hot->notify_settle_pending);
+  assert(!hot->notify_settle_pending);
 
   stub_config_calls_len = 0;
   wm_flush_dirty(&s, now + 50000000ULL);
 
   const stub_config_call_t* settle_call = stub_config_call_at(0);
-  assert(settle_call);
-  assert(settle_call->win == hot->xid);
-  assert(settle_call->w == 160u);
-  assert(settle_call->h == 130u);
+  assert(settle_call == NULL);
   assert(!hot->notify_settle_pending);
 
   printf("test_configure_notify_resync_settles_with_final_client_configure passed\n");

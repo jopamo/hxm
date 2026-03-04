@@ -599,7 +599,12 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
          * Keep client/frame geometry coherent during live resize: update the
          * child first, then resize/move the reparent frame.
          */
-        bool should_configure_client = (!client_size_from_notify || interactive_resize);
+        /*
+         * Always configure the client when committing geometry. The
+         * geometry-from-notify fast path can transiently leave frame and client
+         * out of sync with some toolkits/compositors during live resize.
+         */
+        bool should_configure_client = true;
         if (should_configure_client) {
           xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
           hot->notify_settle_pending = false;
