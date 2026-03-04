@@ -2,171 +2,176 @@
   <img src="assets/hxm-clear.png" alt="hxm logo" width="300" style="display:block; margin:0;">
 </div>
 
-## Overview
+`hxm` is a lightweight stacking window manager for **Linux/X11** written in **C**.
 
-`hxm` is a small stacking window manager for Linux/X11 written in C and built with Meson. The core of the runtime is a straightforward tick loop: pull in X events, drain any pending async replies, process internal state changes, then flush batched updates back to the X server.
-
-It is not trying to be clever. It is trying to be predictable.
-
-## Why this project exists
-
-X11 makes it easy to write a window manager that mostly works and hard to write one that behaves consistently under load. `hxm` is structured to keep event handling explicit and ordering stable, especially around async `xcb` interactions.
-
-Synchronous `xcb_*_reply` usage is treated as a policy decision, not an accident. There are CI checks and allowlists in place to make sure new sync calls do not quietly creep in.
-
-The goal is tight control over interaction paths and fewer “mystery stalls” when the event stream gets noisy.
+It focuses on **predictable behavior, stable window management, and low overhead** while remaining configurable and easy to integrate into traditional desktop setups.
 
 ## Status
 
-Experimental. The current Meson version is `0.1.0` and `TODO.md` tracks ongoing hardening and cleanup work.
+⚠️ **Experimental**
 
-## Reference Code
+`hxm` is under active development and may change frequently.
 
-The repository includes `ref/openbox/`, which contains Openbox source code used as a local behavior reference during parity reviews and debugging.
+Current version: **0.1.0**
 
-`ref/` is reference material only and is not part of the `hxm` build targets.
+---
 
-## Features
+# Features
 
-* A stable event pipeline with clear ingest → process → commit phases.
-* Per-tick coalescing so geometry and state changes are flushed in a controlled batch.
-* EWMH and ICCCM handling for desktops, focus, and workarea.
-* Config and theme parsing for keybindings, rules, and visual settings.
-* YAML-driven root menu with icon support and actions.
-* Snap-to-edge logic with a click-through preview window.
-* Scripted integration and stress testing wired into Meson.
-* CI guard scripts that fail on skipped tests and detect sync-reply drift.
+* Lightweight stacking window manager
+* EWMH and ICCCM compliance
+* Multiple desktops
+* Configurable keybindings and rules
+* Theming and window decorations
+* YAML-based root menu with icon support
+* Edge snapping with preview
+* Autostart script support
 
-## Building
+---
 
-On Fedora, you can install the CI dependencies with:
+# Installation
+
+## Dependencies
+
+Dependencies are listed in:
+
+```
+scripts/deps-fedora.txt
+```
+
+Example installation on Fedora:
 
 ```sh
 sudo dnf install $(tr '\n' ' ' < scripts/deps-fedora.txt)
 ```
 
-Configure and build:
+---
+
+## Build
 
 ```sh
 meson setup build
 meson compile -C build
 ```
 
-Install:
+---
+
+## Install
 
 ```sh
 meson install -C build
 ```
 
-Installed targets include:
+This installs:
 
-* The `hxm` binary
-* An X session file (`hxm.desktop`)
-* A system-wide default config (`hxm.conf`)
+* `hxm` binary
+* `hxm.desktop` session entry
+* default configuration (`hxm.conf`)
 
-Meson option:
+---
 
-* `-Dverbose_logs=true` enables verbose logging (`HXM_VERBOSE_LOGS`).
+# Running
 
-## Running
+Start `hxm` from an X session:
+
+```sh
+hxm
+```
+
+or launch manually:
+
+```sh
+./build/hxm
+```
+
+## Control commands
+
+These commands communicate with a running `hxm` instance.
+
+```sh
+hxm --reconfigure
+hxm --restart
+hxm --exit
+```
 
 Show CLI help:
 
 ```sh
-./build/hxm --help
+hxm --help
 ```
 
-Supported flags:
+---
 
-* `--exit`
-* `--restart`
-* `--reconfigure`
-* `--help`
-* `--dump-stats` (when built with `HXM_DIAG`)
+# Configuration
 
-Typical usage:
+User configuration is searched in the following order:
 
-```sh
-./build/hxm
-./build/hxm --reconfigure
-./build/hxm --restart
-./build/hxm --exit
+```
+$XDG_CONFIG_HOME/hxm/hxm.conf
+$HOME/.config/hxm/hxm.conf
+/etc/hxm/hxm.conf
 ```
 
-Control flags expect a running `hxm` instance on the same X server.
+Related files:
 
-## Configuration
+```
+menu.conf    root menu configuration
+themerc      theme settings
+autostart    startup script
+```
 
-`hxm.conf` is searched in the following order:
+Autostart locations:
 
-1. `$XDG_CONFIG_HOME/hxm/hxm.conf`
-2. `$HOME/.config/hxm/hxm.conf`
-3. `/etc/hxm/hxm.conf`
-4. `data/hxm.conf`
-5. `../data/hxm.conf`
+```
+$XDG_CONFIG_HOME/hxm/autostart
+$HOME/.config/hxm/autostart
+/etc/hxm/autostart
+```
 
-`menu.conf` and `themerc` follow similar lookup rules, preferring user-level paths before system defaults.
+Example defaults:
 
-Autostart scripts are searched in:
+```
+desktop_count=4
+border_width=2
+title_height=20
+snap_enable=true
+snap_threshold_px=24
+```
 
-1. `$XDG_CONFIG_HOME/hxm/autostart`
-2. `$HOME/.config/hxm/autostart`
-3. `/etc/hxm/autostart`
+---
 
-Defaults such as `desktop_count=4`, `border_width=2`, `title_height=20`, `snap_enable=true`, and `snap_threshold_px=24` are defined in code and mirrored in `data/hxm.conf`.
+# Testing
 
-Relevant environment variables:
-
-* `XDG_CONFIG_HOME`, `HOME` for config resolution
-* `HXM_LOG_UTC`, `HXM_LOG_MONO` for log timestamp modes
-
-## Architecture at a glance
-
-* `src/main.c` — CLI entry point and instance control.
-* `src/event.c` — event loop, server lifecycle, reload and restart handling.
-* `src/wm.c`, `src/wm_desktop.c`, `src/wm_input_keys.c` — core window management logic.
-* `src/wm_dirty.c` — commit phase that publishes accumulated state to X11.
-* `src/frame.c`, `src/render.c`, `src/menu.c` — decorations and menu rendering.
-* `src/config.c` — config, keybind, rule, and theme parsing.
-
-The design centers on separating model mutation from the final X11 flush step.
-
-## Testing
-
-Run the full suite:
+Run the test suite:
 
 ```sh
 meson test -C build --print-errorlogs
 ```
 
-Run integration-heavy tests directly:
+Some tests require **Xvfb** and additional tools.
 
-```sh
-meson test -C build integration_script headless_script ewmh_xvfb conky_xvfb --print-errorlogs
+---
+
+**Control commands not working**
+
+Control flags require a running `hxm` instance on the same X server.
+
+---
+
+# Contributing
+
+`hxm` is still evolving. Contributions and testing are welcome.
+
+Before submitting changes:
+
+```
+meson test -C build
 ```
 
-Run the integration client on a real X11 display (manual parity recipe, no Xvfb):
+Ensure the test suite passes.
 
-```sh
-DISPLAY=:0 HXM_BIN=./build/hxm INTEGRATION_CLIENT=./build/integration_client ./scripts/test-integration-real-x11.sh
-```
+---
 
-Use a dedicated X11 display/session where `hxm` can become the window manager.
+# License
 
-CI includes:
-
-* Full Xvfb-based suite
-* AddressSanitizer
-* UndefinedBehaviorSanitizer
-
-Guard scripts enforce policy around skipped tests and sync-reply usage.
-
-## Troubleshooting
-
-* If you see `SKIP: Xvfb not found` or `SKIP: conky not found`, install the missing tools and rerun tests.
-* Integration scripts may fail early with hints like `hxm binary not found; set HXM_BIN`.
-* CLI control flags require an active `hxm` instance on the same X server.
-
-## License
-
-GNU General Public License v2.
+GNU General Public License v2
