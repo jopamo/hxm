@@ -265,6 +265,33 @@ static void test_hash_map_update_and_reinsert(void) {
   printf("test_hash_map_update_and_reinsert passed\n");
 }
 
+static void test_hash_map_clear_reuses_capacity(void) {
+  hash_map_t map;
+  hash_map_init(&map);
+
+  for (uint64_t i = 1; i <= 128; i++) {
+    hash_map_insert(&map, i, (void*)(uintptr_t)(i * 3));
+  }
+  TEST_ASSERT(hash_map_size(&map) == 128);
+  size_t cap_before = hash_map_capacity(&map);
+  TEST_ASSERT(cap_before > 0);
+
+  hash_map_clear(&map);
+  TEST_ASSERT(hash_map_size(&map) == 0);
+  TEST_ASSERT(hash_map_capacity(&map) == cap_before);
+  TEST_ASSERT(hash_map_get(&map, 1) == NULL);
+  TEST_ASSERT(hash_map_get(&map, 64) == NULL);
+  TEST_ASSERT(hash_map_get(&map, 128) == NULL);
+
+  hash_map_insert(&map, 999, (void*)0xFEED);
+  TEST_ASSERT(hash_map_size(&map) == 1);
+  TEST_ASSERT(hash_map_get(&map, 999) == (void*)0xFEED);
+  TEST_ASSERT(hash_map_capacity(&map) == cap_before);
+
+  hash_map_destroy(&map);
+  printf("test_hash_map_clear_reuses_capacity passed\n");
+}
+
 static void test_hash_map_stress_linear_probe_tombstones(void) {
   hash_map_t map;
   hash_map_init(&map);
@@ -563,6 +590,7 @@ int main(void) {
 
   test_hash_map_basic();
   test_hash_map_update_and_reinsert();
+  test_hash_map_clear_reuses_capacity();
   test_hash_map_stress_linear_probe_tombstones();
   test_hash_map_prng_sequence();
 

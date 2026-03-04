@@ -586,27 +586,14 @@ static void buckets_reset(event_buckets_t* b) {
   small_vec_clear(&b->button_events);
   small_vec_clear(&b->client_messages);
 
-  // Simple per-tick reset strategy: destroy+init
-  hash_map_destroy(&b->expose_regions);
-  hash_map_init(&b->expose_regions);
-
-  hash_map_destroy(&b->configure_requests);
-  hash_map_init(&b->configure_requests);
-
-  hash_map_destroy(&b->configure_notifies);
-  hash_map_init(&b->configure_notifies);
-
-  hash_map_destroy(&b->destroyed_windows);
-  hash_map_init(&b->destroyed_windows);
-
-  hash_map_destroy(&b->property_notifies);
-  hash_map_init(&b->property_notifies);
-
-  hash_map_destroy(&b->motion_notifies);
-  hash_map_init(&b->motion_notifies);
-
-  hash_map_destroy(&b->damage_regions);
-  hash_map_init(&b->damage_regions);
+  // Reuse hash map storage across ticks to avoid allocator churn.
+  hash_map_clear(&b->expose_regions);
+  hash_map_clear(&b->configure_requests);
+  hash_map_clear(&b->configure_notifies);
+  hash_map_clear(&b->destroyed_windows);
+  hash_map_clear(&b->property_notifies);
+  hash_map_clear(&b->motion_notifies);
+  hash_map_clear(&b->damage_regions);
 
   b->pointer_notify.enter_valid = false;
   b->pointer_notify.leave_valid = false;

@@ -340,6 +340,17 @@ void hash_map_destroy(hash_map_t* map) {
   map->max_load = 0;
 }
 
+void hash_map_clear(hash_map_t* map) {
+  if (!map || !map->entries || map->capacity == 0) {
+    if (map)
+      map->size = 0;
+    return;
+  }
+
+  memset(map->entries, 0, map->capacity * sizeof(*map->entries));
+  map->size = 0;
+}
+
 bool hash_map_insert(hash_map_t* map, uint64_t key, void* value) {
   // key=0 is reserved as the empty sentinel
   assert(key != 0 && "key=0 is reserved for hash_map_t");

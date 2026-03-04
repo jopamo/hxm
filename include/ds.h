@@ -138,6 +138,9 @@ void hash_map_init(hash_map_t* map);
 /* Free internal storage */
 void hash_map_destroy(hash_map_t* map);
 
+/* Remove all entries but keep allocated storage for reuse */
+void hash_map_clear(hash_map_t* map);
+
 /* Insert or replace (returns true on success)
  * If key already exists, its value is replaced
  */
