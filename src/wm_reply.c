@@ -1,13 +1,27 @@
 /* src/wm_reply.c
- * Window manager reply handling
  *
- * This module implements the callback handlers for asynchronous XCB requests.
- * It is invoked by the Cookie Jar when a reply arrives or times out.
+ * Asynchronous X11 reply handling and client metadata import
  *
- * Key responsibilities:
- * - Parsing X properties (Atom, String, Cardinal) safely.
- * - Initializing client state from window attributes and geometry.
- * - Handling EWMH/ICCCM discovery (Struts, Hints, Icons).
+ * This module is the callback target for cookie_jar replies
+ * Each callback maps an X sequence reply to a client handle and updates
+ * hot/cold state without blocking the event loop
+ *
+ * Core invariants:
+ * - every manage probe registered in the jar is accounted by pending_replies
+ * - each handled reply decrements pending_replies at most once
+ * - STATE_NEW clients transition only after pending_replies drains to zero
+ * - stale replies are ignored using txn ordering to prevent old data overwrite
+ *
+ * Async flow:
+ * - client_manage_start issues batched probes and stores sequence metadata
+ * - wm_handle_reply dispatches by cookie type and updates fields incrementally
+ * - when probes are drained, manage either aborts or advances to STATE_READY
+ *
+ * WM/EWMH correctness constraints:
+ * - override_redirect and InputOnly windows are not managed
+ * - client-side properties are parsed defensively and clamped to sane bounds
+ * - WM-owned authority remains in manage/focus/stack modules, reply handlers
+ *   only mutate authoritative state through explicit helper paths
  */
 
 #include <stdint.h>
@@ -25,7 +39,7 @@
 #include "wm.h"
 #include "wm_internal.h"
 
-// Motif Hints
+// Motif hints
 #define MWM_HINTS_DECORATIONS (1L << 1)
 #define MWM_DECOR_ALL (1L << 0)
 #define MWM_DECOR_BORDER (1L << 1)
@@ -48,8 +62,7 @@ static inline void wm_focus_recommit_if_current(server_t* s, handle_t h) {
     return;
   if (s->focused_client != h)
     return;
-  // Force focus commit path to resend focus delivery for the currently focused
-  // client when capabilities changed while focus target stayed the same.
+  // Force focus commit resend when capabilities changed in place
   s->committed_focus = XCB_NONE;
 }
 
@@ -65,9 +78,9 @@ static bool client_apply_motif_hints(server_t* s, handle_t h, const xcb_get_prop
   if (r && r->format == 32 && len >= (int)(3 * sizeof(uint32_t))) {
     const motif_wm_hints_t* mh = (const motif_wm_hints_t*)xcb_get_property_value(r);
 
-    // Minimal MOTIF_WM_HINTS support: only honor MWM_HINTS_DECORATIONS flag.
-    // If decorations == 0, treat as request for no decorations.
-    // We ignore other bits and other flags (functions/input_mode/status).
+    // Minimal MOTIF_WM_HINTS support: honor decoration intent only
+    // decorations == 0 requests undecorated mode
+    // other flags are ignored intentionally
     if (mh->flags & MWM_HINTS_DECORATIONS) {
       decorations_set = true;
       undecorated = (mh->decorations == 0);
@@ -486,17 +499,25 @@ static bool check_transient_cycle(server_t* s, handle_t child, handle_t parent) 
 }
 
 /*
- * wm_handle_reply:
- * Central callback for all async X11 replies.
+ * Central async reply callback for cookie_jar slots
  *
- * Logic:
- * 1. Validate the reply (check for NULL or X errors).
- * 2. Validate the target client handle (ensure it's still alive).
- * 3. Check transaction ID (discard stale replies that race with new state).
- * 4. Dispatch based on cookie type (Attributes, Geometry, Property, etc.).
- * 5. Update client state (hot/cold) and mark dirty flags.
- * 6. Advance the state machine (STATE_NEW -> STATE_READY) if initial probing is
- * done.
+ * Handler contract:
+ * - normalize X errors into NULL replies for unified error paths
+ * - reject stale handles and stale txn payloads before mutation
+ * - dispatch by cookie type and apply parsed state deltas
+ * - keep manage progression monotonic by draining pending_replies exactly once
+ *
+ * State machine behavior during initial manage:
+ * - replies arrive while client is STATE_NEW and manage_phase is MANAGE_PHASE1
+ * - each completed slot decrements pending_replies in done_one
+ * - when pending_replies reaches zero:
+ *   - manage_aborted -> client_abort_manage
+ *   - otherwise STATE_NEW -> STATE_READY
+ *
+ * Edge cases:
+ * - slot->client can be HANDLE_INVALID for pre-manage classification replies
+ * - override_redirect may be discovered after probes are queued and must abort
+ * - late or reordered replies are ignored by txn ordering
  */
 void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_generic_error_t* err) {
   if (err) {
@@ -509,19 +530,18 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
       xcb_get_window_attributes_reply_t* r = (xcb_get_window_attributes_reply_t*)reply;
       xcb_window_t win = (xcb_window_t)slot->data;
 
-      // Log window classification
+      // Log classification details
 #if HXM_DIAG
       const char* class_str = (r->_class == XCB_WINDOW_CLASS_INPUT_ONLY) ? "InputOnly" : "InputOutput";
       (void)class_str;
 #endif
       LOG_DEBUG("Classify win=%u override=%d class=%s map_state=%d", win, r->override_redirect, class_str, r->map_state);
 
-      // Hard Rules:
-      // 1. Must not be InputOnly
-      // 2. Must not be override_redirect
-      // 3. For adoption (COOKIE_GET_WINDOW_ATTRIBUTES), must be mapped.
-      // 4. For MapRequest (COOKIE_CHECK_MANAGE_MAP_REQUEST), map_state is
-      // irrelevant (usually Unmapped).
+      // Candidate filter
+      // - reject InputOnly
+      // - reject override_redirect
+      // - require mapped state for adoption scan replies
+      // - allow unmapped state for MapRequest path
 
       bool is_input_only = (r->_class == XCB_WINDOW_CLASS_INPUT_ONLY);
       bool is_override = (r->override_redirect != 0);
@@ -531,24 +551,21 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
       if (is_input_only) {
         LOG_DEBUG("Ignoring InputOnly window %u", win);
         if (is_map_request) {
-          // If it requested mapping but we ignore it, we should map it so it
-          // works? "InputOnly windows ... are not visible ... used for events".
-          // Yes, we must map it if we don't manage it, otherwise it stays
-          // unmapped.
+          // Preserve input-only behavior by mapping when we decline management
           xcb_map_window(s->conn, win);
         }
       }
       else if (is_override) {
         LOG_DEBUG("Ignoring override_redirect window %u", win);
         if (is_map_request) {
-          // Should not happen for MapRequest, but if it does, map it.
+          // Safety fallback for unexpected MapRequest on override windows
           xcb_map_window(s->conn, win);
         }
       }
       else {
-        // Good candidate
+        // Valid management candidate
         if (is_map_request || is_mapped) {
-          // Check if already managed (race condition)
+          // Guard duplicate adoption races
           if (server_get_client_by_window(s, win) == HANDLE_INVALID) {
             LOG_INFO("Adopting window %u (map_state %d)", win, r->map_state);
             client_manage_start(s, win);
@@ -1374,7 +1391,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
                   b = 0;
                 }
                 else if (a < 255) {
-                  // Cairo expects premultiplied ARGB32.
+                  // Cairo expects premultiplied ARGB32
                   r = (uint8_t)((r * a + 127) / 255);
                   g = (uint8_t)((g * a + 127) / 255);
                   b = (uint8_t)((b * a + 127) / 255);
@@ -1549,6 +1566,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
     hot->dirty |= DIRTY_FRAME_STYLE;
 
 done_one:
+  /*
+   * pending_replies is drained in one place to keep manage accounting coherent
+   * across all cookie types, including stale or NULL replies
+   */
   if (hot->pending_replies > 0)
     hot->pending_replies--;
 
@@ -1562,6 +1583,7 @@ done_one:
     return;
   }
 
+  /* All startup probes resolved, phase 1 can advance */
   if (hot->pending_replies == 0 && hot->manage_phase == MANAGE_PHASE1) {
     hot->state = STATE_READY;
   }
