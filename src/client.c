@@ -883,22 +883,36 @@ void client_unmanage(server_t* s, handle_t h) {
       uint32_t bw_values[] = {hot->original_border_width};
       xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_BORDER_WIDTH, bw_values);
     }
-    int16_t root_x = hot->server.x;
-    int16_t root_y = hot->server.y;
+    bool prefer_desired_pos = ((hot->dirty & DIRTY_GEOM) != 0) ||
+                              ((s->interaction_mode == INTERACTION_MOVE || s->interaction_mode == INTERACTION_RESIZE) && s->interaction_handle == h);
+
+    int32_t frame_x = hot->server.x;
+    int32_t frame_y = hot->server.y;
+    if (prefer_desired_pos) {
+      frame_x = hot->desired.x;
+      frame_y = hot->desired.y;
+      if (hot->gtk_frame_extents_set) {
+        frame_x -= (int32_t)hot->gtk_extents.left;
+        frame_y -= (int32_t)hot->gtk_extents.top;
+      }
+    }
+
+    int32_t root_x = frame_x;
+    int32_t root_y = frame_y;
 
     if (hot->gtk_frame_extents_set) {
-      root_x += (int16_t)hot->gtk_extents.left;
-      root_y += (int16_t)hot->gtk_extents.top;
+      root_x += (int32_t)hot->gtk_extents.left;
+      root_y += (int32_t)hot->gtk_extents.top;
     }
     else {
       uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
       uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
-      root_x += (int16_t)bw;
-      root_y += (int16_t)th;
+      root_x += (int32_t)bw;
+      root_y += (int32_t)th;
     }
 
-    TRACE_LOG("unmanage reparent xid=%u -> root (%d,%d)", hot->xid, root_x, root_y);
-    xcb_reparent_window(s->conn, hot->xid, s->root, root_x, root_y);
+    TRACE_LOG("unmanage reparent xid=%u -> root (%d,%d) source=%s", hot->xid, root_x, root_y, prefer_desired_pos ? "desired" : "server");
+    xcb_reparent_window(s->conn, hot->xid, s->root, (int16_t)root_x, (int16_t)root_y);
   }
 
   if (hot->damage != XCB_NONE) {

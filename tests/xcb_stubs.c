@@ -159,6 +159,11 @@ xcb_colormap_t stub_last_installed_colormap = XCB_NONE;
 int stub_save_set_insert_count = 0;
 int stub_save_set_delete_count = 0;
 xcb_window_t stub_last_save_set_window = XCB_NONE;
+int stub_reparent_window_count = 0;
+xcb_window_t stub_last_reparent_window = XCB_NONE;
+xcb_window_t stub_last_reparent_parent = XCB_NONE;
+int16_t stub_last_reparent_x = 0;
+int16_t stub_last_reparent_y = 0;
 int stub_sync_await_count = 0;
 
 // Optional reply hook for cookie draining
@@ -247,6 +252,11 @@ void xcb_stubs_reset(void) {
   stub_save_set_insert_count = 0;
   stub_save_set_delete_count = 0;
   stub_last_save_set_window = XCB_NONE;
+  stub_reparent_window_count = 0;
+  stub_last_reparent_window = XCB_NONE;
+  stub_last_reparent_parent = XCB_NONE;
+  stub_last_reparent_x = 0;
+  stub_last_reparent_y = 0;
   stub_sync_await_count = 0;
 
   stub_last_image_w = 0;
@@ -886,10 +896,11 @@ xcb_void_cookie_t xcb_change_save_set(xcb_connection_t* c, uint8_t mode, xcb_win
 
 xcb_void_cookie_t xcb_reparent_window(xcb_connection_t* c, xcb_window_t window, xcb_window_t parent, int16_t x, int16_t y) {
   (void)c;
-  (void)window;
-  (void)parent;
-  (void)x;
-  (void)y;
+  stub_reparent_window_count++;
+  stub_last_reparent_window = window;
+  stub_last_reparent_parent = parent;
+  stub_last_reparent_x = x;
+  stub_last_reparent_y = y;
   return (xcb_void_cookie_t){0};
 }
 

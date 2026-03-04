@@ -11,6 +11,11 @@ extern void xcb_stubs_reset(void);
 extern int stub_save_set_insert_count;
 extern int stub_save_set_delete_count;
 extern xcb_window_t stub_last_save_set_window;
+extern int stub_reparent_window_count;
+extern xcb_window_t stub_last_reparent_window;
+extern xcb_window_t stub_last_reparent_parent;
+extern int16_t stub_last_reparent_x;
+extern int16_t stub_last_reparent_y;
 
 static void setup_server(server_t* s) {
   memset(s, 0, sizeof(*s));
@@ -128,8 +133,72 @@ static void test_save_set_delete_skipped_when_destroyed(void) {
   cleanup_server(&s);
 }
 
+static void test_unmanage_reparent_uses_desired_when_geom_dirty(void) {
+  server_t s;
+  setup_server(&s);
+
+  s.config.theme.border_width = 2;
+  s.config.theme.title_height = 20;
+
+  handle_t h = add_client(&s, 2003, 2103);
+  client_hot_t* hot = server_chot(&s, h);
+
+  hot->state = STATE_MAPPED;
+  hot->manage_phase = MANAGE_DONE;
+  hot->server.x = 10;
+  hot->server.y = 15;
+  hot->desired.x = 110;
+  hot->desired.y = 215;
+  hot->dirty |= DIRTY_GEOM;
+
+  xcb_stubs_reset();
+  client_unmanage(&s, h);
+
+  assert(stub_reparent_window_count == 1);
+  assert(stub_last_reparent_window == 2003);
+  assert(stub_last_reparent_parent == s.root);
+  assert(stub_last_reparent_x == 112);
+  assert(stub_last_reparent_y == 235);
+
+  printf("test_unmanage_reparent_uses_desired_when_geom_dirty passed\n");
+  cleanup_server(&s);
+}
+
+static void test_unmanage_reparent_gtk_desired_conversion(void) {
+  server_t s;
+  setup_server(&s);
+
+  handle_t h = add_client(&s, 2004, 2104);
+  client_hot_t* hot = server_chot(&s, h);
+
+  hot->state = STATE_MAPPED;
+  hot->manage_phase = MANAGE_DONE;
+  hot->server.x = 20;
+  hot->server.y = 25;
+  hot->desired.x = 300;
+  hot->desired.y = 400;
+  hot->gtk_frame_extents_set = true;
+  hot->gtk_extents.left = 7;
+  hot->gtk_extents.top = 9;
+  hot->dirty |= DIRTY_GEOM;
+
+  xcb_stubs_reset();
+  client_unmanage(&s, h);
+
+  assert(stub_reparent_window_count == 1);
+  assert(stub_last_reparent_window == 2004);
+  assert(stub_last_reparent_parent == s.root);
+  assert(stub_last_reparent_x == 300);
+  assert(stub_last_reparent_y == 400);
+
+  printf("test_unmanage_reparent_gtk_desired_conversion passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_save_set_insert_and_delete();
   test_save_set_delete_skipped_when_destroyed();
+  test_unmanage_reparent_uses_desired_when_geom_dirty();
+  test_unmanage_reparent_gtk_desired_conversion();
   return 0;
 }
