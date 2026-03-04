@@ -220,7 +220,7 @@ typedef struct server {
   uint64_t last_interaction_flush; /* monotonic ns */
 
   int16_t interaction_start_x, interaction_start_y;
-  int16_t interaction_start_w, interaction_start_h;
+  int32_t interaction_start_w, interaction_start_h;
 
   int16_t interaction_pointer_x, interaction_pointer_y;
   int16_t pointer_root_x, pointer_root_y;

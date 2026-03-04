@@ -1222,17 +1222,30 @@ static int wm_get_resize_dir(server_t* s, client_hot_t* hot, int16_t x, int16_t 
   uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
   uint16_t bottom_h = bw;
 
-  uint16_t frame_w = hot->server.w + 2 * bw;
-  uint16_t frame_h = hot->server.h + th + bottom_h;
+  uint32_t frame_w_calc = (uint32_t)hot->server.w + (uint32_t)(2u * bw);
+  uint32_t frame_h_calc = (uint32_t)hot->server.h + (uint32_t)th + (uint32_t)bottom_h;
+  if (frame_w_calc > MAX_FRAME_SIZE)
+    frame_w_calc = MAX_FRAME_SIZE;
+  if (frame_h_calc > MAX_FRAME_SIZE)
+    frame_h_calc = MAX_FRAME_SIZE;
+
+  uint16_t frame_w = (uint16_t)frame_w_calc;
+  uint16_t frame_h = (uint16_t)frame_h_calc;
+  int32_t right_edge = (int32_t)frame_w - (int32_t)bw;
+  int32_t bottom_edge = (int32_t)frame_h - (int32_t)bw;
+  if (right_edge < 0)
+    right_edge = 0;
+  if (bottom_edge < 0)
+    bottom_edge = 0;
 
   int dir = RESIZE_NONE;
   if (x < bw)
     dir |= RESIZE_LEFT;
-  if (x >= frame_w - bw)
+  if ((int32_t)x >= right_edge)
     dir |= RESIZE_RIGHT;
   if (y < bw)
     dir |= RESIZE_TOP;  // Top border (part of titlebar area technically)
-  if (y >= frame_h - bw)
+  if ((int32_t)y >= bottom_edge)
     dir |= RESIZE_BOTTOM;
 
   return dir;
@@ -1627,6 +1640,11 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
   }
 
   bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
+  uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
+  uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+  uint16_t max_client_w = MAX_FRAME_SIZE;
+  uint16_t max_client_h = MAX_FRAME_SIZE;
+  wm_compute_max_client_size(bw, th, hot->gtk_frame_extents_set, &max_client_w, &max_client_h);
 
   // Constrain size
   if (is_panel) {
@@ -1634,16 +1652,27 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
       new_w = 1;
     if (new_h < 1)
       new_h = 1;
+    if (new_w > (int)max_client_w)
+      new_w = (int)max_client_w;
+    if (new_h > (int)max_client_h)
+      new_h = (int)max_client_h;
   }
   else {
-    if (new_w < MIN_FRAME_SIZE)
-      new_w = MIN_FRAME_SIZE;
-    if (new_w > MAX_FRAME_SIZE)
-      new_w = MAX_FRAME_SIZE;
-    if (new_h < MIN_FRAME_SIZE)
-      new_h = MIN_FRAME_SIZE;
-    if (new_h > MAX_FRAME_SIZE)
-      new_h = MAX_FRAME_SIZE;
+    int min_w = MIN_FRAME_SIZE;
+    int min_h = MIN_FRAME_SIZE;
+    if (min_w > (int)max_client_w)
+      min_w = (int)max_client_w;
+    if (min_h > (int)max_client_h)
+      min_h = (int)max_client_h;
+
+    if (new_w < min_w)
+      new_w = min_w;
+    if (new_w > (int)max_client_w)
+      new_w = (int)max_client_w;
+    if (new_h < min_h)
+      new_h = min_h;
+    if (new_h > (int)max_client_h)
+      new_h = (int)max_client_h;
   }
 
   uint16_t w = (uint16_t)new_w;
@@ -1652,6 +1681,17 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
   // Apply hints
   if (!is_panel) {
     client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
+    if (w > max_client_w)
+      w = max_client_w;
+    if (h_val > max_client_h)
+      h_val = max_client_h;
+
+    uint16_t min_w = (max_client_w < MIN_FRAME_SIZE) ? max_client_w : (uint16_t)MIN_FRAME_SIZE;
+    uint16_t min_h = (max_client_h < MIN_FRAME_SIZE) ? max_client_h : (uint16_t)MIN_FRAME_SIZE;
+    if (w < min_w)
+      w = min_w;
+    if (h_val < min_h)
+      h_val = min_h;
   }
   // Adjust position if resizing top/left
   // Determine effective delta

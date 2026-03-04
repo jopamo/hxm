@@ -460,6 +460,9 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
       uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
       uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+      uint16_t max_client_w = MAX_FRAME_SIZE;
+      uint16_t max_client_h = MAX_FRAME_SIZE;
+      wm_compute_max_client_size(bw, th, hot->gtk_frame_extents_set, &max_client_w, &max_client_h);
 
       // Defer configuration until management is complete
       if (hot->state == STATE_NEW) {
@@ -485,18 +488,37 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       if (is_panel) {
         rect_t bounds = wm_monitor_bounds_for_rect(s, &hot->desired);
         wm_clamp_rect_to_bounds(&hot->desired, &bounds);
+        if (hot->desired.w > max_client_w)
+          hot->desired.w = max_client_w;
+        if (hot->desired.h > max_client_h)
+          hot->desired.h = max_client_h;
       }
       else {
+        uint16_t min_client_w = (max_client_w < MIN_FRAME_SIZE) ? max_client_w : (uint16_t)MIN_FRAME_SIZE;
+        uint16_t min_client_h = (max_client_h < MIN_FRAME_SIZE) ? max_client_h : (uint16_t)MIN_FRAME_SIZE;
+
         // Robust clamping: Ensure frame is at least large enough for
         // decorations/buttons and client is never <= 0.
-        if (hot->desired.w < MIN_FRAME_SIZE)
-          hot->desired.w = (uint16_t)MIN_FRAME_SIZE;
-        if (hot->desired.h < MIN_FRAME_SIZE)
-          hot->desired.h = (uint16_t)MIN_FRAME_SIZE;
+        if (hot->desired.w < min_client_w)
+          hot->desired.w = min_client_w;
+        if (hot->desired.w > max_client_w)
+          hot->desired.w = max_client_w;
+        if (hot->desired.h < min_client_h)
+          hot->desired.h = min_client_h;
+        if (hot->desired.h > max_client_h)
+          hot->desired.h = max_client_h;
 
         // Apply size hints (increments, aspect ratio, min/max) to ensure we
         // send a valid geometry that the client won't immediately reject.
         client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+        if (hot->desired.w > max_client_w)
+          hot->desired.w = max_client_w;
+        if (hot->desired.h > max_client_h)
+          hot->desired.h = max_client_h;
+        if (hot->desired.w < min_client_w)
+          hot->desired.w = min_client_w;
+        if (hot->desired.h < min_client_h)
+          hot->desired.h = min_client_h;
       }
 
       int32_t frame_x = hot->desired.x;
@@ -516,8 +538,8 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       }
       else {
         uint16_t bottom_h = bw;
-        frame_w += 2 * bw;
-        frame_h += th + bottom_h;
+        frame_w += (uint32_t)(2u * bw);
+        frame_h += (uint32_t)th + (uint32_t)bottom_h;
         // client_w/h remain equal to desired (content size)
       }
 
@@ -526,6 +548,14 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         client_w_calc = 1;
       if (client_h_calc < 1)
         client_h_calc = 1;
+      if (client_w_calc > MAX_FRAME_SIZE)
+        client_w_calc = MAX_FRAME_SIZE;
+      if (client_h_calc > MAX_FRAME_SIZE)
+        client_h_calc = MAX_FRAME_SIZE;
+      if (frame_w > MAX_FRAME_SIZE)
+        frame_w = MAX_FRAME_SIZE;
+      if (frame_h > MAX_FRAME_SIZE)
+        frame_h = MAX_FRAME_SIZE;
 
       uint32_t client_w = (uint32_t)client_w_calc;
       uint32_t client_h = (uint32_t)client_h_calc;

@@ -6,6 +6,7 @@
 
 #include <X11/cursorfont.h>
 #include <assert.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -13,6 +14,7 @@
 #include "event.h"
 #include "hxm.h"
 #include "render.h"
+#include "wm_internal.h"
 
 void frame_init_resources(server_t* s) {
   // Cursors
@@ -85,9 +87,17 @@ void frame_cleanup_resources(server_t* s) {
 #define BUTTON_PADDING 4
 
 static xcb_rectangle_t get_button_rect(server_t* s, client_hot_t* hot, frame_button_t btn) {
-  uint16_t frame_w = hot->server.w + 2 * s->config.theme.border_width;
+  uint32_t frame_w_calc = (uint32_t)hot->server.w + (uint32_t)(2u * (uint32_t)s->config.theme.border_width);
+  if (frame_w_calc > MAX_FRAME_SIZE)
+    frame_w_calc = MAX_FRAME_SIZE;
+  uint16_t frame_w = (uint16_t)frame_w_calc;
   // Buttons are laid out inside the right border
-  int16_t x = (int16_t)frame_w - (int16_t)s->config.theme.border_width - BUTTON_PADDING - BUTTON_WIDTH;
+  int32_t x_calc = (int32_t)frame_w - (int32_t)s->config.theme.border_width - BUTTON_PADDING - BUTTON_WIDTH;
+  if (x_calc < INT16_MIN)
+    x_calc = INT16_MIN;
+  if (x_calc > INT16_MAX)
+    x_calc = INT16_MAX;
+  int16_t x = (int16_t)x_calc;
   int16_t y = (int16_t)((s->config.theme.title_height - BUTTON_HEIGHT) / 2);
 
   if (btn == FRAME_BUTTON_MAXIMIZE)
@@ -165,8 +175,14 @@ void frame_flush(server_t* s, handle_t h) {
   uint16_t th = s->config.theme.title_height;
   uint16_t bottom_h = bw;
 
-  uint16_t frame_w = hot->server.w + 2 * bw;
-  uint16_t frame_h = hot->server.h + th + bottom_h;
+  uint32_t frame_w_calc = (uint32_t)hot->server.w + (uint32_t)(2u * bw);
+  uint32_t frame_h_calc = (uint32_t)hot->server.h + (uint32_t)th + (uint32_t)bottom_h;
+  if (frame_w_calc > MAX_FRAME_SIZE)
+    frame_w_calc = MAX_FRAME_SIZE;
+  if (frame_h_calc > MAX_FRAME_SIZE)
+    frame_h_calc = MAX_FRAME_SIZE;
+  uint16_t frame_w = (uint16_t)frame_w_calc;
+  uint16_t frame_h = (uint16_t)frame_h_calc;
 
   // Frames are always created with the root visual/depth
   xcb_visualtype_t* visual = s->root_visual_type;
@@ -192,11 +208,22 @@ void frame_flush(server_t* s, handle_t h) {
       // Fix: Include border width in the clip region calculation
       // Buttons are positioned relative to the right edge minus border
       // Clip region is in frame coordinates (0,0 is top-left of frame)
-      int16_t clip_x = (int16_t)(frame_w - btn_area_w - s->config.theme.border_width);
-      if (clip_x < 0)
-        clip_x = 0;
+      int32_t clip_x_calc = (int32_t)frame_w - (int32_t)btn_area_w - (int32_t)s->config.theme.border_width;
+      if (clip_x_calc < 0)
+        clip_x_calc = 0;
+      if (clip_x_calc > INT16_MAX)
+        clip_x_calc = INT16_MAX;
+      int16_t clip_x = (int16_t)clip_x_calc;
 
-      partial_clip = dirty_region_make(clip_x, 0, btn_area_w + s->config.theme.border_width, (uint16_t)s->config.theme.title_height);
+      uint32_t clip_w_calc = (uint32_t)btn_area_w + (uint32_t)s->config.theme.border_width;
+      if (clip_w_calc > UINT16_MAX)
+        clip_w_calc = UINT16_MAX;
+
+      uint32_t clip_h_calc = s->config.theme.title_height;
+      if (clip_h_calc > UINT16_MAX)
+        clip_h_calc = UINT16_MAX;
+
+      partial_clip = dirty_region_make(clip_x, 0, (uint16_t)clip_w_calc, (uint16_t)clip_h_calc);
       clip_ptr = &partial_clip;
     }
   }

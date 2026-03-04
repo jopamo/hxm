@@ -496,12 +496,36 @@ void client_finish_manage(server_t* s, handle_t h) {
   uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
   uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
   uint16_t bottom_h = bw;
+  uint16_t max_client_w = MAX_FRAME_SIZE;
+  uint16_t max_client_h = MAX_FRAME_SIZE;
+  wm_compute_max_client_size(bw, th, hot->gtk_frame_extents_set, &max_client_w, &max_client_h);
+  if (geom.w == 0)
+    geom.w = 1;
+  if (geom.h == 0)
+    geom.h = 1;
+  if (geom.w > max_client_w)
+    geom.w = max_client_w;
+  if (geom.h > max_client_h)
+    geom.h = max_client_h;
+
+  uint16_t create_frame_w = geom.w;
+  uint16_t create_frame_h = geom.h;
+  if (!hot->gtk_frame_extents_set) {
+    uint32_t calc_w = (uint32_t)geom.w + (uint32_t)(2u * bw);
+    uint32_t calc_h = (uint32_t)geom.h + (uint32_t)th + (uint32_t)bottom_h;
+    if (calc_w > MAX_FRAME_SIZE)
+      calc_w = MAX_FRAME_SIZE;
+    if (calc_h > MAX_FRAME_SIZE)
+      calc_h = MAX_FRAME_SIZE;
+    create_frame_w = (uint16_t)calc_w;
+    create_frame_h = (uint16_t)calc_h;
+  }
 
   // Use root visual/depth for frames to avoid client-visual artifacts (ex:
   // video overlays)
 
   hot->frame = xcb_generate_id(s->conn);
-  xcb_create_window(s->conn, s->root_depth, hot->frame, s->root, geom.x, geom.y, geom.w + 2 * bw, geom.h + th + bottom_h, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, s->root_visual, mask, values);
+  xcb_create_window(s->conn, s->root_depth, hot->frame, s->root, geom.x, geom.y, create_frame_w, create_frame_h, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, s->root_visual, mask, values);
 
   // Register frame mapping
   hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));
@@ -551,9 +575,14 @@ void client_finish_manage(server_t* s, handle_t h) {
     client_h = frame_h;
   }
   else {
-    frame_w += 2 * bw;
-    frame_h += th + bottom_h;
+    frame_w += (uint32_t)(2u * bw);
+    frame_h += (uint32_t)th + (uint32_t)bottom_h;
   }
+
+  if (frame_w > MAX_FRAME_SIZE)
+    frame_w = MAX_FRAME_SIZE;
+  if (frame_h > MAX_FRAME_SIZE)
+    frame_h = MAX_FRAME_SIZE;
 
   uint32_t frame_values[4];
   frame_values[0] = (uint32_t)frame_x;

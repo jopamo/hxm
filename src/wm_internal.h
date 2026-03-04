@@ -15,6 +15,26 @@
 #define MIN_FRAME_SIZE 32
 #define MAX_FRAME_SIZE 65535
 
+static inline uint16_t wm_max_client_size_for_frame_extra(uint32_t frame_extra) {
+  if (frame_extra >= MAX_FRAME_SIZE)
+    return 1;
+  return (uint16_t)(MAX_FRAME_SIZE - frame_extra);
+}
+
+static inline void wm_compute_max_client_size(uint16_t border_width, uint16_t title_height, bool frame_extents_passthrough, uint16_t* out_max_w, uint16_t* out_max_h) {
+  uint32_t frame_extra_w = 0;
+  uint32_t frame_extra_h = 0;
+  if (!frame_extents_passthrough) {
+    frame_extra_w = (uint32_t)(2u * (uint32_t)border_width);
+    frame_extra_h = (uint32_t)title_height + (uint32_t)border_width;
+  }
+
+  if (out_max_w)
+    *out_max_w = wm_max_client_size_for_frame_extra(frame_extra_w);
+  if (out_max_h)
+    *out_max_h = wm_max_client_size_for_frame_extra(frame_extra_h);
+}
+
 uint32_t wm_clean_mods(uint16_t state);
 
 // Exposed interaction logic

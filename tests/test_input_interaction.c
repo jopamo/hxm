@@ -315,6 +315,50 @@ static void test_resize_interaction(void) {
   cleanup_server(&s);
 }
 
+static void test_resize_interaction_clamps_frame_overflow(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_cookie_push_spy();
+
+  handle_t h = add_mapped_client(&s, 3201, 3301);
+  client_hot_t* hot = server_chot(&s, h);
+
+  uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : (uint16_t)s.config.theme.border_width;
+  uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : (uint16_t)s.config.theme.title_height;
+  uint16_t max_client_w = MAX_FRAME_SIZE;
+  uint16_t max_client_h = MAX_FRAME_SIZE;
+  wm_compute_max_client_size(bw, th, hot->gtk_frame_extents_set, &max_client_w, &max_client_h);
+
+  hot->server.w = (max_client_w > 2) ? (uint16_t)(max_client_w - 2) : max_client_w;
+  hot->server.h = (max_client_h > 2) ? (uint16_t)(max_client_h - 2) : max_client_h;
+  hot->desired.w = hot->server.w;
+  hot->desired.h = hot->server.h;
+
+  wm_start_interaction(&s, h, hot, false, RESIZE_BOTTOM | RESIZE_RIGHT, 100, 100, XCB_CURRENT_TIME, false);
+  assert(s.interaction_mode == INTERACTION_RESIZE);
+
+  xcb_motion_notify_event_t motion = {0};
+  motion.root_x = 130;
+  motion.root_y = 130;
+  motion.event = hot->frame;
+  motion.state = XCB_KEY_BUT_MASK_BUTTON_1;
+
+  wm_handle_motion_notify(&s, &motion);
+
+  assert(hot->desired.w == max_client_w);
+  assert(hot->desired.h == max_client_h);
+  assert((uint32_t)hot->desired.w + (uint32_t)(2u * bw) <= MAX_FRAME_SIZE);
+  assert((uint32_t)hot->desired.h + (uint32_t)th + (uint32_t)bw <= MAX_FRAME_SIZE);
+
+  xcb_button_release_event_t release = {0};
+  wm_handle_button_release(&s, &release);
+  assert(stub_ungrab_pointer_count == 1);
+
+  printf("test_resize_interaction_clamps_frame_overflow passed\n");
+  cleanup_server(&s);
+}
+
 static void test_resize_corner_top_left(void) {
   server_t s;
   setup_server(&s);
@@ -599,6 +643,7 @@ int main(void) {
   test_move_interaction();
   test_move_interaction_aborts_when_grab_enqueue_fails();
   test_resize_interaction();
+  test_resize_interaction_clamps_frame_overflow();
   test_resize_corner_top_left();
   test_cancel_interaction_resets_cursor();
   test_resize_no_sync_await();
