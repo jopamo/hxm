@@ -166,12 +166,12 @@ void wm_publish_workarea(server_t* s, const rect_t* wa) {
   s->workarea = *wa;
 
   uint32_t n = s->desktop_count ? s->desktop_count : 1;
-  rect_t* desktop_workareas = calloc(n, sizeof(*desktop_workareas));
+  rect_t* desktop_workareas = (rect_t*)arena_alloc(&s->tick_arena, n * sizeof(*desktop_workareas));
   if (desktop_workareas) {
     wm_compute_workareas(s, desktop_workareas, n);
   }
 
-  uint32_t* wa_vals = malloc(n * 4 * sizeof(uint32_t));
+  uint32_t* wa_vals = (uint32_t*)arena_alloc(&s->tick_arena, n * 4 * sizeof(uint32_t));
   if (wa_vals) {
     for (uint32_t i = 0; i < n; i++) {
       rect_t wa_i = desktop_workareas ? desktop_workareas[i] : s->workarea;
@@ -181,9 +181,7 @@ void wm_publish_workarea(server_t* s, const rect_t* wa) {
       wa_vals[i * 4 + 3] = (uint32_t)wa_i.h;
     }
     xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_WORKAREA, XCB_ATOM_CARDINAL, 32, n * 4, wa_vals);
-    free(wa_vals);
   }
-  free(desktop_workareas);
 
   // Re-apply workarea-dependent geometry for maximized/fullscreen windows
   for (size_t i = 0; i < s->active_clients.length; i++) {
