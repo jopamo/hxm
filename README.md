@@ -33,17 +33,42 @@ Current version: **0.1.0**
 
 ## Dependencies
 
-Dependencies are listed in:
+Runtime dependencies (pkg-config names):
 
 ```
-scripts/deps-fedora.txt
+xcb
+xcb-icccm
+xcb-xkb
+xcb-randr
+xcb-shape
+xcb-damage
+xcb-sync
+cairo
+pango
+pangocairo
+fontconfig
+librsvg-2.0
+yaml-0.1
 ```
 
-Example installation on Fedora:
+Optional runtime integrations (enabled when available):
 
-```sh
-sudo dnf install $(tr '\n' ' ' < scripts/deps-fedora.txt)
 ```
+xcb-xinerama
+xcb-keysyms
+xkbcommon
+```
+
+Build tools:
+
+```
+meson
+ninja
+pkg-config
+clang or gcc
+```
+
+Package names vary by distribution.
 
 ---
 
