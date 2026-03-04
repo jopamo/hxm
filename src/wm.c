@@ -920,6 +920,13 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
   if (!hot)
     return;
 
+  // During WM-driven interactive move/resize, keep desired geometry owned by
+  // pointer/keyboard interaction logic to avoid client-vs-WM ping-pong.
+  if ((s->interaction_mode == INTERACTION_MOVE || s->interaction_mode == INTERACTION_RESIZE) && s->interaction_handle == h) {
+    TRACE_LOG("configure_request ignored during interaction h=%lx xid=%u mode=%d mask=0x%x", h, hot->xid, s->interaction_mode, ev->mask);
+    return;
+  }
+
   TRACE_LOG("configure_request h=%lx xid=%u mask=0x%x x=%d y=%d w=%u h=%u bw=%u", h, hot->xid, ev->mask, ev->x, ev->y, ev->width, ev->height, ev->border_width);
 
   if (ev->mask & XCB_CONFIG_WINDOW_X)

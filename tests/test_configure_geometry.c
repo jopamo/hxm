@@ -704,6 +704,68 @@ static void test_configure_notify_does_not_resync_desired_during_interactive_res
   cleanup_server(&s);
 }
 
+static void test_configure_request_ignored_during_interactive_resize(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_client(&s, 7008, 7108);
+  client_hot_t* hot = server_chot(&s, h);
+  hot->desired = (rect_t){10, 20, 220, 140};
+  hot->dirty = DIRTY_NONE;
+  hot->geometry_from_configure = false;
+
+  s.interaction_mode = INTERACTION_RESIZE;
+  s.interaction_window = hot->frame;
+  s.interaction_handle = h;
+
+  pending_config_t pc = {0};
+  pc.window = hot->xid;
+  pc.mask = XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+  pc.width = 111;
+  pc.height = 99;
+  wm_handle_configure_request(&s, h, &pc);
+
+  assert(hot->desired.w == 220u);
+  assert(hot->desired.h == 140u);
+  assert(hot->geometry_from_configure == false);
+  assert((hot->dirty & DIRTY_GEOM) == 0);
+
+  printf("test_configure_request_ignored_during_interactive_resize passed\n");
+  cleanup_server(&s);
+}
+
+static void test_configure_request_ignored_during_interactive_move(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_client(&s, 7009, 7109);
+  client_hot_t* hot = server_chot(&s, h);
+  hot->desired = (rect_t){10, 20, 220, 140};
+  hot->dirty = DIRTY_NONE;
+  hot->geometry_from_configure = false;
+
+  s.interaction_mode = INTERACTION_MOVE;
+  s.interaction_window = hot->frame;
+  s.interaction_handle = h;
+
+  pending_config_t pc = {0};
+  pc.window = hot->xid;
+  pc.mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y;
+  pc.x = 300;
+  pc.y = 400;
+  wm_handle_configure_request(&s, h, &pc);
+
+  assert(hot->desired.x == 10);
+  assert(hot->desired.y == 20);
+  assert(hot->geometry_from_configure == false);
+  assert((hot->dirty & DIRTY_GEOM) == 0);
+
+  printf("test_configure_request_ignored_during_interactive_move passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_configure_request_applies_and_extents();
   test_configure_request_mask_respects_existing();
@@ -720,5 +782,7 @@ int main(void) {
   test_configure_notify_resync_settles_with_final_client_configure();
   test_interactive_resize_configures_client_even_when_notify_matches();
   test_configure_notify_does_not_resync_desired_during_interactive_resize();
+  test_configure_request_ignored_during_interactive_resize();
+  test_configure_request_ignored_during_interactive_move();
   return 0;
 }
