@@ -1,11 +1,155 @@
 /* src/cookie_jar.c
- * XCB cookie management for async replies
  *
- * Design:
- * - Open-addressed hash table keyed by XCB sequence numbers
- * - Linear probing for collision resolution
- * - Backshift deletion to avoid tombstones and keep probe chains valid
- * - A scan cursor to fairly poll for replies without starving other work
+ * Asynchronous XCB reply tracking and dispatch.
+ *
+ * XCB requests that expect replies return a 32-bit sequence number.
+ * The reply arrives later and must be matched against that sequence.
+ *
+ * The cookie jar maintains a mapping:
+ *
+ *      sequence -> handler + context
+ *
+ * allowing the event loop to poll for replies without blocking.
+ *
+ * ---------------------------------------------------------------------
+ * Why this exists
+ * ---------------------------------------------------------------------
+ *
+ * XCB provides two ways to retrieve replies:
+ *
+ *      synchronous: xcb_*_reply()
+ *      asynchronous: xcb_poll_for_reply()
+ *
+ * Synchronous calls block the thread until the X server responds.
+ * In a window manager this is unacceptable because it would stall
+ * event processing and freeze the UI.
+ *
+ * Instead hxm issues requests asynchronously:
+ *
+ *      seq = xcb_get_property(...)
+ *      cookie_jar_push(seq -> handler)
+ *
+ * Later the event loop calls cookie_jar_drain() to check whether
+ * replies are available.
+ *
+ * ---------------------------------------------------------------------
+ * Table design
+ * ---------------------------------------------------------------------
+ *
+ * The cookie jar is implemented as an open-addressed hash table.
+ *
+ * Properties:
+ *
+ *      key:        XCB sequence number
+ *      probing:    linear probing
+ *      deletion:   backshift deletion (no tombstones)
+ *      capacity:   power of two
+ *
+ * Using a power-of-two capacity allows fast indexing:
+ *
+ *      index = sequence & (cap - 1)
+ *
+ * avoiding expensive modulo operations.
+ *
+ * ---------------------------------------------------------------------
+ * Probe invariants
+ * ---------------------------------------------------------------------
+ *
+ * Linear probing requires probe chains to remain contiguous.
+ * Removing a slot by simply clearing it would break lookups.
+ *
+ * Therefore deletion uses backshift relocation:
+ *
+ *      when a slot is removed,
+ *      later entries whose home bucket lies before the hole
+ *      are shifted backward.
+ *
+ * This preserves lookup correctness without tombstones.
+ *
+ * ---------------------------------------------------------------------
+ * Fair reply polling
+ * ---------------------------------------------------------------------
+ *
+ * cookie_jar_drain() scans the table starting at scan_cursor.
+ *
+ * This prevents early buckets from being polled more often than
+ * later buckets and avoids starvation when many cookies exist.
+ *
+ * Work per invocation is bounded by max_replies
+ * (defaulting to COOKIE_JAR_MAX_REPLIES_PER_TICK).
+ *
+ * ---------------------------------------------------------------------
+ * Reply readiness hint
+ * ---------------------------------------------------------------------
+ *
+ * The jar tracks a hint (replies_may_exist) indicating that replies
+ * might be available in the XCB queue.
+ *
+ * This hint is set by the event loop when socket reads occur
+ * (typically while processing X events).
+ *
+ * If the hint is not set and no timeouts are pending,
+ * reply polling is skipped entirely when hint-based polling
+ * is enabled (normal event-loop operation).
+ *
+ * This reduces overhead when many cookies are pending.
+ *
+ * ---------------------------------------------------------------------
+ * Timeout tracking
+ * ---------------------------------------------------------------------
+ *
+ * Each cookie stores its creation timestamp.
+ *
+ * Instead of scanning the entire table every tick to find the oldest
+ * cookie, the jar maintains:
+ *
+ *      earliest_cookie_ns
+ *
+ * This provides an O(1) hint for the next timeout deadline.
+ *
+ * If the earliest entry is removed, the hint becomes dirty and is
+ * recomputed lazily.
+ *
+ * ---------------------------------------------------------------------
+ * Re-entrancy guarantee
+ * ---------------------------------------------------------------------
+ *
+ * A cookie slot is removed before invoking its handler.
+ *
+ * This guarantees that handlers may safely push new cookies
+ * without corrupting probe chains or iterator state.
+ *
+ * ---------------------------------------------------------------------
+ * Memory ownership
+ * ---------------------------------------------------------------------
+ *
+ * XCB allocates reply and error structures returned by
+ * xcb_poll_for_reply().
+ *
+ * These pointers are passed to the handler as borrowed references
+ * and are freed here after the handler returns.
+ *
+ * Handlers must not free them.
+ *
+ * ---------------------------------------------------------------------
+ * Sequence wrap safety
+ * ---------------------------------------------------------------------
+ *
+ * XCB sequence numbers are 32-bit and eventually wrap.
+ *
+ * Cookies are short-lived and the jar size is small, so a wrapped
+ * sequence colliding with a still-live entry is unlikely in practice.
+ *
+ * ---------------------------------------------------------------------
+ * X11 ordering note
+ * ---------------------------------------------------------------------
+ *
+ * This file relies on X11/XCB's request-reply sequencing guarantees:
+ * the sequence carried by a reply identifies the request it belongs to,
+ * even when unrelated events interleave on the connection.
+ *
+ * Dispatch order here is driven by table scan position and fairness
+ * limits, not by strict sequence order.
  */
 
 #include "cookie_jar.h"
@@ -27,8 +171,9 @@ __attribute__((weak)) void* cj_calloc(size_t n, size_t size) {
 #define COOKIE_JAR_MAX_LOAD_DEN 10
 
 static size_t cookie_jar_next_pow2(size_t x) {
-  // Round up to next power of two
-  // cap is always a power of two so we can use mask = cap - 1
+  // Round a capacity up to the next power of two.
+  // The cookie table always uses power-of-two sizing so
+  // index wrapping can use bit masking instead of modulo.
   size_t p = 1;
   while (p < x)
     p <<= 1;
@@ -36,13 +181,27 @@ static size_t cookie_jar_next_pow2(size_t x) {
 }
 
 static inline size_t cookie_home(uint32_t seq, size_t mask) {
+  // Compute the home bucket for a sequence number.
+  // Sequence numbers are already reasonably distributed so
+  // masking is sufficient as a hash function.
   return ((size_t)seq) & mask;
 }
 static inline size_t cookie_next(size_t i, size_t mask) {
+  // Advance to the next slot in the probe chain.
+  // Wrapping uses a mask instead of a branch.
   return (i + 1) & mask;
 }
 
 static void cookie_jar_refresh_timeout_hint(cookie_jar_t* cj) {
+  /*
+   * Recompute earliest_cookie_ns if the cached hint is invalid.
+   *
+   * The jar tracks the timestamp of the oldest cookie to avoid
+   * scanning the table every time we compute a timeout.
+   *
+   * If that entry is removed the hint becomes dirty and is
+   * lazily recomputed here.
+   */
   if (!cj)
     return;
 
@@ -69,7 +228,16 @@ static void cookie_jar_refresh_timeout_hint(cookie_jar_t* cj) {
 }
 
 static size_t cookie_jar_probe(const cookie_jar_t* cj, uint32_t seq) {
-  // Find a slot for seq, either an exact match or the first empty slot
+  /*
+   * Locate the slot corresponding to a sequence number.
+   *
+   * Returns either:
+   *      - the slot containing the sequence
+   *      - the first empty slot where it should be inserted
+   *
+   * Linear probing continues until a matching or empty slot
+   * is encountered.
+   */
   size_t mask = cj->cap - 1;
   size_t i = cookie_home(seq, mask);
   while (cj->slots[i].live && cj->slots[i].sequence != seq) {
@@ -79,7 +247,15 @@ static size_t cookie_jar_probe(const cookie_jar_t* cj, uint32_t seq) {
 }
 
 static void cookie_jar_grow(cookie_jar_t* cj, size_t new_cap) {
-  // Rehash into a new table
+  /*
+   * Resize the cookie table and rehash all live entries.
+   *
+   * Growth occurs when the load factor exceeds 0.7.
+   * Doubling the table size keeps probe chains short.
+   *
+   * Rehashing is required because bucket positions depend
+   * on the table mask (cap - 1).
+   */
   new_cap = cookie_jar_next_pow2(new_cap);
   if (new_cap < 2)
     new_cap = 2;
@@ -121,14 +297,17 @@ static void cookie_jar_grow(cookie_jar_t* cj, size_t new_cap) {
 }
 
 /*
- * cookie_jar_remove:
- * Remove a slot and maintain open-addressing invariants.
+ * Remove a slot while preserving linear probing invariants.
  *
- * Since we use linear probing, we cannot simply mark a slot as empty (unless we
- * use tombstones). Instead, we use "backshift deletion" (Knuth Algorithm R): We
- * scan forward to find elements that "belong" earlier in the table (due to
- * collisions) and shift them back to fill the hole. This keeps probe chains
- * contiguous.
+ * Linear probing relies on contiguous probe chains.
+ * Simply clearing a slot would break lookups for entries
+ * inserted later in the chain.
+ *
+ * Backshift deletion (Knuth Algorithm R) fixes this by moving
+ * forward entries backward when their home bucket lies before
+ * the removed position.
+ *
+ * This restores the probe chain without using tombstones.
  */
 static void cookie_jar_remove(cookie_jar_t* cj, size_t idx) {
   size_t mask = cj->cap - 1;
@@ -205,7 +384,23 @@ bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, ha
   if (!cj || !cj->slots || sequence == 0 || !handler)
     return false;
 
-  // Grow before insertion to preserve probe behavior and keep load bounded
+  /*
+   * Register a new pending XCB request.
+   *
+   * Each slot records:
+   *      sequence        XCB request sequence
+   *      type            request classification
+   *      client          owning client handle
+   *      data            caller-provided context
+   *      timestamp_ns    used for timeout detection
+   *      txn_id          higher-level transaction identifier
+   *      handler         callback to process the reply
+   *
+   * If the sequence already exists its metadata is overwritten.
+   * This should be rare but prevents duplicate entries.
+   */
+
+  // Grow before insertion to preserve probe behavior and keep load bounded.
   if (cj->live_count * COOKIE_JAR_MAX_LOAD_DEN >= cj->cap * COOKIE_JAR_MAX_LOAD_NUM) {
     cookie_jar_grow(cj, cj->cap * 2);
   }
@@ -245,6 +440,14 @@ bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, ha
 }
 
 size_t cookie_jar_remove_client(cookie_jar_t* cj, handle_t client) {
+  /*
+   * Remove all cookies belonging to a specific client.
+   *
+   * Used when a client is destroyed or management is aborted.
+   *
+   * Without this cleanup a delayed reply could reference
+   * a freed client handle and corrupt state.
+   */
   if (!cj || !cj->slots || client == HANDLE_INVALID || cj->live_count == 0)
     return 0;
 
@@ -266,12 +469,25 @@ size_t cookie_jar_remove_client(cookie_jar_t* cj, handle_t client) {
 }
 
 void cookie_jar_mark_replies_may_exist(cookie_jar_t* cj) {
+  // Mark that replies may be available in the XCB queue.
+  // The event loop calls this after reading from the X socket.
   if (!cj)
     return;
   cj->replies_may_exist = true;
 }
 
 int32_t cookie_jar_next_timeout_ms(cookie_jar_t* cj, uint64_t now_ns) {
+  /*
+   * Compute the time until the next cookie timeout.
+   *
+   * Returns:
+   *      -1  -> no cookies pending
+   *       0  -> at least one cookie already expired
+   *      >0  -> milliseconds until the earliest timeout
+   *
+   * The result can be used by the main event loop when choosing
+   * the next poll/epoll timeout.
+   */
   if (!cj || !cj->slots || cj->live_count == 0)
     return -1;
 
@@ -291,14 +507,23 @@ int32_t cookie_jar_next_timeout_ms(cookie_jar_t* cj, uint64_t now_ns) {
 }
 
 /*
- * cookie_jar_drain:
- * Check for available replies or timeouts.
+ * Process completed replies and expired cookies.
  *
- * This function is non-blocking. It iterates through the ring buffer (starting
- * from where it left off) and calls `xcb_poll_for_reply`.
- * - If a reply is ready, it consumes it and fires the callback.
- * - If a request is too old, it times out.
- * - It bounds work using `max_replies` to ensure fairness.
+ * This function never blocks.
+ *
+ * It performs three tasks:
+ *      1. poll for completed replies using xcb_poll_for_reply()
+ *      2. invoke the registered handler
+ *      3. expire requests that exceed COOKIE_JAR_TIMEOUT_NS
+ *
+ * Reply polling may be skipped entirely when the reply hint
+ * indicates no replies are expected and no timeout is due.
+ *
+ * Work per invocation is bounded by max_replies to prevent
+ * cookie handling from monopolizing the event loop.
+ *
+ * Slots are removed before invoking handlers so callbacks
+ * may safely enqueue additional cookies.
  */
 void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s, size_t max_replies) {
   if (!cj || cj->live_count == 0)
