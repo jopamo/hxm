@@ -204,6 +204,8 @@ void server_init(server_t* s) {
 
   // Cookie jar for async request/reply handling
   cookie_jar_init(&s->cookie_jar);
+  // Initialize per-tick arena before any startup path publishes workarea.
+  arena_init(&s->tick_arena, 64 * 1024);
 
   // Become WM (WM_S0 selection + supporting WM check + _NET_SUPPORTED baseline)
   wm_become(s);
@@ -250,9 +252,6 @@ void server_init(server_t* s) {
     exit(1);
   }
   epoll_add_fd_or_die(s->epoll_fd, s->timer_fd);
-
-  // Initialize per-tick arena (64KB blocks)
-  arena_init(&s->tick_arena, 64 * 1024);
 
   // Initialize event buckets
   small_vec_init(&s->buckets.map_requests);

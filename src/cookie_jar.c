@@ -436,6 +436,10 @@ bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, ha
       cj->earliest_cookie_ns = now;
   }
 
+  // New cookies may already have replies available (notably in tests/stubs),
+  // so allow at least one non-blocking poll attempt.
+  cj->replies_may_exist = true;
+
   return true;
 }
 
