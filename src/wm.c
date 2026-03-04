@@ -927,6 +927,45 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     return;
   }
 
+  uint16_t geom_mask = (XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT);
+  if (ev->mask & geom_mask) {
+    int32_t req_x = hot->server.x;
+    int32_t req_y = hot->server.y;
+    uint32_t req_w = hot->server.w;
+    uint32_t req_h = hot->server.h;
+
+    if (ev->mask & XCB_CONFIG_WINDOW_X)
+      req_x = ev->x;
+    if (ev->mask & XCB_CONFIG_WINDOW_Y)
+      req_y = ev->y;
+    if (ev->mask & XCB_CONFIG_WINDOW_WIDTH)
+      req_w = ev->width;
+    if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT)
+      req_h = ev->height;
+
+    if (hot->gtk_frame_extents_set) {
+      if (ev->mask & XCB_CONFIG_WINDOW_X)
+        req_x += (int32_t)hot->gtk_extents.left;
+      if (ev->mask & XCB_CONFIG_WINDOW_Y)
+        req_y += (int32_t)hot->gtk_extents.top;
+    }
+
+    bool matches_committed = true;
+    if (ev->mask & XCB_CONFIG_WINDOW_X)
+      matches_committed = matches_committed && (req_x == hot->server.x);
+    if (ev->mask & XCB_CONFIG_WINDOW_Y)
+      matches_committed = matches_committed && (req_y == hot->server.y);
+    if (ev->mask & XCB_CONFIG_WINDOW_WIDTH)
+      matches_committed = matches_committed && (req_w == hot->server.w);
+    if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT)
+      matches_committed = matches_committed && (req_h == hot->server.h);
+
+    if (matches_committed) {
+      TRACE_LOG("configure_request ignored echo h=%lx xid=%u mask=0x%x x=%d y=%d w=%u h=%u", h, hot->xid, ev->mask, ev->x, ev->y, ev->width, ev->height);
+      return;
+    }
+  }
+
   TRACE_LOG("configure_request h=%lx xid=%u mask=0x%x x=%d y=%d w=%u h=%u bw=%u", h, hot->xid, ev->mask, ev->x, ev->y, ev->width, ev->height, ev->border_width);
 
   if (ev->mask & XCB_CONFIG_WINDOW_X)

@@ -566,6 +566,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       bool geom_changed = (hot->server.x != (int16_t)frame_x || hot->server.y != (int16_t)frame_y || hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h ||
                            hot->server_frame_w != (uint16_t)frame_w || hot->server_frame_h != (uint16_t)frame_h);
 
+      bool synthetic_attempted = false;
       if (geom_changed) {
         if (!interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE) {
           if (!client_size_from_notify && (hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h)) {
@@ -604,6 +605,19 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
           hot->notify_settle_pending = false;
           hot->notify_settle_deadline_ns = 0;
         }
+
+        // Update cached committed geometry before synthetic ConfigureNotify.
+        hot->server.x = (int16_t)frame_x;
+        hot->server.y = (int16_t)frame_y;
+        hot->server.w = (uint16_t)client_w;
+        hot->server.h = (uint16_t)client_h;
+        hot->server_frame_w = (uint16_t)frame_w;
+        hot->server_frame_h = (uint16_t)frame_h;
+
+        synthetic_attempted = true;
+        if (wm_send_synthetic_configure(s, h))
+          flushed = true;
+
         xcb_configure_window(s->conn, hot->frame, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, frame_values);
 
         // Set _NET_FRAME_EXTENTS
@@ -617,15 +631,6 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         }
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4, extents);
 
-        // Update server state immediately to ensure redraw uses correct
-        // geometry
-        hot->server.x = (int16_t)frame_x;
-        hot->server.y = (int16_t)frame_y;
-        hot->server.w = (uint16_t)client_w;
-        hot->server.h = (uint16_t)client_h;
-        hot->server_frame_w = (uint16_t)frame_w;
-        hot->server_frame_h = (uint16_t)frame_h;
-
         frame_redraw(s, h, FRAME_REDRAW_ALL);
 
         LOG_DEBUG(
@@ -638,7 +643,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         TRACE_LOG("Skipping DIRTY_GEOM for %lx (unchanged)", h);
       }
 
-      if (wm_send_synthetic_configure(s, h))
+      if (!synthetic_attempted && wm_send_synthetic_configure(s, h))
         flushed = true;
 
       hot->pending = hot->desired;

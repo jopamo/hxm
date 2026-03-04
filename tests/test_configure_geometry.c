@@ -766,6 +766,50 @@ static void test_configure_request_ignored_during_interactive_move(void) {
   cleanup_server(&s);
 }
 
+static void test_configure_request_ignores_committed_echo(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_client(&s, 7010, 7110);
+  client_hot_t* hot = server_chot(&s, h);
+
+  hot->server = (rect_t){10, 20, 100, 80};
+  hot->desired = (rect_t){30, 40, 220, 140};
+  hot->dirty = DIRTY_GEOM;
+
+  pending_config_t pc = {0};
+  pc.window = hot->xid;
+  pc.mask = XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+  pc.x = hot->server.x;
+  pc.y = hot->server.y;
+  pc.width = hot->server.w;
+  pc.height = hot->server.h;
+
+  wm_handle_configure_request(&s, h, &pc);
+
+  // Echoed request should not overwrite WM-owned pending geometry.
+  assert(hot->desired.x == 30);
+  assert(hot->desired.y == 40);
+  assert(hot->desired.w == 220u);
+  assert(hot->desired.h == 140u);
+  assert((hot->dirty & DIRTY_GEOM) != 0);
+
+  hot->desired = hot->server;
+  hot->dirty = DIRTY_NONE;
+  wm_handle_configure_request(&s, h, &pc);
+
+  // No-op configure request should not schedule a redundant geometry flush.
+  assert(hot->desired.x == hot->server.x);
+  assert(hot->desired.y == hot->server.y);
+  assert(hot->desired.w == hot->server.w);
+  assert(hot->desired.h == hot->server.h);
+  assert((hot->dirty & DIRTY_GEOM) == 0);
+
+  printf("test_configure_request_ignores_committed_echo passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_configure_request_applies_and_extents();
   test_configure_request_mask_respects_existing();
@@ -784,5 +828,6 @@ int main(void) {
   test_configure_notify_does_not_resync_desired_during_interactive_resize();
   test_configure_request_ignored_during_interactive_resize();
   test_configure_request_ignored_during_interactive_move();
+  test_configure_request_ignores_committed_echo();
   return 0;
 }
