@@ -20,6 +20,7 @@ extern int32_t stub_last_config_y;
 extern uint32_t stub_last_config_w;
 extern uint32_t stub_last_config_h;
 extern int stub_prop_calls_len;
+extern int stub_set_input_focus_count;
 
 // Counters for wrapped functions
 static int call_wm_handle_key_press = 0;
@@ -479,6 +480,48 @@ static void test_6_12_pointer_notify_is_hint_only(void) {
   cleanup_server(&s);
 }
 
+static void test_6_13_stale_root_focus_out_after_focus_commit_is_filtered(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_counters();
+
+  s.root = 0x1;
+  handle_t old_focus = add_mapped_client(&s, 0x706, 0x806);
+  handle_t new_focus = add_mapped_client(&s, 0x707, 0x807);
+
+  client_cold_t* cold = server_ccold(&s, new_focus);
+  assert(cold != NULL);
+  cold->can_focus = true;
+
+  s.focused_client = new_focus;
+  s.committed_focus = 0x706;
+  s.last_focus_sequence = 0;
+
+  bool flushed = wm_flush_dirty(&s, 0);
+  assert(flushed);
+  assert(stub_set_input_focus_count == 1);
+  (void)old_focus;  // Keep old focus live in maps for event resolution.
+  assert(s.last_focus_sequence != 0);
+
+  uint16_t committed_focus_seq = s.last_focus_sequence;
+
+  s.buckets.focus_notify.out_valid = true;
+  s.buckets.focus_notify.out.event = s.root;
+  s.buckets.focus_notify.out.mode = XCB_NOTIFY_MODE_NORMAL;
+  s.buckets.focus_notify.out.detail = XCB_NOTIFY_DETAIL_POINTER_ROOT;
+  s.buckets.focus_notify.out.sequence = (uint16_t)(committed_focus_seq - 1u);
+
+  reset_counters();
+  event_process(&s);
+
+  assert(call_wm_set_focus == 0);
+  assert(s.last_focus_sequence == committed_focus_seq);
+
+  printf("test_6_13_stale_root_focus_out_after_focus_commit_is_filtered passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_6_1_key_press_dispatch();
   test_6_2_button_events_dispatch();
@@ -492,5 +535,6 @@ int main(void) {
   test_6_10_focus_target_destroyed_is_filtered();
   test_6_11_focus_out_clears_focus();
   test_6_12_pointer_notify_is_hint_only();
+  test_6_13_stale_root_focus_out_after_focus_commit_is_filtered();
   return 0;
 }

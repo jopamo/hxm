@@ -756,7 +756,7 @@ xcb_void_cookie_t xcb_set_input_focus(xcb_connection_t* c, uint8_t revert_to, xc
   stub_last_input_focus_window = focus;
   stub_last_input_focus_revert = revert_to;
   (void)time;
-  return (xcb_void_cookie_t){0};
+  return (xcb_void_cookie_t){stub_cookie_seq++};
 }
 
 xcb_void_cookie_t xcb_set_input_focus_checked(xcb_connection_t* c, uint8_t revert_to, xcb_window_t focus, xcb_timestamp_t time) {

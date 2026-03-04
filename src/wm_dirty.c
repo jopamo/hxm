@@ -40,6 +40,14 @@ static bool wm_client_is_hidden(const server_t* s, const client_hot_t* hot) {
   return hot->state == STATE_UNMAPPED;
 }
 
+static inline void wm_note_focus_request_sequence(server_t* s, xcb_void_cookie_t cookie) {
+  if (!s)
+    return;
+  if (cookie.sequence == 0)
+    return;
+  s->last_focus_sequence = (uint16_t)(cookie.sequence & 0xFFFFu);
+}
+
 void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, uint32_t time) {
   xcb_client_message_event_t ev;
   memset(&ev, 0, sizeof(ev));
@@ -804,13 +812,15 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       if (s->default_colormap != XCB_NONE) {
         xcb_install_colormap(s->conn, s->default_colormap);
       }
-      xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, s->root, XCB_CURRENT_TIME);
+      xcb_void_cookie_t ck = xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, s->root, XCB_CURRENT_TIME);
+      wm_note_focus_request_sequence(s, ck);
     }
     else if (focus_hot) {
       wm_install_client_colormap(s, focus_hot);
 
       if (focus_cold && focus_cold->can_focus) {
-        xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, focus_hot->xid, XCB_CURRENT_TIME);
+        xcb_void_cookie_t ck = xcb_set_input_focus(s->conn, XCB_INPUT_FOCUS_POINTER_ROOT, focus_hot->xid, XCB_CURRENT_TIME);
+        wm_note_focus_request_sequence(s, ck);
       }
 
       if (focus_cold && (focus_cold->protocols & PROTOCOL_TAKE_FOCUS)) {
@@ -822,7 +832,8 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         ev.type = atoms.WM_PROTOCOLS;
         ev.data.data32[0] = atoms.WM_TAKE_FOCUS;
         ev.data.data32[1] = focus_hot->user_time ? focus_hot->user_time : XCB_CURRENT_TIME;
-        xcb_send_event(s->conn, 0, focus_hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
+        xcb_void_cookie_t ck = xcb_send_event(s->conn, 0, focus_hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
+        wm_note_focus_request_sequence(s, ck);
       }
     }
 
