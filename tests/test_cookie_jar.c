@@ -51,12 +51,14 @@ static void mock_handler(struct server* s, const struct cookie_slot* slot, void*
 static uint32_t g_ready_seq = 0;
 static void* g_ready_reply = NULL;
 static xcb_generic_error_t* g_ready_error = NULL;
+static int g_poll_calls = 0;
 
 // Optional: simulate "reply exists but error also exists"
 static bool g_ready_both_reply_and_error = false;
 
 static int mock_poll(xcb_connection_t* c, unsigned int request, void** reply, xcb_generic_error_t** error) {
   (void)c;
+  g_poll_calls++;
 
   if (g_ready_seq != request)
     return 0;
@@ -91,6 +93,7 @@ static int mock_poll(xcb_connection_t* c, unsigned int request, void** reply, xc
 static int mock_poll_all_ready(xcb_connection_t* c, unsigned int request, void** reply, xcb_generic_error_t** error) {
   (void)c;
   (void)request;
+  g_poll_calls++;
   *reply = malloc(1);
   *error = NULL;
   return 1;
@@ -115,6 +118,7 @@ static void set_ready_none(void) {
   g_ready_reply = NULL;
   g_ready_error = NULL;
   g_ready_both_reply_and_error = false;
+  g_poll_calls = 0;
 }
 
 static void set_ready_reply(uint32_t seq) {
@@ -122,6 +126,7 @@ static void set_ready_reply(uint32_t seq) {
   g_ready_reply = (void*)1;
   g_ready_error = NULL;
   g_ready_both_reply_and_error = false;
+  g_poll_calls = 0;
 }
 
 static void set_ready_error(uint32_t seq) {
@@ -129,6 +134,7 @@ static void set_ready_error(uint32_t seq) {
   g_ready_reply = NULL;
   g_ready_error = (xcb_generic_error_t*)1;
   g_ready_both_reply_and_error = false;
+  g_poll_calls = 0;
 }
 
 static void set_ready_both(uint32_t seq) {
@@ -136,6 +142,7 @@ static void set_ready_both(uint32_t seq) {
   g_ready_reply = (void*)1;
   g_ready_error = (xcb_generic_error_t*)1;
   g_ready_both_reply_and_error = true;
+  g_poll_calls = 0;
 }
 
 static void fail(const char* msg) {
@@ -611,6 +618,60 @@ static void test_next_timeout_ms_subms_rounds_up(void) {
   printf("test_next_timeout_ms_subms_rounds_up passed\n");
 }
 
+static void test_reply_hint_gates_polling(void) {
+  cookie_jar_t cj;
+  cookie_jar_init(&cj);
+
+  stub_poll_for_reply_hook = mock_poll;
+  reset_handler_state();
+
+  bool pushed = cookie_jar_push(&cj, 6001, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+  assert(pushed);
+  set_ready_reply(6001);
+
+  cookie_jar_drain(&cj, (xcb_connection_t*)1, NULL, 10);
+  assert(g_poll_calls == 0);
+  assert(!g_handler_called);
+  assert(cj.live_count == 1);
+
+  cookie_jar_mark_replies_may_exist(&cj);
+  cookie_jar_drain(&cj, (xcb_connection_t*)1, NULL, 10);
+  assert(g_poll_calls > 0);
+  assert(g_handler_called);
+  assert(g_handler_seq == 6001);
+  assert(cj.live_count == 0);
+
+  cookie_jar_destroy(&cj);
+  printf("test_reply_hint_gates_polling passed\n");
+}
+
+static void test_timeout_without_reply_hint(void) {
+  cookie_jar_t cj;
+  cookie_jar_init(&cj);
+
+  stub_poll_for_reply_hook = mock_poll;
+  reset_handler_state();
+  g_use_mock_time = true;
+  g_mock_time = 5000000000ULL;
+
+  bool pushed = cookie_jar_push(&cj, 7001, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
+  assert(pushed);
+
+  g_mock_time += COOKIE_JAR_TIMEOUT_NS + 1;
+  set_ready_none();
+  cookie_jar_drain(&cj, (xcb_connection_t*)1, NULL, 10);
+  assert(g_poll_calls == 0);
+  assert(g_handler_called);
+  assert(g_handler_seq == 7001);
+  assert(g_handler_reply == NULL);
+  assert(g_handler_error == NULL);
+  assert(cj.live_count == 0);
+
+  g_use_mock_time = false;
+  cookie_jar_destroy(&cj);
+  printf("test_timeout_without_reply_hint passed\n");
+}
+
 static void test_cursor_fairness_progress(void) {
   cookie_jar_t cj;
   cookie_jar_init(&cj);
@@ -755,6 +816,8 @@ int main(void) {
   test_next_timeout_ms_earliest_deadline();
   test_next_timeout_ms_expired_is_zero();
   test_next_timeout_ms_subms_rounds_up();
+  test_reply_hint_gates_polling();
+  test_timeout_without_reply_hint();
   test_cursor_fairness_progress();
   test_performance_smoke();
   test_alloc_fail_init();

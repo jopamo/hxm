@@ -42,6 +42,32 @@ static inline size_t cookie_next(size_t i, size_t mask) {
   return (i + 1) & mask;
 }
 
+static void cookie_jar_refresh_timeout_hint(cookie_jar_t* cj) {
+  if (!cj)
+    return;
+
+  if (cj->live_count == 0) {
+    cj->earliest_cookie_ns = UINT64_MAX;
+    cj->timeout_hint_dirty = false;
+    return;
+  }
+
+  if (!cj->timeout_hint_dirty && cj->earliest_cookie_ns != UINT64_MAX)
+    return;
+
+  uint64_t earliest = UINT64_MAX;
+  for (size_t i = 0; i < cj->cap; i++) {
+    cookie_slot_t* slot = &cj->slots[i];
+    if (!slot->live)
+      continue;
+    if (slot->timestamp_ns < earliest)
+      earliest = slot->timestamp_ns;
+  }
+
+  cj->earliest_cookie_ns = earliest;
+  cj->timeout_hint_dirty = false;
+}
+
 static size_t cookie_jar_probe(const cookie_jar_t* cj, uint32_t seq) {
   // Find a slot for seq, either an exact match or the first empty slot
   size_t mask = cj->cap - 1;
@@ -66,11 +92,15 @@ static void cookie_jar_grow(cookie_jar_t* cj, size_t new_cap) {
 
   size_t old_cap = cj->cap;
   cookie_slot_t* old_slots = cj->slots;
+  bool replies_may_exist = cj->replies_may_exist;
 
   cj->slots = new_slots;
   cj->cap = new_cap;
   cj->live_count = 0;
   cj->scan_cursor = 0;
+  cj->earliest_cookie_ns = UINT64_MAX;
+  cj->timeout_hint_dirty = false;
+  cj->replies_may_exist = replies_may_exist;
 
   if (old_slots && old_cap) {
     for (size_t i = 0; i < old_cap; i++) {
@@ -82,6 +112,9 @@ static void cookie_jar_grow(cookie_jar_t* cj, size_t new_cap) {
       cj->slots[idx] = slot;
       cj->slots[idx].live = true;
       cj->live_count++;
+      if (slot.timestamp_ns < cj->earliest_cookie_ns) {
+        cj->earliest_cookie_ns = slot.timestamp_ns;
+      }
     }
     free(old_slots);
   }
@@ -99,6 +132,8 @@ static void cookie_jar_grow(cookie_jar_t* cj, size_t new_cap) {
  */
 static void cookie_jar_remove(cookie_jar_t* cj, size_t idx) {
   size_t mask = cj->cap - 1;
+  uint64_t removed_ts = cj->slots[idx].timestamp_ns;
+  bool removed_was_earliest = (removed_ts == cj->earliest_cookie_ns);
 
   cj->slots[idx].live = false;
   cj->slots[idx].handler = NULL;
@@ -130,6 +165,14 @@ static void cookie_jar_remove(cookie_jar_t* cj, size_t idx) {
 
     i = cookie_next(i, mask);
   }
+
+  if (cj->live_count == 0) {
+    cj->earliest_cookie_ns = UINT64_MAX;
+    cj->timeout_hint_dirty = false;
+  }
+  else if (removed_was_earliest) {
+    cj->timeout_hint_dirty = true;
+  }
 }
 
 void cookie_jar_init(cookie_jar_t* cj) {
@@ -148,6 +191,9 @@ void cookie_jar_init(cookie_jar_t* cj) {
   cj->cap = cap;
   cj->live_count = 0;
   cj->scan_cursor = 0;
+  cj->earliest_cookie_ns = UINT64_MAX;
+  cj->timeout_hint_dirty = false;
+  cj->replies_may_exist = false;
 }
 
 void cookie_jar_destroy(cookie_jar_t* cj) {
@@ -167,19 +213,33 @@ bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, ha
   // If sequence is already present, overwrite its metadata
   size_t idx = cookie_jar_probe(cj, sequence);
   cookie_slot_t* slot = &cj->slots[idx];
+  bool replacing = slot->live;
+  uint64_t old_ts = slot->timestamp_ns;
 
   if (!slot->live) {
     cj->live_count++;
   }
 
+  uint64_t now = monotonic_time_ns();
   slot->sequence = sequence;
   slot->type = type;
   slot->client = client;
   slot->data = data;
-  slot->timestamp_ns = monotonic_time_ns();
+  slot->timestamp_ns = now;
   slot->txn_id = txn_id;
   slot->handler = handler;
   slot->live = true;
+
+  if (cj->live_count == 1) {
+    cj->earliest_cookie_ns = now;
+    cj->timeout_hint_dirty = false;
+  }
+  else {
+    if (replacing && old_ts == cj->earliest_cookie_ns && now > old_ts)
+      cj->timeout_hint_dirty = true;
+    if (cj->earliest_cookie_ns == UINT64_MAX || now < cj->earliest_cookie_ns)
+      cj->earliest_cookie_ns = now;
+  }
 
   return true;
 }
@@ -205,30 +265,26 @@ size_t cookie_jar_remove_client(cookie_jar_t* cj, handle_t client) {
   return removed;
 }
 
-int32_t cookie_jar_next_timeout_ms(const cookie_jar_t* cj, uint64_t now_ns) {
+void cookie_jar_mark_replies_may_exist(cookie_jar_t* cj) {
+  if (!cj)
+    return;
+  cj->replies_may_exist = true;
+}
+
+int32_t cookie_jar_next_timeout_ms(cookie_jar_t* cj, uint64_t now_ns) {
   if (!cj || !cj->slots || cj->live_count == 0)
     return -1;
 
-  uint64_t min_remaining_ns = UINT64_MAX;
-  for (size_t i = 0; i < cj->cap; i++) {
-    const cookie_slot_t* slot = &cj->slots[i];
-    if (!slot->live)
-      continue;
-
-    uint64_t age_ns = (now_ns > slot->timestamp_ns) ? (now_ns - slot->timestamp_ns) : 0;
-    if (age_ns >= COOKIE_JAR_TIMEOUT_NS)
-      return 0;
-
-    uint64_t remaining_ns = COOKIE_JAR_TIMEOUT_NS - age_ns;
-    if (remaining_ns < min_remaining_ns) {
-      min_remaining_ns = remaining_ns;
-    }
-  }
-
-  if (min_remaining_ns == UINT64_MAX)
+  cookie_jar_refresh_timeout_hint(cj);
+  if (cj->earliest_cookie_ns == UINT64_MAX)
     return -1;
 
-  uint64_t timeout_ms = (min_remaining_ns + 999999ULL) / 1000000ULL;
+  uint64_t age_ns = (now_ns > cj->earliest_cookie_ns) ? (now_ns - cj->earliest_cookie_ns) : 0;
+  if (age_ns >= COOKIE_JAR_TIMEOUT_NS)
+    return 0;
+
+  uint64_t remaining_ns = COOKIE_JAR_TIMEOUT_NS - age_ns;
+  uint64_t timeout_ms = (remaining_ns + 999999ULL) / 1000000ULL;
   if (timeout_ms > (uint64_t)INT32_MAX)
     return INT32_MAX;
   return (int32_t)timeout_ms;
@@ -250,39 +306,60 @@ void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s
   if (max_replies == 0)
     max_replies = COOKIE_JAR_MAX_REPLIES_PER_TICK;
 
+  bool use_reply_hint = (conn != NULL);
+  bool poll_replies = true;
+  uint64_t now = monotonic_time_ns();
+
+  if (use_reply_hint) {
+    cookie_jar_refresh_timeout_hint(cj);
+    bool timeout_due = false;
+    if (cj->earliest_cookie_ns != UINT64_MAX && now > cj->earliest_cookie_ns && now - cj->earliest_cookie_ns > COOKIE_JAR_TIMEOUT_NS) {
+      timeout_due = true;
+    }
+
+    poll_replies = cj->replies_may_exist;
+    if (!poll_replies && !timeout_due)
+      return;
+
+    cj->replies_may_exist = false;
+  }
+
   size_t processed = 0;
   size_t scanned = 0;
   size_t idx = cj->scan_cursor;
   size_t mask = cj->cap - 1;
-  uint64_t now = monotonic_time_ns();
+  bool made_reply_progress = false;
 
   while (scanned < cj->cap && processed < max_replies && cj->live_count > 0) {
     cookie_slot_t* slot = &cj->slots[idx];
 
     if (slot->live) {
-      void* reply = NULL;
-      xcb_generic_error_t* err = NULL;
+      if (!use_reply_hint || poll_replies) {
+        void* reply = NULL;
+        xcb_generic_error_t* err = NULL;
 
-      // Returns 1 if a reply or error is ready, 0 otherwise
-      int ready = xcb_poll_for_reply(conn, slot->sequence, &reply, &err);
+        // Returns 1 if a reply or error is ready, 0 otherwise
+        int ready = xcb_poll_for_reply(conn, slot->sequence, &reply, &err);
 
-      if (ready) {
-        // Remove before invoking handler so re-entrancy can safely push new
-        // cookies
-        cookie_slot_t local = *slot;
-        cookie_jar_remove(cj, idx);
+        if (ready) {
+          // Remove before invoking handler so re-entrancy can safely push new
+          // cookies
+          cookie_slot_t local = *slot;
+          cookie_jar_remove(cj, idx);
 
-        if (local.handler)
-          local.handler(s, &local, reply, err);
+          if (local.handler)
+            local.handler(s, &local, reply, err);
 
-        // Handler receives borrowed pointers; cleanup stays centralized here.
-        if (reply)
-          free(reply);
-        if (err)
-          free(err);
+          // Handler receives borrowed pointers; cleanup stays centralized here.
+          if (reply)
+            free(reply);
+          if (err)
+            free(err);
 
-        processed++;
-        continue;
+          made_reply_progress = true;
+          processed++;
+          continue;
+        }
       }
 
       // Not ready, check timeout
@@ -304,4 +381,6 @@ void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s
   }
 
   cj->scan_cursor = idx;
+  if (use_reply_hint && poll_replies && made_reply_progress && cj->live_count > 0)
+    cj->replies_may_exist = true;
 }

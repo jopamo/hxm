@@ -806,6 +806,10 @@ void event_ingest(server_t* s, bool x_ready) {
   buckets_reset(&s->buckets);
   arena_reset(&s->tick_arena);
 
+  if (x_ready) {
+    cookie_jar_mark_replies_may_exist(&s->cookie_jar);
+  }
+
   uint64_t count = 0;
   if (s->prefetched_event) {
     uint64_t before = s->buckets.coalesced;
@@ -846,6 +850,8 @@ void event_ingest(server_t* s, bool x_ready) {
 }
 
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
+  cookie_jar_mark_replies_may_exist(&s->cookie_jar);
+
   uint8_t type = ev->response_type & ~0x80;
   HXM_COUNTER_EVENT_SEEN(type);
 

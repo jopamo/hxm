@@ -126,6 +126,9 @@ typedef struct cookie_jar {
   size_t cap;
   size_t live_count;
   size_t scan_cursor;
+  uint64_t earliest_cookie_ns;
+  bool timeout_hint_dirty;
+  bool replies_may_exist;
 } cookie_jar_t;
 
 /* Initialize/destroy */
@@ -153,11 +156,14 @@ size_t cookie_jar_remove_client(cookie_jar_t* cj, handle_t client);
  */
 void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s, size_t max_replies);
 
+/* Hint that X input was consumed and replies may now be queued internally. */
+void cookie_jar_mark_replies_may_exist(cookie_jar_t* cj);
+
 /* Return milliseconds until the next cookie timeout, clamped to INT32_MAX.
  * -1 means there are no pending cookies.
  * 0 means at least one cookie is already timed out and should be drained now.
  */
-int32_t cookie_jar_next_timeout_ms(const cookie_jar_t* cj, uint64_t now_ns);
+int32_t cookie_jar_next_timeout_ms(cookie_jar_t* cj, uint64_t now_ns);
 
 static inline bool cookie_jar_has_pending(const cookie_jar_t* cj) {
   return cj && cj->live_count > 0;
