@@ -608,7 +608,7 @@ void client_finish_manage(server_t* s, handle_t h) {
 
   // Set _NET_FRAME_EXTENTS before mapping
   // if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
-  uint32_t extents[4] = {bw, bw, th + bw, bottom_h};
+  uint32_t extents[4] = {bw, bw, th, bottom_h};
   if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
     extents[0] = 0;
     extents[1] = 0;

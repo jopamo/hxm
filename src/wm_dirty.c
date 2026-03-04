@@ -608,7 +608,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
         // Set _NET_FRAME_EXTENTS
         uint16_t bottom_h = bw;
-        uint32_t extents[4] = {bw, bw, th + bw, bottom_h};
+        uint32_t extents[4] = {bw, bw, th, bottom_h};
         if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
           extents[0] = 0;
           extents[1] = 0;

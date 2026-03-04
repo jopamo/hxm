@@ -182,7 +182,7 @@ static void test_configure_request_applies_and_extents(void) {
   uint32_t* extents = (uint32_t*)stub_last_prop_data;
   assert(extents[0] == bw);
   assert(extents[1] == bw);
-  assert(extents[2] == s.config.theme.title_height + bw);
+  assert(extents[2] == s.config.theme.title_height);
   assert(extents[3] == bottom);
 
   printf("test_configure_request_applies_and_extents passed\n");

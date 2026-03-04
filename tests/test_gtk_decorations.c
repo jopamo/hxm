@@ -133,7 +133,7 @@ void test_gtk_extents_toggle_decorations(void) {
     uint32_t* extents = (uint32_t*)stub_last_prop_data;
     assert(extents[0] == 5);
     assert(extents[1] == 5);
-    assert(extents[2] == 25);
+    assert(extents[2] == 20);
     assert(extents[3] == bottom);
   }
 

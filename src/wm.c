@@ -220,7 +220,7 @@ void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecor
   uint32_t bw = undecorated ? 0 : s->config.theme.border_width;
   uint32_t th = undecorated ? 0 : s->config.theme.title_height;
   uint32_t bottom_h = bw;
-  uint32_t extents[4] = {bw, bw, th + bw, bottom_h};
+  uint32_t extents[4] = {bw, bw, th, bottom_h};
   xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, win, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4, extents);
 }
 

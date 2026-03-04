@@ -111,10 +111,10 @@ void test_frame_extents(void) {
     uint16_t bw = s.config.theme.border_width;
     uint16_t hh = s.config.theme.handle_height;
     uint16_t bottom = (hh > bw) ? hh : bw;
-    // bw=5, th=20 -> {5, 5, 25, bottom}
+    // bw=5, th=20 -> {5, 5, 20, bottom}
     assert(extents[0] == 5);       // left
     assert(extents[1] == 5);       // right
-    assert(extents[2] == 25);      // top
+    assert(extents[2] == 20);      // top
     assert(extents[3] == bottom);  // bottom
     printf("test_frame_extents passed\n");
   }
