@@ -82,13 +82,19 @@ typedef struct event_buckets {
 
   /* Expose coalesced by window: window -> dirty_region_t* */
   hash_map_t expose_regions;
+  /* Keys touched this tick for expose_regions (uint64_t* in tick_arena) */
+  small_vec_t expose_region_keys;
 
   /* ConfigureRequest coalesced by window: window -> pending_config_t* */
   hash_map_t configure_requests;
+  /* Keys touched this tick for configure_requests (uint64_t* in tick_arena) */
+  small_vec_t configure_request_keys;
 
   /* ConfigureNotify coalesced by window: window ->
    * xcb_configure_notify_event_t* */
   hash_map_t configure_notifies;
+  /* Keys touched this tick for configure_notifies (uint64_t* in tick_arena) */
+  small_vec_t configure_notify_keys;
 
   /* Destroy tracker for this tick: window -> (void*)1 */
   hash_map_t destroyed_windows;
@@ -96,9 +102,13 @@ typedef struct event_buckets {
   /* PropertyNotify coalesced by (window, atom): combined key ->
    * xcb_property_notify_event_t* or small sentinel */
   hash_map_t property_notifies;
+  /* Keys touched this tick for property_notifies (uint64_t* in tick_arena) */
+  small_vec_t property_notify_keys;
 
   /* MotionNotify latest per window: window -> xcb_motion_notify_event_t* */
   hash_map_t motion_notifies;
+  /* Keys touched this tick for motion_notifies (uint64_t* in tick_arena) */
+  small_vec_t motion_notify_keys;
 
   /* Enter/Leave latest (not per-window), used for pointer focus rules */
   struct {
@@ -118,6 +128,8 @@ typedef struct event_buckets {
 
   /* Damage events coalesced by drawable: drawable -> dirty_region_t* */
   hash_map_t damage_regions;
+  /* Keys touched this tick for damage_regions (uint64_t* in tick_arena) */
+  small_vec_t damage_region_keys;
 
   /* RandR coalescing */
   bool randr_dirty;

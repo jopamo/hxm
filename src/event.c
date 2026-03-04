@@ -68,6 +68,7 @@ static void load_menu_config(server_t* s);
 static void run_autostart(void);
 static void apply_reload(server_t* s);
 static void buckets_reset(event_buckets_t* b);
+static void bucket_track_key(server_t* s, small_vec_t* keys, uint64_t key);
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
 static bool server_wait_for_events(server_t* s, int timeout_ms);
 static void server_apply_snap_config(server_t* s);
@@ -79,6 +80,12 @@ static bool focus_out_indicates_loss(uint8_t detail);
 static handle_t focus_handle_from_event_window(server_t* s, xcb_window_t win);
 static void event_reduce_focus(server_t* s);
 static void event_reduce_pointer_hints(server_t* s);
+
+typedef struct bucket_iter {
+  size_t cursor;
+} bucket_iter_t;
+
+static bool bucket_iter_next(const hash_map_t* map, const small_vec_t* keys, bucket_iter_t* it, uint64_t* key, void** value);
 
 volatile sig_atomic_t g_shutdown_pending = 0;
 volatile sig_atomic_t g_restart_pending = 0;
@@ -257,12 +264,18 @@ void server_init(server_t* s) {
   small_vec_init(&s->buckets.client_messages);
 
   hash_map_init(&s->buckets.expose_regions);
+  small_vec_init(&s->buckets.expose_region_keys);
   hash_map_init(&s->buckets.configure_requests);
+  small_vec_init(&s->buckets.configure_request_keys);
   hash_map_init(&s->buckets.configure_notifies);
+  small_vec_init(&s->buckets.configure_notify_keys);
   hash_map_init(&s->buckets.destroyed_windows);
   hash_map_init(&s->buckets.property_notifies);
+  small_vec_init(&s->buckets.property_notify_keys);
   hash_map_init(&s->buckets.motion_notifies);
+  small_vec_init(&s->buckets.motion_notify_keys);
   hash_map_init(&s->buckets.damage_regions);
+  small_vec_init(&s->buckets.damage_region_keys);
 
   s->buckets.pointer_notify.enter_valid = false;
   s->buckets.pointer_notify.leave_valid = false;
@@ -396,12 +409,18 @@ void server_cleanup(server_t* s) {
   small_vec_destroy(&s->buckets.client_messages);
 
   hash_map_destroy(&s->buckets.expose_regions);
+  small_vec_destroy(&s->buckets.expose_region_keys);
   hash_map_destroy(&s->buckets.configure_requests);
+  small_vec_destroy(&s->buckets.configure_request_keys);
   hash_map_destroy(&s->buckets.configure_notifies);
+  small_vec_destroy(&s->buckets.configure_notify_keys);
   hash_map_destroy(&s->buckets.destroyed_windows);
   hash_map_destroy(&s->buckets.property_notifies);
+  small_vec_destroy(&s->buckets.property_notify_keys);
   hash_map_destroy(&s->buckets.motion_notifies);
+  small_vec_destroy(&s->buckets.motion_notify_keys);
   hash_map_destroy(&s->buckets.damage_regions);
+  small_vec_destroy(&s->buckets.damage_region_keys);
 
   hash_map_destroy(&s->window_to_client);
   hash_map_destroy(&s->frame_to_client);
@@ -588,12 +607,18 @@ static void buckets_reset(event_buckets_t* b) {
 
   // Reuse hash map storage across ticks to avoid allocator churn.
   hash_map_clear(&b->expose_regions);
+  small_vec_clear(&b->expose_region_keys);
   hash_map_clear(&b->configure_requests);
+  small_vec_clear(&b->configure_request_keys);
   hash_map_clear(&b->configure_notifies);
+  small_vec_clear(&b->configure_notify_keys);
   hash_map_clear(&b->destroyed_windows);
   hash_map_clear(&b->property_notifies);
+  small_vec_clear(&b->property_notify_keys);
   hash_map_clear(&b->motion_notifies);
+  small_vec_clear(&b->motion_notify_keys);
   hash_map_clear(&b->damage_regions);
+  small_vec_clear(&b->damage_region_keys);
 
   b->pointer_notify.enter_valid = false;
   b->pointer_notify.leave_valid = false;
@@ -606,6 +631,45 @@ static void buckets_reset(event_buckets_t* b) {
 
   b->ingested = 0;
   b->coalesced = 0;
+}
+
+static void bucket_track_key(server_t* s, small_vec_t* keys, uint64_t key) {
+  uint64_t* key_copy = arena_alloc(&s->tick_arena, sizeof(*key_copy));
+  *key_copy = key;
+  small_vec_push(keys, key_copy);
+}
+
+static bool bucket_iter_next(const hash_map_t* map, const small_vec_t* keys, bucket_iter_t* it, uint64_t* key, void** value) {
+  if (!it || !key || !value)
+    return false;
+
+  if (keys && keys->length > 0) {
+    while (it->cursor < keys->length) {
+      const uint64_t* touched = (const uint64_t*)keys->items[it->cursor++];
+      if (!touched)
+        continue;
+      void* v = hash_map_get(map, *touched);
+      if (!v)
+        continue;
+      *key = *touched;
+      *value = v;
+      return true;
+    }
+    return false;
+  }
+
+  if (!map || !map->entries || map->capacity == 0)
+    return false;
+
+  while (it->cursor < map->capacity) {
+    const hash_map_entry_t* entry = &map->entries[it->cursor++];
+    if (entry->key == 0)
+      continue;
+    *key = entry->key;
+    *value = entry->value;
+    return true;
+  }
+  return false;
 }
 
 static void server_apply_snap_config(server_t* s) {
@@ -855,6 +919,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
       dirty_region_t* copy = arena_alloc(&s->tick_arena, sizeof(*copy));
       *copy = dirty_region_make(e->area.x, e->area.y, e->area.width, e->area.height);
       hash_map_insert(&s->buckets.damage_regions, e->drawable, copy);
+      bucket_track_key(s, &s->buckets.damage_region_keys, (uint64_t)e->drawable);
     }
     free(ev);
     return;
@@ -888,6 +953,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
         dirty_region_t* copy = arena_alloc(&s->tick_arena, sizeof(*copy));
         *copy = dirty_region_make(e->x, e->y, e->width, e->height);
         hash_map_insert(&s->buckets.expose_regions, e->window, copy);
+        bucket_track_key(s, &s->buckets.expose_region_keys, (uint64_t)e->window);
       }
       break;
     }
@@ -1014,6 +1080,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
         pc->stack_mode = e->stack_mode;
         pc->mask = e->value_mask;
         hash_map_insert(&s->buckets.configure_requests, e->window, pc);
+        bucket_track_key(s, &s->buckets.configure_request_keys, (uint64_t)e->window);
       }
       break;
     }
@@ -1023,12 +1090,15 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
       xcb_configure_notify_event_t* copy = arena_alloc(&s->tick_arena, sizeof(*e));
       memcpy(copy, e, sizeof(*e));
 
-      if (hash_map_get(&s->buckets.configure_notifies, e->window)) {
+      bool existing = hash_map_get(&s->buckets.configure_notifies, e->window) != NULL;
+      if (existing) {
         HXM_COUNTER_COALESCED_DROP(type);
         s->buckets.coalesced++;
         TRACE_LOG("coalesce configure_notify win=%u", e->window);
       }
       hash_map_insert(&s->buckets.configure_notifies, e->window, copy);
+      if (!existing)
+        bucket_track_key(s, &s->buckets.configure_notify_keys, (uint64_t)e->window);
       break;
     }
 
@@ -1047,6 +1117,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
       void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
       memcpy(copy, e, sizeof(*e));
       hash_map_insert(&s->buckets.property_notifies, key, copy);
+      bucket_track_key(s, &s->buckets.property_notify_keys, key);
       break;
     }
 
@@ -1062,6 +1133,7 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
       xcb_motion_notify_event_t* copy = arena_alloc(&s->tick_arena, sizeof(*e));
       *copy = *e;
       hash_map_insert(&s->buckets.motion_notifies, e->event, copy);
+      bucket_track_key(s, &s->buckets.motion_notify_keys, (uint64_t)e->event);
       break;
     }
 
@@ -1225,26 +1297,23 @@ void event_process(server_t* s) {
   }
 
   // 4. expose (frames + menu)
-  if (s->buckets.expose_regions.capacity > 0) {
-    for (size_t i = 0; i < s->buckets.expose_regions.capacity; i++) {
-      hash_map_entry_t* entry = &s->buckets.expose_regions.entries[i];
-      if (entry->key == 0)
-        continue;
+  bucket_iter_t expose_it = {0};
+  uint64_t key = 0;
+  void* value = NULL;
+  while (bucket_iter_next(&s->buckets.expose_regions, &s->buckets.expose_region_keys, &expose_it, &key, &value)) {
+    xcb_window_t win = (xcb_window_t)key;
+    dirty_region_t* region = (dirty_region_t*)value;
+    if (!region || !region->valid)
+      continue;
 
-      xcb_window_t win = (xcb_window_t)entry->key;
-      dirty_region_t* region = (dirty_region_t*)entry->value;
-      if (!region || !region->valid)
-        continue;
+    if (win == s->menu.window) {
+      menu_handle_expose_region(s, region);
+      continue;
+    }
 
-      if (win == s->menu.window) {
-        menu_handle_expose_region(s, region);
-        continue;
-      }
-
-      handle_t h = server_get_client_by_frame(s, win);
-      if (h != HANDLE_INVALID) {
-        frame_redraw_region(s, h, region);
-      }
+    handle_t h = server_get_client_by_frame(s, win);
+    if (h != HANDLE_INVALID) {
+      frame_redraw_region(s, h, region);
     }
   }
 
@@ -1259,126 +1328,101 @@ void event_process(server_t* s) {
   event_reduce_focus(s);
   // Enter/Leave update pointer-hint time and may drive focus when configured.
   event_reduce_pointer_hints(s);
-  if (s->buckets.motion_notifies.capacity > 0) {
-    for (size_t i = 0; i < s->buckets.motion_notifies.capacity; i++) {
-      hash_map_entry_t* entry = &s->buckets.motion_notifies.entries[i];
-      if (entry->key == 0)
-        continue;
+  bucket_iter_t motion_it = {0};
+  while (bucket_iter_next(&s->buckets.motion_notifies, &s->buckets.motion_notify_keys, &motion_it, &key, &value)) {
+    xcb_motion_notify_event_t* ev = (xcb_motion_notify_event_t*)value;
+    if (!ev)
+      continue;
 
-      xcb_motion_notify_event_t* ev = (xcb_motion_notify_event_t*)entry->value;
-      if (!ev)
-        continue;
-
-      if (s->interaction_mode == INTERACTION_MENU) {
-        menu_handle_pointer_motion(s, ev->event_x, ev->event_y);
-      }
-      else {
-        wm_handle_motion_notify(s, ev);
-      }
+    if (s->interaction_mode == INTERACTION_MENU) {
+      menu_handle_pointer_motion(s, ev->event_x, ev->event_y);
+    }
+    else {
+      wm_handle_motion_notify(s, ev);
     }
   }
 
   // 7. configure requests (coalesced)
-  if (s->buckets.configure_requests.capacity > 0) {
-    for (size_t i = 0; i < s->buckets.configure_requests.capacity; i++) {
-      hash_map_entry_t* entry = &s->buckets.configure_requests.entries[i];
-      if (entry->key == 0)
-        continue;
+  bucket_iter_t cfg_req_it = {0};
+  while (bucket_iter_next(&s->buckets.configure_requests, &s->buckets.configure_request_keys, &cfg_req_it, &key, &value)) {
+    pending_config_t* ev = (pending_config_t*)value;
+    handle_t h = server_get_client_by_window(s, ev->window);
 
-      pending_config_t* ev = (pending_config_t*)entry->value;
-      handle_t h = server_get_client_by_window(s, ev->window);
+    if (h == HANDLE_INVALID) {
+      uint32_t mask = ev->mask;
+      uint32_t values[7];
+      int j = 0;
+      int32_t x = ev->x;
+      int32_t y = ev->y;
+      if (mask & XCB_CONFIG_WINDOW_X)
+        values[j++] = (uint32_t)x;
+      if (mask & XCB_CONFIG_WINDOW_Y)
+        values[j++] = (uint32_t)y;
+      if (mask & XCB_CONFIG_WINDOW_WIDTH)
+        values[j++] = (uint32_t)ev->width;
+      if (mask & XCB_CONFIG_WINDOW_HEIGHT)
+        values[j++] = (uint32_t)ev->height;
+      if (mask & XCB_CONFIG_WINDOW_BORDER_WIDTH)
+        values[j++] = (uint32_t)ev->border_width;
+      if (mask & XCB_CONFIG_WINDOW_SIBLING)
+        values[j++] = (uint32_t)ev->sibling;
+      if (mask & XCB_CONFIG_WINDOW_STACK_MODE)
+        values[j++] = (uint32_t)ev->stack_mode;
 
-      if (h == HANDLE_INVALID) {
-        uint32_t mask = ev->mask;
-        uint32_t values[7];
-        int j = 0;
-        int32_t x = ev->x;
-        int32_t y = ev->y;
-        if (mask & XCB_CONFIG_WINDOW_X)
-          values[j++] = (uint32_t)x;
-        if (mask & XCB_CONFIG_WINDOW_Y)
-          values[j++] = (uint32_t)y;
-        if (mask & XCB_CONFIG_WINDOW_WIDTH)
-          values[j++] = (uint32_t)ev->width;
-        if (mask & XCB_CONFIG_WINDOW_HEIGHT)
-          values[j++] = (uint32_t)ev->height;
-        if (mask & XCB_CONFIG_WINDOW_BORDER_WIDTH)
-          values[j++] = (uint32_t)ev->border_width;
-        if (mask & XCB_CONFIG_WINDOW_SIBLING)
-          values[j++] = (uint32_t)ev->sibling;
-        if (mask & XCB_CONFIG_WINDOW_STACK_MODE)
-          values[j++] = (uint32_t)ev->stack_mode;
-
-        xcb_configure_window(s->conn, ev->window, mask, values);
-      }
-      else {
-        wm_handle_configure_request(s, h, ev);
-      }
+      xcb_configure_window(s->conn, ev->window, mask, values);
+    }
+    else {
+      wm_handle_configure_request(s, h, ev);
     }
   }
 
   // 8. configure notifies (coalesced)
-  if (s->buckets.configure_notifies.capacity > 0) {
-    for (size_t i = 0; i < s->buckets.configure_notifies.capacity; i++) {
-      hash_map_entry_t* entry = &s->buckets.configure_notifies.entries[i];
-      if (entry->key == 0)
-        continue;
-
-      xcb_configure_notify_event_t* ev = (xcb_configure_notify_event_t*)entry->value;
-      handle_t h = server_get_client_by_window(s, ev->window);
-      if (h == HANDLE_INVALID)
-        h = server_get_client_by_frame(s, ev->window);
-      if (h != HANDLE_INVALID) {
-        wm_handle_configure_notify(s, h, ev);
-      }
+  bucket_iter_t cfg_notify_it = {0};
+  while (bucket_iter_next(&s->buckets.configure_notifies, &s->buckets.configure_notify_keys, &cfg_notify_it, &key, &value)) {
+    xcb_configure_notify_event_t* ev = (xcb_configure_notify_event_t*)value;
+    handle_t h = server_get_client_by_window(s, ev->window);
+    if (h == HANDLE_INVALID)
+      h = server_get_client_by_frame(s, ev->window);
+    if (h != HANDLE_INVALID) {
+      wm_handle_configure_notify(s, h, ev);
     }
   }
 
   // 9. property notifies (coalesced)
-  if (s->buckets.property_notifies.capacity > 0) {
-    for (size_t i = 0; i < s->buckets.property_notifies.capacity; i++) {
-      hash_map_entry_t* entry = &s->buckets.property_notifies.entries[i];
-      if (entry->key == 0)
-        continue;
+  bucket_iter_t prop_it = {0};
+  while (bucket_iter_next(&s->buckets.property_notifies, &s->buckets.property_notify_keys, &prop_it, &key, &value)) {
+    xcb_property_notify_event_t* ev = (xcb_property_notify_event_t*)value;
+    // Fix 1: Ignore _NET_WORKAREA on root to prevent feedback loop
+    if (ev->window == s->root && ev->atom == atoms._NET_WORKAREA)
+      continue;
 
-      xcb_property_notify_event_t* ev = (xcb_property_notify_event_t*)entry->value;
-      // Fix 1: Ignore _NET_WORKAREA on root to prevent feedback loop
-      if (ev->window == s->root && ev->atom == atoms._NET_WORKAREA)
-        continue;
+    if (hash_map_get(&s->buckets.destroyed_windows, ev->window))
+      continue;
 
-      if (hash_map_get(&s->buckets.destroyed_windows, ev->window))
-        continue;
-
-      handle_t h = server_get_client_by_window(s, ev->window);
-      if (h != HANDLE_INVALID) {
-        wm_handle_property_notify(s, h, ev);
-      }
+    handle_t h = server_get_client_by_window(s, ev->window);
+    if (h != HANDLE_INVALID) {
+      wm_handle_property_notify(s, h, ev);
     }
   }
 
   // 10. damage (coalesced)
-  if (s->buckets.damage_regions.capacity > 0) {
-    for (size_t i = 0; i < s->buckets.damage_regions.capacity; i++) {
-      hash_map_entry_t* entry = &s->buckets.damage_regions.entries[i];
-      if (entry->key == 0)
-        continue;
+  bucket_iter_t damage_it = {0};
+  while (bucket_iter_next(&s->buckets.damage_regions, &s->buckets.damage_region_keys, &damage_it, &key, &value)) {
+    xcb_window_t win = (xcb_window_t)key;
+    dirty_region_t* region = (dirty_region_t*)value;
+    if (!region || !region->valid)
+      continue;
 
-      xcb_window_t win = (xcb_window_t)entry->key;
-      dirty_region_t* region = (dirty_region_t*)entry->value;
-      if (!region || !region->valid)
-        continue;
+    handle_t h = server_get_client_by_window(s, win);
+    if (h == HANDLE_INVALID)
+      continue;
+    client_hot_t* hot = server_chot(s, h);
+    if (!hot)
+      continue;
 
-      handle_t h = server_get_client_by_window(s, win);
-      if (h == HANDLE_INVALID)
-        continue;
-      client_hot_t* hot = server_chot(s, h);
-      if (!hot)
-        continue;
-
-      dirty_region_union(&hot->damage_region, region);
-      if (hot->damage != XCB_NONE) {
-        xcb_damage_subtract(s->conn, hot->damage, XCB_NONE, XCB_NONE);
-      }
+    dirty_region_union(&hot->damage_region, region);
+    if (hot->damage != XCB_NONE) {
+      xcb_damage_subtract(s->conn, hot->damage, XCB_NONE, XCB_NONE);
     }
   }
 

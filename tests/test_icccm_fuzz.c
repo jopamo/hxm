@@ -57,12 +57,18 @@ static void setup_server(server_t* s) {
   small_vec_init(&s->buckets.client_messages);
 
   hash_map_init(&s->buckets.expose_regions);
+  small_vec_init(&s->buckets.expose_region_keys);
   hash_map_init(&s->buckets.configure_requests);
+  small_vec_init(&s->buckets.configure_request_keys);
   hash_map_init(&s->buckets.configure_notifies);
+  small_vec_init(&s->buckets.configure_notify_keys);
   hash_map_init(&s->buckets.destroyed_windows);
   hash_map_init(&s->buckets.property_notifies);
+  small_vec_init(&s->buckets.property_notify_keys);
   hash_map_init(&s->buckets.motion_notifies);
+  small_vec_init(&s->buckets.motion_notify_keys);
   hash_map_init(&s->buckets.damage_regions);
+  small_vec_init(&s->buckets.damage_region_keys);
 }
 
 static void cleanup_server(server_t* s) {
@@ -99,12 +105,18 @@ static void cleanup_server(server_t* s) {
   small_vec_destroy(&s->buckets.client_messages);
 
   hash_map_destroy(&s->buckets.expose_regions);
+  small_vec_destroy(&s->buckets.expose_region_keys);
   hash_map_destroy(&s->buckets.configure_requests);
+  small_vec_destroy(&s->buckets.configure_request_keys);
   hash_map_destroy(&s->buckets.configure_notifies);
+  small_vec_destroy(&s->buckets.configure_notify_keys);
   hash_map_destroy(&s->buckets.destroyed_windows);
   hash_map_destroy(&s->buckets.property_notifies);
+  small_vec_destroy(&s->buckets.property_notify_keys);
   hash_map_destroy(&s->buckets.motion_notifies);
+  small_vec_destroy(&s->buckets.motion_notify_keys);
   hash_map_destroy(&s->buckets.damage_regions);
+  small_vec_destroy(&s->buckets.damage_region_keys);
 
   arena_destroy(&s->tick_arena);
   config_destroy(&s->config);
