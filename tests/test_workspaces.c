@@ -29,6 +29,7 @@ void setup_server(server_t* s) {
   s->root_visual_type = xcb_get_visualtype(s->conn, 0);
   slotmap_init(&s->clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
   small_vec_init(&s->active_clients);
+  arena_init(&s->tick_arena, 4096);
 
   // Initialize workspace defaults
   s->desktop_count = 4;
@@ -158,6 +159,7 @@ void test_workspace_switch_basics(void) {
   }
   slotmap_destroy(&s.clients);
   small_vec_destroy(&s.active_clients);
+  arena_destroy(&s.tick_arena);
   xcb_disconnect(s.conn);
 }
 
@@ -284,6 +286,7 @@ void test_client_toggle_sticky(void) {
   }
   slotmap_destroy(&s.clients);
   small_vec_destroy(&s.active_clients);
+  arena_destroy(&s.tick_arena);
   xcb_disconnect(s.conn);
 }
 
@@ -324,6 +327,7 @@ void test_workspace_relative(void) {
   }
   slotmap_destroy(&s.clients);
   small_vec_destroy(&s.active_clients);
+  arena_destroy(&s.tick_arena);
   xcb_disconnect(s.conn);
 }
 
@@ -349,6 +353,7 @@ void test_sticky_panel_ignores_workspace_move(void) {
 
   slotmap_destroy(&s.clients);
   small_vec_destroy(&s.active_clients);
+  arena_destroy(&s.tick_arena);
   xcb_disconnect(s.conn);
 }
 
