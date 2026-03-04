@@ -155,7 +155,7 @@ bool wm_send_synthetic_configure(server_t* s, handle_t h) {
   hot->last_synthetic_geom.h = ev->height;
 
   TRACE_LOG("synthetic_configure xid=%u x=%d y=%d w=%u h=%u", hot->xid, ev->x, ev->y, ev->width, ev->height);
-  xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_STRUCTURE_NOTIFY, buffer);
+  xcb_send_event(s->conn, 0, hot->xid, XCB_EVENT_MASK_NO_EVENT, buffer);
   return true;
 }
 
