@@ -32,6 +32,8 @@ static int call_wm_handle_motion_notify = 0;
 static int call_wm_update_monitors = 0;
 static int call_wm_compute_workarea = 0;
 static int call_wm_publish_workarea = 0;
+static int call_wm_set_focus = 0;
+static handle_t call_wm_set_focus_last = HANDLE_INVALID;
 
 // Wrappers
 void __wrap_wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
@@ -94,6 +96,12 @@ void __wrap_wm_publish_workarea(server_t* s, const rect_t* wa) {
   call_wm_publish_workarea++;
 }
 
+void __wrap_wm_set_focus(server_t* s, handle_t h) {
+  (void)s;
+  call_wm_set_focus++;
+  call_wm_set_focus_last = h;
+}
+
 static void reset_counters(void) {
   call_wm_handle_key_press = 0;
   call_wm_handle_key_release = 0;
@@ -105,6 +113,8 @@ static void reset_counters(void) {
   call_wm_update_monitors = 0;
   call_wm_compute_workarea = 0;
   call_wm_publish_workarea = 0;
+  call_wm_set_focus = 0;
+  call_wm_set_focus_last = HANDLE_INVALID;
 }
 
 static void setup_server(server_t* s) {
@@ -131,6 +141,10 @@ static void setup_server(server_t* s) {
 
   hash_map_init(&s->window_to_client);
   hash_map_init(&s->frame_to_client);
+  small_vec_init(&s->active_clients);
+  list_init(&s->focus_history);
+  bool ok = slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t));
+  assert(ok);
 }
 
 static void cleanup_server(server_t* s) {
@@ -152,9 +166,32 @@ static void cleanup_server(server_t* s) {
 
   hash_map_destroy(&s->window_to_client);
   hash_map_destroy(&s->frame_to_client);
+  slotmap_destroy(&s->clients);
+  small_vec_destroy(&s->active_clients);
 
   arena_destroy(&s->tick_arena);
   xcb_disconnect(s->conn);
+}
+
+static handle_t add_mapped_client(server_t* s, xcb_window_t xid, xcb_window_t frame) {
+  void* hot_ptr = NULL;
+  void* cold_ptr = NULL;
+  handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
+  assert(h != HANDLE_INVALID);
+  (void)cold_ptr;
+
+  client_hot_t* hot = (client_hot_t*)hot_ptr;
+  memset(hot, 0, sizeof(*hot));
+  hot->self = h;
+  hot->xid = xid;
+  hot->frame = frame;
+  hot->state = STATE_MAPPED;
+  list_init(&hot->focus_node);
+
+  small_vec_push(&s->active_clients, handle_to_ptr(h));
+  hash_map_insert(&s->window_to_client, xid, handle_to_ptr(h));
+  hash_map_insert(&s->frame_to_client, frame, handle_to_ptr(h));
+  return h;
 }
 
 static void test_6_1_key_press_dispatch(void) {
@@ -293,6 +330,155 @@ static void test_6_6_randr_dirty_processing(void) {
   cleanup_server(&s);
 }
 
+static void test_6_7_focus_in_dispatches_set_focus(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_counters();
+
+  s.root = 0x1;
+  handle_t h = add_mapped_client(&s, 0x701, 0x801);
+
+  s.buckets.focus_notify.in_valid = true;
+  s.buckets.focus_notify.in.event = 0x701;
+  s.buckets.focus_notify.in.mode = XCB_NOTIFY_MODE_NORMAL;
+  s.buckets.focus_notify.in.detail = XCB_NOTIFY_DETAIL_NONLINEAR;
+  s.buckets.focus_notify.in.sequence = 100;
+
+  event_process(&s);
+
+  assert(call_wm_set_focus == 1);
+  assert(call_wm_set_focus_last == h);
+  assert(s.last_focus_sequence == 100);
+
+  printf("test_6_7_focus_in_dispatches_set_focus passed\n");
+  cleanup_server(&s);
+}
+
+static void test_6_8_focus_noise_is_filtered(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_counters();
+
+  add_mapped_client(&s, 0x702, 0x802);
+
+  s.buckets.focus_notify.in_valid = true;
+  s.buckets.focus_notify.in.event = 0x702;
+  s.buckets.focus_notify.in.mode = XCB_NOTIFY_MODE_GRAB;
+  s.buckets.focus_notify.in.detail = XCB_NOTIFY_DETAIL_NONLINEAR;
+  s.buckets.focus_notify.in.sequence = 110;
+
+  event_process(&s);
+
+  assert(call_wm_set_focus == 0);
+  assert(s.last_focus_sequence == 0);
+
+  printf("test_6_8_focus_noise_is_filtered passed\n");
+  cleanup_server(&s);
+}
+
+static void test_6_9_focus_stale_sequence_is_filtered(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_counters();
+
+  add_mapped_client(&s, 0x703, 0x803);
+  s.last_focus_sequence = 200;
+
+  s.buckets.focus_notify.in_valid = true;
+  s.buckets.focus_notify.in.event = 0x703;
+  s.buckets.focus_notify.in.mode = XCB_NOTIFY_MODE_NORMAL;
+  s.buckets.focus_notify.in.detail = XCB_NOTIFY_DETAIL_NONLINEAR;
+  s.buckets.focus_notify.in.sequence = 150;
+
+  event_process(&s);
+
+  assert(call_wm_set_focus == 0);
+  assert(s.last_focus_sequence == 200);
+
+  printf("test_6_9_focus_stale_sequence_is_filtered passed\n");
+  cleanup_server(&s);
+}
+
+static void test_6_10_focus_target_destroyed_is_filtered(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_counters();
+
+  add_mapped_client(&s, 0x704, 0x804);
+
+  s.buckets.focus_notify.in_valid = true;
+  s.buckets.focus_notify.in.event = 0x704;
+  s.buckets.focus_notify.in.mode = XCB_NOTIFY_MODE_NORMAL;
+  s.buckets.focus_notify.in.detail = XCB_NOTIFY_DETAIL_NONLINEAR;
+  s.buckets.focus_notify.in.sequence = 220;
+  hash_map_insert(&s.buckets.destroyed_windows, 0x704, (void*)1);
+
+  event_process(&s);
+
+  assert(call_wm_set_focus == 0);
+  assert(s.last_focus_sequence == 0);
+
+  printf("test_6_10_focus_target_destroyed_is_filtered passed\n");
+  cleanup_server(&s);
+}
+
+static void test_6_11_focus_out_clears_focus(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_counters();
+
+  handle_t h = add_mapped_client(&s, 0x705, 0x805);
+  s.focused_client = h;
+
+  s.buckets.focus_notify.out_valid = true;
+  s.buckets.focus_notify.out.event = 0x705;
+  s.buckets.focus_notify.out.mode = XCB_NOTIFY_MODE_NORMAL;
+  s.buckets.focus_notify.out.detail = XCB_NOTIFY_DETAIL_NONLINEAR_VIRTUAL;
+  s.buckets.focus_notify.out.sequence = 230;
+
+  event_process(&s);
+
+  assert(call_wm_set_focus == 1);
+  assert(call_wm_set_focus_last == HANDLE_INVALID);
+  assert(s.last_focus_sequence == 230);
+
+  printf("test_6_11_focus_out_clears_focus passed\n");
+  cleanup_server(&s);
+}
+
+static void test_6_12_pointer_notify_is_hint_only(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+  reset_counters();
+
+  s.last_pointer_hint_time = 500;
+  s.buckets.pointer_notify.enter_valid = true;
+  s.buckets.pointer_notify.enter.time = 450;
+  s.buckets.pointer_notify.leave_valid = true;
+  s.buckets.pointer_notify.leave.time = 700;
+
+  event_process(&s);
+
+  assert(call_wm_set_focus == 0);
+  assert(s.last_pointer_hint_time == 700);
+
+  // Older timestamp should be ignored.
+  s.buckets.pointer_notify.enter_valid = true;
+  s.buckets.pointer_notify.enter.time = 650;
+  s.buckets.pointer_notify.leave_valid = false;
+  event_process(&s);
+  assert(s.last_pointer_hint_time == 700);
+
+  printf("test_6_12_pointer_notify_is_hint_only passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_6_1_key_press_dispatch();
   test_6_2_button_events_dispatch();
@@ -300,5 +486,11 @@ int main(void) {
   test_6_4_motion_notify_dispatch();
   test_6_5_configure_request_unknown_window();
   test_6_6_randr_dirty_processing();
+  test_6_7_focus_in_dispatches_set_focus();
+  test_6_8_focus_noise_is_filtered();
+  test_6_9_focus_stale_sequence_is_filtered();
+  test_6_10_focus_target_destroyed_is_filtered();
+  test_6_11_focus_out_clears_focus();
+  test_6_12_pointer_notify_is_hint_only();
   return 0;
 }

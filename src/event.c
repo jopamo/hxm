@@ -71,6 +71,14 @@ static void buckets_reset(event_buckets_t* b);
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
 static bool server_wait_for_events(server_t* s, int timeout_ms);
 static void server_apply_snap_config(server_t* s);
+static bool x11_seq_after_or_equal_u16(uint16_t lhs, uint16_t rhs);
+static bool x11_time_after_or_equal_u32(uint32_t lhs, uint32_t rhs);
+static bool focus_mode_is_authoritative(uint8_t mode);
+static bool focus_detail_is_noise(uint8_t detail);
+static bool focus_out_indicates_loss(uint8_t detail);
+static handle_t focus_handle_from_event_window(server_t* s, xcb_window_t win);
+static void event_reduce_focus(server_t* s);
+static void event_reduce_pointer_hints(server_t* s);
 
 volatile sig_atomic_t g_shutdown_pending = 0;
 volatile sig_atomic_t g_restart_pending = 0;
@@ -258,6 +266,8 @@ void server_init(server_t* s) {
 
   s->buckets.pointer_notify.enter_valid = false;
   s->buckets.pointer_notify.leave_valid = false;
+  s->buckets.focus_notify.in_valid = false;
+  s->buckets.focus_notify.out_valid = false;
   s->buckets.ingested = 0;
   s->buckets.coalesced = 0;
 
@@ -272,6 +282,8 @@ void server_init(server_t* s) {
   }
   list_init(&s->focus_history);
   s->focused_client = HANDLE_INVALID;
+  s->last_focus_sequence = 0;
+  s->last_pointer_hint_time = 0;
 
   // Interaction state
   s->interaction_handle = HANDLE_INVALID;
@@ -598,6 +610,8 @@ static void buckets_reset(event_buckets_t* b) {
 
   b->pointer_notify.enter_valid = false;
   b->pointer_notify.leave_valid = false;
+  b->focus_notify.in_valid = false;
+  b->focus_notify.out_valid = false;
 
   b->randr_dirty = false;
   b->randr_width = 0;
@@ -626,6 +640,133 @@ static void server_apply_snap_config(server_t* s) {
   if (color == 0)
     color = s->config.theme.window_active_border_color;
   s->snap_preview_color = color;
+}
+
+static bool x11_seq_after_or_equal_u16(uint16_t lhs, uint16_t rhs) {
+  return (int16_t)(lhs - rhs) >= 0;
+}
+
+static bool x11_time_after_or_equal_u32(uint32_t lhs, uint32_t rhs) {
+  return (int32_t)(lhs - rhs) >= 0;
+}
+
+static bool focus_mode_is_authoritative(uint8_t mode) {
+  return mode == XCB_NOTIFY_MODE_NORMAL;
+}
+
+static bool focus_detail_is_noise(uint8_t detail) {
+  return detail == XCB_NOTIFY_DETAIL_INFERIOR || detail == XCB_NOTIFY_DETAIL_POINTER;
+}
+
+static bool focus_out_indicates_loss(uint8_t detail) {
+  switch (detail) {
+    case XCB_NOTIFY_DETAIL_VIRTUAL:
+    case XCB_NOTIFY_DETAIL_NONLINEAR:
+    case XCB_NOTIFY_DETAIL_NONLINEAR_VIRTUAL:
+    case XCB_NOTIFY_DETAIL_POINTER_ROOT:
+    case XCB_NOTIFY_DETAIL_NONE:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static handle_t focus_handle_from_event_window(server_t* s, xcb_window_t win) {
+  handle_t h = server_get_client_by_window(s, win);
+  if (h == HANDLE_INVALID)
+    h = server_get_client_by_frame(s, win);
+  return h;
+}
+
+static void event_reduce_focus(server_t* s) {
+  if (!s)
+    return;
+  if (!s->buckets.focus_notify.in_valid && !s->buckets.focus_notify.out_valid)
+    return;
+
+  typedef struct focus_decision {
+    bool valid;
+    handle_t target;
+    uint16_t sequence;
+  } focus_decision_t;
+
+  focus_decision_t in_decision = {0};
+  focus_decision_t out_decision = {0};
+
+  if (s->buckets.focus_notify.in_valid) {
+    const xcb_focus_in_event_t* ev = &s->buckets.focus_notify.in;
+    if (focus_mode_is_authoritative(ev->mode) && !focus_detail_is_noise(ev->detail) && x11_seq_after_or_equal_u16(ev->sequence, s->last_focus_sequence)) {
+      handle_t h = focus_handle_from_event_window(s, ev->event);
+      if (h != HANDLE_INVALID) {
+        client_hot_t* hot = server_chot(s, h);
+        if (hot && hot->state == STATE_MAPPED && !hash_map_get(&s->buckets.destroyed_windows, hot->xid)) {
+          in_decision.valid = true;
+          in_decision.target = h;
+          in_decision.sequence = ev->sequence;
+        }
+      }
+      else if (ev->event == s->root || ev->event == XCB_NONE) {
+        in_decision.valid = true;
+        in_decision.target = HANDLE_INVALID;
+        in_decision.sequence = ev->sequence;
+      }
+    }
+  }
+
+  if (s->buckets.focus_notify.out_valid) {
+    const xcb_focus_out_event_t* ev = &s->buckets.focus_notify.out;
+    if (focus_mode_is_authoritative(ev->mode) && !focus_detail_is_noise(ev->detail) && focus_out_indicates_loss(ev->detail) &&
+        x11_seq_after_or_equal_u16(ev->sequence, s->last_focus_sequence)) {
+      handle_t out_h = focus_handle_from_event_window(s, ev->event);
+      bool from_focused_client = (out_h != HANDLE_INVALID && out_h == s->focused_client);
+      bool from_root = (ev->event == s->root);
+      if (from_focused_client || from_root) {
+        out_decision.valid = true;
+        out_decision.target = HANDLE_INVALID;
+        out_decision.sequence = ev->sequence;
+      }
+    }
+  }
+
+  focus_decision_t decision = {0};
+  if (in_decision.valid && out_decision.valid) {
+    decision = x11_seq_after_or_equal_u16(in_decision.sequence, out_decision.sequence) ? in_decision : out_decision;
+  }
+  else if (in_decision.valid) {
+    decision = in_decision;
+  }
+  else if (out_decision.valid) {
+    decision = out_decision;
+  }
+
+  if (!decision.valid)
+    return;
+
+  if (s->interaction_mode != INTERACTION_NONE)
+    return;
+
+  if (decision.target != HANDLE_INVALID) {
+    client_hot_t* hot = server_chot(s, decision.target);
+    if (!hot || hot->state != STATE_MAPPED || hash_map_get(&s->buckets.destroyed_windows, hot->xid))
+      return;
+  }
+
+  s->last_focus_sequence = decision.sequence;
+  wm_set_focus(s, decision.target);
+}
+
+static void event_reduce_pointer_hints(server_t* s) {
+  if (!s)
+    return;
+
+  uint32_t newest = s->last_pointer_hint_time;
+  if (s->buckets.pointer_notify.enter_valid && x11_time_after_or_equal_u32(s->buckets.pointer_notify.enter.time, newest)) {
+    newest = s->buckets.pointer_notify.enter.time;
+  }
+  if (s->buckets.pointer_notify.leave_valid && x11_time_after_or_equal_u32(s->buckets.pointer_notify.leave.time, newest)) {
+    newest = s->buckets.pointer_notify.leave.time;
+  }
+  s->last_pointer_hint_time = newest;
 }
 
 void event_ingest(server_t* s, bool x_ready) {
@@ -920,10 +1061,30 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
       break;
     }
 
+    case XCB_FOCUS_IN: {
+      xcb_focus_in_event_t* e = (xcb_focus_in_event_t*)ev;
+      if (s->buckets.focus_notify.in_valid) {
+        HXM_COUNTER_COALESCED_DROP(type);
+        s->buckets.coalesced++;
+      }
+      s->buckets.focus_notify.in = *e;
+      s->buckets.focus_notify.in_valid = true;
+      break;
+    }
+
+    case XCB_FOCUS_OUT: {
+      xcb_focus_out_event_t* e = (xcb_focus_out_event_t*)ev;
+      if (s->buckets.focus_notify.out_valid) {
+        HXM_COUNTER_COALESCED_DROP(type);
+        s->buckets.coalesced++;
+      }
+      s->buckets.focus_notify.out = *e;
+      s->buckets.focus_notify.out_valid = true;
+      break;
+    }
+
     case XCB_NO_EXPOSURE:
     case XCB_CREATE_NOTIFY:
-    case XCB_FOCUS_IN:
-    case XCB_FOCUS_OUT:
     case XCB_MAPPING_NOTIFY:
       // These are noisy and we don't use them for anything right now
       break;
@@ -1068,13 +1229,10 @@ void event_process(server_t* s) {
     wm_handle_client_message(s, ev);
   }
 
-  // 6. motion/enter/leave
-  if (s->buckets.pointer_notify.enter_valid) {
-    // wm_handle_enter_notify(s, &s->buckets.pointer_notify.enter);
-  }
-  if (s->buckets.pointer_notify.leave_valid) {
-    // wm_handle_leave_notify(s, &s->buckets.pointer_notify.leave);
-  }
+  // 6. focus and pointer signals
+  event_reduce_focus(s);
+  // Enter/Leave remain hints only; they intentionally do not drive focus.
+  event_reduce_pointer_hints(s);
   if (s->buckets.motion_notifies.capacity > 0) {
     for (size_t i = 0; i < s->buckets.motion_notifies.capacity; i++) {
       hash_map_entry_t* entry = &s->buckets.motion_notifies.entries[i];

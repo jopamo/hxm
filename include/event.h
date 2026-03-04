@@ -108,6 +108,14 @@ typedef struct event_buckets {
     bool leave_valid;
   } pointer_notify;
 
+  /* FocusIn/FocusOut latest (authoritative focus signal) */
+  struct {
+    xcb_focus_in_event_t in;
+    xcb_focus_out_event_t out;
+    bool in_valid;
+    bool out_valid;
+  } focus_notify;
+
   /* Damage events coalesced by drawable: drawable -> dirty_region_t* */
   hash_map_t damage_regions;
 
@@ -248,6 +256,8 @@ typedef struct server {
   xcb_window_t initial_focus;
   xcb_window_t committed_focus;
   list_node_t focus_history; /* MRU list head */
+  uint16_t last_focus_sequence;
+  uint32_t last_pointer_hint_time;
 
   /* Workspaces */
   uint32_t desktop_count;

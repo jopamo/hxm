@@ -225,6 +225,51 @@ static void test_event_ingest_coalesces_pointer_notify(void) {
   cleanup_server(&s);
 }
 
+static void test_event_ingest_coalesces_focus_notify(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  xcb_focus_in_event_t* fi1 = calloc(1, sizeof(*fi1));
+  fi1->response_type = XCB_FOCUS_IN;
+  fi1->event = 0x111;
+  fi1->sequence = 10;
+
+  xcb_focus_in_event_t* fi2 = calloc(1, sizeof(*fi2));
+  fi2->response_type = XCB_FOCUS_IN;
+  fi2->event = 0x222;
+  fi2->sequence = 11;
+
+  xcb_focus_out_event_t* fo1 = calloc(1, sizeof(*fo1));
+  fo1->response_type = XCB_FOCUS_OUT;
+  fo1->event = 0x333;
+  fo1->sequence = 12;
+
+  xcb_focus_out_event_t* fo2 = calloc(1, sizeof(*fo2));
+  fo2->response_type = XCB_FOCUS_OUT;
+  fo2->event = 0x444;
+  fo2->sequence = 13;
+
+  assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)fi1));
+  assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)fi2));
+  assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)fo1));
+  assert(xcb_stubs_enqueue_queued_event((xcb_generic_event_t*)fo2));
+
+  event_ingest(&s, false);
+
+  assert(s.buckets.focus_notify.in_valid == true);
+  assert(s.buckets.focus_notify.in.event == 0x222);
+  assert(s.buckets.focus_notify.in.sequence == 11);
+  assert(s.buckets.focus_notify.out_valid == true);
+  assert(s.buckets.focus_notify.out.event == 0x444);
+  assert(s.buckets.focus_notify.out.sequence == 13);
+  assert(s.buckets.coalesced == 2);
+
+  printf("test_event_ingest_coalesces_focus_notify passed\n");
+  xcb_stubs_reset();
+  cleanup_server(&s);
+}
+
 static void test_event_ingest_dispatches_colormap_notify(void) {
   server_t s;
   setup_server(&s);
@@ -340,6 +385,7 @@ int main(void) {
   test_event_ingest_coalesces_configure_request();
   test_event_ingest_coalesces_randr();
   test_event_ingest_coalesces_pointer_notify();
+  test_event_ingest_coalesces_focus_notify();
   test_event_ingest_dispatches_colormap_notify();
   test_event_ingest_coalesces_damage();
   test_event_ingest_coalesces_motion_notify();
