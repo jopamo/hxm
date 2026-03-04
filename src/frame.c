@@ -147,13 +147,17 @@ void frame_flush(server_t* s, handle_t h) {
   if (!hot || !cold)
     return;
 
-  if (hot->flags & CLIENT_FLAG_UNDECORATED)
-    return;
-
-  uint32_t f_dirty = hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_TITLE | DIRTY_FRAME_STYLE);
+  const uint32_t frame_dirty_mask = DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_TITLE | DIRTY_FRAME_STYLE;
+  uint32_t f_dirty = hot->dirty & frame_dirty_mask;
 
   if (!f_dirty && !hot->frame_damage.valid)
     return;
+
+  if (hot->flags & CLIENT_FLAG_UNDECORATED) {
+    hot->dirty &= ~frame_dirty_mask;
+    dirty_region_reset(&hot->frame_damage);
+    return;
+  }
 
   bool active = (hot->flags & CLIENT_FLAG_FOCUSED);
 
@@ -200,7 +204,7 @@ void frame_flush(server_t* s, handle_t h) {
   render_frame(s->conn, hot->frame, visual, &hot->render_ctx, (int)s->root_depth, s->is_test, cold ? cold->title : "", active, frame_w, frame_h, &s->config.theme,
                hot->icon_surface ? hot->icon_surface : s->default_icon, clip_ptr);
 
-  hot->dirty &= ~(DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_FRAME_STYLE | DIRTY_TITLE);
+  hot->dirty &= ~frame_dirty_mask;
   dirty_region_reset(&hot->frame_damage);
 }
 

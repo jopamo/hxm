@@ -121,8 +121,40 @@ static void test_frame_damage_triggers_flush(void) {
   printf("PASS: frame damage triggers flush\n");
 }
 
+static void test_undecorated_frame_dirty_quiesces(void) {
+  printf("Testing undecorated frame dirty state quiesces...\n");
+  server_t s;
+  setup_server(&s);
+
+  handle_t h = add_client(&s, 110, 111);
+  client_hot_t* hot = server_chot(&s, h);
+  assert(hot);
+
+  hot->flags |= CLIENT_FLAG_UNDECORATED;
+  hot->dirty = DIRTY_FRAME_ALL | DIRTY_FRAME_STYLE | DIRTY_FRAME_TITLE | DIRTY_TITLE;
+  hot->frame_damage = dirty_region_make(0, 0, 16, 12);
+
+  xcb_stubs_reset();
+  stub_last_image_w = 0;
+
+  bool flushed = wm_flush_dirty(&s, monotonic_time_ns());
+  assert(flushed);
+
+  uint32_t frame_dirty_mask = DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_FRAME_STYLE | DIRTY_TITLE;
+  assert((hot->dirty & frame_dirty_mask) == 0);
+  assert(!hot->frame_damage.valid);
+  assert(stub_last_image_w == 0);
+
+  flushed = wm_flush_dirty(&s, monotonic_time_ns());
+  assert(!flushed);
+
+  cleanup_server(&s);
+  printf("PASS: undecorated frame dirty state quiesces\n");
+}
+
 int main(void) {
   test_frame_damage_triggers_flush();
+  test_undecorated_frame_dirty_quiesces();
   printf("All wm_dirty frame damage tests passed\n");
   return 0;
 }
