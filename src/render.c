@@ -204,10 +204,21 @@ static bool render_prepare_surface(xcb_connection_t* conn, xcb_window_t win, xcb
   return true;
 }
 
+static void render_invalidate_title_cache(render_context_t* ctx) {
+  if (ctx->title_surface) {
+    cairo_surface_destroy(ctx->title_surface);
+    ctx->title_surface = NULL;
+  }
+  ctx->last_title_width = -1;
+  ctx->last_title_height = -1;
+  ctx->last_title_color = 0xFFFFFFFFu;
+}
+
 void render_init(render_context_t* ctx) {
   ctx->surface = NULL;
   ctx->cr = NULL;
   ctx->layout = NULL;
+  ctx->title_surface = NULL;
   ctx->target = XCB_WINDOW_NONE;
   ctx->visual_id = 0;
   ctx->depth = 0;
@@ -216,6 +227,8 @@ void render_init(render_context_t* ctx) {
   ctx->height = 0;
   ctx->last_title = NULL;
   ctx->last_title_width = -1;
+  ctx->last_title_height = -1;
+  ctx->last_title_color = 0xFFFFFFFFu;
 }
 
 void render_free(render_context_t* ctx) {
@@ -228,7 +241,7 @@ void render_free(render_context_t* ctx) {
     free(ctx->last_title);
     ctx->last_title = NULL;
   }
-  ctx->last_title_width = -1;
+  render_invalidate_title_cache(ctx);
 }
 
 static void ensure_layout(render_context_t* ctx) {
@@ -245,6 +258,91 @@ static void ensure_layout(render_context_t* ctx) {
   PangoFontDescription* desc = pango_font_description_from_string("Sans Bold 10");
   pango_layout_set_font_description(ctx->layout, desc);
   pango_font_description_free(desc);
+}
+
+static bool render_update_title_cache(render_context_t* ctx, const char* title, int title_text_width, int title_h, rgba_t text, uint32_t text_color_u32) {
+  if (!ctx)
+    return false;
+
+  if (!title)
+    title = "";
+
+  ensure_layout(ctx);
+
+  bool title_changed = (!ctx->last_title || strcmp(ctx->last_title, title) != 0);
+  if (title_changed) {
+    pango_layout_set_text(ctx->layout, title, -1);
+    if (ctx->last_title)
+      free(ctx->last_title);
+    ctx->last_title = strdup(title);
+  }
+
+  if (title[0] == '\0' || title_text_width <= 0 || title_h <= 0) {
+    render_invalidate_title_cache(ctx);
+    ctx->last_title_width = title_text_width;
+    ctx->last_title_height = title_h;
+    ctx->last_title_color = text_color_u32;
+    return false;
+  }
+
+  bool width_changed = (ctx->last_title_width != title_text_width);
+  if (width_changed) {
+    pango_layout_set_width(ctx->layout, title_text_width * PANGO_SCALE);
+    pango_layout_set_ellipsize(ctx->layout, PANGO_ELLIPSIZE_END);
+  }
+
+  bool height_changed = (ctx->last_title_height != title_h);
+  bool color_changed = (ctx->last_title_color != text_color_u32);
+  bool cache_miss = (ctx->title_surface == NULL);
+
+  if (cache_miss || title_changed || width_changed || height_changed || color_changed) {
+    if (ctx->title_surface) {
+      cairo_surface_destroy(ctx->title_surface);
+      ctx->title_surface = NULL;
+    }
+
+    cairo_surface_t* title_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, title_text_width, title_h);
+    if (!cairo_surface_ok(title_surface)) {
+      if (title_surface)
+        cairo_surface_destroy(title_surface);
+      ctx->last_title_width = title_text_width;
+      ctx->last_title_height = title_h;
+      ctx->last_title_color = text_color_u32;
+      return false;
+    }
+
+    cairo_t* title_cr = cairo_create(title_surface);
+    if (!cairo_ctx_ok(title_cr)) {
+      cairo_destroy(title_cr);
+      cairo_surface_destroy(title_surface);
+      ctx->last_title_width = title_text_width;
+      ctx->last_title_height = title_h;
+      ctx->last_title_color = text_color_u32;
+      return false;
+    }
+
+    cairo_set_operator(title_cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(title_cr, 0.0, 0.0, 0.0, 0.0);
+    cairo_paint(title_cr);
+    cairo_set_operator(title_cr, CAIRO_OPERATOR_OVER);
+    cairo_set_source_rgba(title_cr, text.r, text.g, text.b, text.a);
+
+    int text_h = 0;
+    pango_layout_get_pixel_size(ctx->layout, NULL, &text_h);
+    double text_y = (title_h - text_h) / 2.0;
+    cairo_move_to(title_cr, 0.0, text_y);
+    pango_cairo_update_layout(title_cr, ctx->layout);
+    pango_cairo_show_layout(title_cr, ctx->layout);
+
+    cairo_destroy(title_cr);
+    cairo_surface_flush(title_surface);
+    ctx->title_surface = title_surface;
+  }
+
+  ctx->last_title_width = title_text_width;
+  ctx->last_title_height = title_h;
+  ctx->last_title_color = text_color_u32;
+  return ctx->title_surface != NULL;
 }
 
 static void draw_button(cairo_t* cr, int x, int y, int w, int h, const char* type, rgba_t color) {
@@ -357,17 +455,19 @@ void render_frame(xcb_connection_t* conn,
   cairo_set_source_rgba(cr, border.r, border.g, border.b, border.a);
   cairo_paint(cr);
 
-  // Draw Titlebar background
-  cairo_save(cr);
-  cairo_rectangle(cr, 0, 0, w, title_h);
-  cairo_clip(cr);
-  draw_appearance(cr, w, title_h, title_bg);
-  cairo_restore(cr);
+  if (clip_hits_title) {
+    // Draw Titlebar background only when clip intersects the title area.
+    cairo_save(cr);
+    cairo_rectangle(cr, 0, 0, w, title_h);
+    cairo_clip(cr);
+    draw_appearance(cr, w, title_h, title_bg);
+    cairo_restore(cr);
+  }
 
   int title_x_offset = border_w + 6;
 
   // 2. Draw Icon
-  if (icon) {
+  if (clip_hits_title && icon) {
     int icon_w, icon_h;
     if (get_image_wh(icon, &icon_w, &icon_h)) {
       double target_size = title_h - 4;
@@ -406,30 +506,10 @@ void render_frame(xcb_connection_t* conn,
 
   // 3. Draw Title Text
   if (clip_hits_title && title && title[0] != '\0') {
-    ensure_layout(ctx);
-    cairo_set_source_rgba(cr, text.r, text.g, text.b, text.a);
-
-    // Update layout text only if changed
-    if (!ctx->last_title || strcmp(ctx->last_title, title) != 0) {
-      pango_layout_set_text(ctx->layout, title, -1);
-      if (ctx->last_title)
-        free(ctx->last_title);
-      ctx->last_title = strdup(title);
+    if (render_update_title_cache(ctx, title, title_text_width, title_h, text, text_color_u32)) {
+      cairo_set_source_surface(cr, ctx->title_surface, (double)title_x_offset, 0.0);
+      cairo_paint(cr);
     }
-
-    // Update layout width only if changed
-    if (ctx->last_title_width != title_text_width) {
-      pango_layout_set_width(ctx->layout, title_text_width * PANGO_SCALE);
-      pango_layout_set_ellipsize(ctx->layout, PANGO_ELLIPSIZE_END);
-      ctx->last_title_width = title_text_width;
-    }
-
-    int text_h;
-    pango_layout_get_pixel_size(ctx->layout, NULL, &text_h);
-    double text_y = (title_h - text_h) / 2.0;
-    cairo_move_to(cr, title_x_offset, text_y);
-    pango_cairo_update_layout(cr, ctx->layout);
-    pango_cairo_show_layout(cr, ctx->layout);
   }
 
   // 4. Draw Borders
@@ -440,32 +520,34 @@ void render_frame(xcb_connection_t* conn,
     cairo_stroke(cr);
   }
 
-  // 5. Draw titlebar separator
-  cairo_set_source_rgba(cr, border.r, border.g, border.b, border.a);
-  cairo_set_line_width(cr, 1.0);
-  cairo_move_to(cr, 0, (double)title_h - 0.5);
-  cairo_line_to(cr, (double)w, (double)title_h - 0.5);
-  cairo_stroke(cr);
+  if (clip_hits_title) {
+    // 5. Draw titlebar separator
+    cairo_set_source_rgba(cr, border.r, border.g, border.b, border.a);
+    cairo_set_line_width(cr, 1.0);
+    cairo_move_to(cr, 0, (double)title_h - 0.5);
+    cairo_line_to(cr, (double)w, (double)title_h - 0.5);
+    cairo_stroke(cr);
 
-  // 6. Draw Buttons
-  // btn_size and btn_pad already defined above
-  int btn_y = (title_h - btn_size) / 2;
-  int btn_x = w - border_w - btn_pad - btn_size;
-  // Ensure buttons stay within frame
-  if (btn_x < border_w) {
-    btn_x = border_w;
+    // 6. Draw Buttons
+    // btn_size and btn_pad already defined above
+    int btn_y = (title_h - btn_size) / 2;
+    int btn_x = w - border_w - btn_pad - btn_size;
+    // Ensure buttons stay within frame
+    if (btn_x < border_w) {
+      btn_x = border_w;
+    }
+    // Ensure leftmost button doesn't go beyond left border
+    int leftmost_x = btn_x - 2 * (btn_size + btn_pad);
+    if (leftmost_x < border_w) {
+      btn_x += border_w - leftmost_x;
+      leftmost_x = border_w;
+    }
+    draw_button(cr, btn_x, btn_y, btn_size, btn_size, "close", text);
+    btn_x -= (btn_size + btn_pad);
+    draw_button(cr, btn_x, btn_y, btn_size, btn_size, "max", text);
+    btn_x -= (btn_size + btn_pad);
+    draw_button(cr, btn_x, btn_y, btn_size, btn_size, "min", text);
   }
-  // Ensure leftmost button doesn't go beyond left border
-  int leftmost_x = btn_x - 2 * (btn_size + btn_pad);
-  if (leftmost_x < border_w) {
-    btn_x += border_w - leftmost_x;
-    leftmost_x = border_w;
-  }
-  draw_button(cr, btn_x, btn_y, btn_size, btn_size, "close", text);
-  btn_x -= (btn_size + btn_pad);
-  draw_button(cr, btn_x, btn_y, btn_size, btn_size, "max", text);
-  btn_x -= (btn_size + btn_pad);
-  draw_button(cr, btn_x, btn_y, btn_size, btn_size, "min", text);
 
   // 6. Present
   cairo_surface_flush(target_surface);

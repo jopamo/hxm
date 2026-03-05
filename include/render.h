@@ -47,6 +47,7 @@ typedef struct render_context {
   cairo_surface_t* surface;
   cairo_t* cr;
   PangoLayout* layout;
+  cairo_surface_t* title_surface;
 
   /* Cached target parameters */
   xcb_window_t target;
@@ -60,6 +61,8 @@ typedef struct render_context {
   /* Caching to avoid re-layout churn */
   char* last_title;
   int last_title_width;
+  int last_title_height;
+  uint32_t last_title_color;
 } render_context_t;
 
 /* Simple color struct for interfaces and theme conversions */
