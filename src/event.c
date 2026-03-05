@@ -904,7 +904,8 @@ void event_ingest(server_t* s, bool x_ready) {
       count++;
   }
 
-  if (!x_ready) {
+  bool can_read_socket = x_ready && (s->x_fd_ready || s->is_test || s->epoll_fd <= 0);
+  if (!can_read_socket) {
     s->x_poll_immediate = (count >= MAX_EVENTS_PER_TICK);
     s->buckets.ingested = count;
     return;
@@ -1640,8 +1641,12 @@ static void event_handle_signals(server_t* s) {
 }
 
 static bool server_wait_for_events(server_t* s, int timeout_ms) {
-  if (s->epoll_fd < 0)
+  s->x_fd_ready = false;
+
+  if (s->epoll_fd < 0) {
+    s->x_fd_ready = true;
     return true;
+  }
 
   if (s->prefetched_event)
     return true;
@@ -1705,8 +1710,10 @@ static bool server_wait_for_events(server_t* s, int timeout_ms) {
         }
       }
 
-      if (x_ready)
+      if (x_ready) {
+        s->x_fd_ready = true;
         return true;
+      }
       if (g_shutdown_pending || g_restart_pending || g_reload_pending)
         return false;
 
@@ -1773,6 +1780,7 @@ void server_run(server_t* s) {
     }
 
     bool x_ready = false;
+    s->x_fd_ready = false;
     if (!reload_applied) {
       if (s->x_poll_immediate) {
         x_ready = true;

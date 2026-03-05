@@ -289,6 +289,7 @@ typedef struct server {
   int exit_code;
 
   bool x_poll_immediate;
+  bool x_fd_ready;
   uint8_t force_poll_ticks;
 
   uint64_t txn_id; /* monotonic transaction id for cookie ordering */
@@ -350,7 +351,7 @@ void server_cleanup(server_t* s);
 /* ---------- Event ingestion and processing ---------- */
 
 /* Ingest X events and coalesce into buckets
- * x_ready indicates the caller already knows the X fd is readable
+ * x_ready indicates there may be X work (queued events and/or readable fd)
  */
 void event_ingest(server_t* s, bool x_ready);
 
