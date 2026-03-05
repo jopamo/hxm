@@ -136,13 +136,13 @@ typedef struct cookie_jar {
 void cookie_jar_init(cookie_jar_t* cj);
 void cookie_jar_destroy(cookie_jar_t* cj);
 
-/* Push a cookie into the jar
- * Returns false if jar is full or parameters invalid
+/* Push a cookie into the jar.
  *
- * sequence must be non-zero (0 is reserved for "invalid/no cookie")
- * handler must be non-NULL
+ * Preconditions:
+ * - sequence != 0
+ * - handler != NULL
  */
-bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
+void cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
 
 /* Remove all pending cookies associated with a client handle.
  * Returns number of removed slots.

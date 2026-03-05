@@ -35,7 +35,6 @@ static jmp_buf g_exit_jmp_buf;
 
 static xcb_keysym_t g_fake_keysym = 0;
 static uint32_t g_query_pointer_sequence = 1;
-static bool g_cookie_jar_push_should_fail = false;
 static bool g_client_can_move = true;
 static bool g_client_can_resize = true;
 static handle_t g_menu_selected_client = HANDLE_INVALID;
@@ -90,7 +89,6 @@ static int spy_exit_last_code = 0;
 static void reset_spies(void) {
   g_fake_keysym = 0;
   g_query_pointer_sequence = 1;
-  g_cookie_jar_push_should_fail = false;
   g_client_can_move = true;
   g_client_can_resize = true;
   g_menu_selected_client = HANDLE_INVALID;
@@ -309,7 +307,7 @@ xcb_query_pointer_cookie_t __wrap_xcb_query_pointer(xcb_connection_t* c, xcb_win
   return ck;
 }
 
-bool __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
+void __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
   (void)cj;
   (void)data;
   (void)txn_id;
@@ -319,8 +317,6 @@ bool __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t t
   spy_cookie_jar_push_last_sequence = sequence;
   spy_cookie_jar_push_last_type = type;
   spy_cookie_jar_push_last_client = client;
-
-  return !g_cookie_jar_push_should_fail;
 }
 
 xcb_void_cookie_t __wrap_xcb_warp_pointer(xcb_connection_t* c,
@@ -718,43 +714,6 @@ static void test_key_press_action_move_zero_query_sequence_skips_cookie_enqueue(
   teardown_server(&s);
 }
 
-static void test_key_press_action_move_query_enqueue_failure_aborts_interaction(void) {
-  reset_spies();
-
-  server_t s;
-  setup_server(&s);
-
-  handle_t focused_handle = HANDLE_INVALID;
-  add_client(&s, 0, false, STATE_MAPPED, WINDOW_TYPE_NORMAL, &focused_handle);
-  s.focused_client = focused_handle;
-
-  key_binding_t bind = {
-    .keysym = 0x6C6Cu,
-    .modifiers = 0,
-    .action = ACTION_MOVE,
-    .exec_cmd = NULL,
-  };
-  key_binding_t* bindings[] = {&bind};
-  set_bindings(&s, bindings, 1);
-
-  g_query_pointer_sequence = 321;
-  g_cookie_jar_push_should_fail = true;
-
-  xcb_key_press_event_t ev = {.detail = 21, .state = 0};
-  g_fake_keysym = 0x6C6Cu;
-
-  wm_handle_key_press(&s, &ev);
-  g_cookie_jar_push_should_fail = false;
-
-  assert(spy_cookie_jar_push_calls == 1);
-  assert(spy_cookie_jar_push_last_sequence == 321);
-  assert(spy_cookie_jar_push_last_type == COOKIE_QUERY_POINTER);
-  assert(spy_cookie_jar_push_last_client == focused_handle);
-  assert(spy_wm_start_interaction_calls == 0);
-
-  teardown_server(&s);
-}
-
 static void test_key_press_action_resize_starts_interaction(void) {
   reset_spies();
 
@@ -855,7 +814,6 @@ int main(void) {
   test_key_press_action_move_to_workspace_follow();
   test_key_press_action_toggle_sticky();
   test_key_press_action_move_zero_query_sequence_skips_cookie_enqueue();
-  test_key_press_action_move_query_enqueue_failure_aborts_interaction();
   test_key_press_action_resize_starts_interaction();
   test_key_press_action_exit_intercepted();
   test_key_release_alt_commits_switcher();

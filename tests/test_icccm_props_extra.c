@@ -85,6 +85,7 @@ static void test_wm_icon_name_fallback(void) {
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
@@ -142,6 +143,7 @@ static void test_wm_class_invalid_no_nul(void) {
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
@@ -187,6 +189,7 @@ static void test_wm_client_machine_large(void) {
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
@@ -232,6 +235,7 @@ static void test_wm_command_first_token(void) {
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
@@ -271,6 +275,7 @@ static void test_wm_hints_input_affects_focus(void) {
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
   list_init(&s.focus_history);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
@@ -344,6 +349,7 @@ static void test_wm_hints_icon_safe(void) {
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
@@ -399,6 +405,7 @@ static void test_property_deletions_reset_defaults(void) {
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
   hash_map_init(&s.window_to_client);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
@@ -517,6 +524,7 @@ static void test_focused_client_recommits_on_wm_protocols_take_focus_enable(void
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
   list_init(&s.focus_history);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;
@@ -575,6 +583,7 @@ static void test_focused_client_recommits_on_wm_hints_input_enable(void) {
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
+  cookie_jar_init(&s.cookie_jar);
   list_init(&s.focus_history);
 
   void *hot_ptr = NULL, *cold_ptr = NULL;

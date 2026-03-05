@@ -14,22 +14,19 @@
 extern void xcb_stubs_reset(void);
 extern int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request, void** reply, xcb_generic_error_t** error);
 
-bool __real_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
+void __real_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
 xcb_randr_get_crtc_info_cookie_t __real_xcb_randr_get_crtc_info(xcb_connection_t* c, xcb_randr_crtc_t crtc, xcb_timestamp_t config_timestamp);
 
-static bool g_fail_crtc_enqueue = false;
 static bool g_force_zero_crtc_sequence = false;
 static uint32_t g_resources_sequence = 0;
 static bool g_resources_reply_delivered = false;
 static int g_fake_crtc_count = 2;
 static xcb_randr_crtc_t g_fake_crtcs[2] = {11, 22};
 
-bool __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
+void __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
   if (type == COOKIE_RANDR_GET_SCREEN_RESOURCES)
     g_resources_sequence = sequence;
-  if (g_fail_crtc_enqueue && type == COOKIE_RANDR_GET_CRTC_INFO)
-    return false;
-  return __real_cookie_jar_push(cj, sequence, type, client, data, txn_id, handler);
+  __real_cookie_jar_push(cj, sequence, type, client, data, txn_id, handler);
 }
 
 xcb_randr_get_crtc_info_cookie_t __wrap_xcb_randr_get_crtc_info(xcb_connection_t* c, xcb_randr_crtc_t crtc, xcb_timestamp_t config_timestamp) {
@@ -92,37 +89,10 @@ static void cleanup_server(server_t* s) {
   stub_poll_for_reply_hook = NULL;
 }
 
-static void test_randr_crtc_enqueue_failure_clears_pending_accounting(void) {
-  server_t s;
-  setup_server(&s);
-
-  g_fail_crtc_enqueue = true;
-  g_resources_sequence = 0;
-  g_resources_reply_delivered = false;
-  stub_poll_for_reply_hook = randr_poll_for_reply;
-
-  wm_update_monitors(&s);
-  assert(g_resources_sequence != 0);
-  assert(cookie_jar_has_pending(&s.cookie_jar));
-
-  cookie_jar_mark_replies_may_exist(&s.cookie_jar);
-  cookie_jar_drain(&s.cookie_jar, s.conn, &s, 8);
-
-  assert(g_resources_reply_delivered);
-  assert(!cookie_jar_has_pending(&s.cookie_jar));
-  assert(s.randr_pending_replies == 0);
-  assert(s.randr_pending_capacity == 0);
-  assert(s.randr_pending_monitors == NULL);
-
-  printf("test_randr_crtc_enqueue_failure_clears_pending_accounting passed\n");
-  cleanup_server(&s);
-}
-
 static void test_randr_crtc_zero_sequence_clears_pending_accounting(void) {
   server_t s;
   setup_server(&s);
 
-  g_fail_crtc_enqueue = false;
   g_force_zero_crtc_sequence = true;
   g_resources_sequence = 0;
   g_resources_reply_delivered = false;
@@ -147,7 +117,6 @@ static void test_randr_crtc_zero_sequence_clears_pending_accounting(void) {
 }
 
 int main(void) {
-  test_randr_crtc_enqueue_failure_clears_pending_accounting();
   test_randr_crtc_zero_sequence_clears_pending_accounting();
   return 0;
 }

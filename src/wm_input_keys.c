@@ -385,10 +385,7 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
               LOG_ERROR("ACTION_MOVE query_pointer returned zero sequence; aborting interaction start");
               break;
             }
-            if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, s->focused_client, 0x100, s->txn_id, wm_handle_reply)) {
-              LOG_ERROR("ACTION_MOVE query_pointer enqueue failed; aborting interaction start");
-              break;
-            }
+            cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, s->focused_client, 0x100, s->txn_id, wm_handle_reply);
           }
           else {
             // RESIZE: Warp to bottom right

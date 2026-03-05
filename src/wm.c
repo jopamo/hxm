@@ -305,10 +305,7 @@ static void wm_handle_randr_reply(server_t* s, const cookie_slot_t* slot, void* 
         s->randr_pending_replies--;
         continue;
       }
-      if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_CRTC_INFO, HANDLE_INVALID, (uintptr_t)i, slot->txn_id, wm_handle_randr_reply)) {
-        LOG_ERROR("RandR CRTC info enqueue failed for index %d", i);
-        s->randr_pending_replies--;
-      }
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_CRTC_INFO, HANDLE_INVALID, (uintptr_t)i, slot->txn_id, wm_handle_randr_reply);
     }
 
     if (s->randr_pending_replies == 0) {
@@ -397,9 +394,7 @@ void wm_update_monitors(server_t* s) {
     return;
   }
 
-  if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_SCREEN_RESOURCES, HANDLE_INVALID, 0, s->randr_pending_generation, wm_handle_randr_reply)) {
-    LOG_ERROR("RandR resources enqueue failed; async monitor update dropped");
-  }
+  cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_RANDR_GET_SCREEN_RESOURCES, HANDLE_INVALID, 0, s->randr_pending_generation, wm_handle_randr_reply);
 }
 
 void wm_get_monitor_geometry(server_t* s, client_hot_t* hot, rect_t* out_geom) {
@@ -797,9 +792,7 @@ void wm_adopt_children(server_t* s) {
       LOG_ERROR("Adopt attributes request returned zero sequence for window %u; skipping", win);
       continue;
     }
-    if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_WINDOW_ATTRIBUTES, HANDLE_INVALID, (uint64_t)win, s->txn_id, wm_handle_reply)) {
-      LOG_ERROR("Adopt attributes enqueue failed for window %u; skipping", win);
-    }
+    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_WINDOW_ATTRIBUTES, HANDLE_INVALID, (uint64_t)win, s->txn_id, wm_handle_reply);
   }
 
   free(reply);
@@ -829,10 +822,7 @@ void wm_handle_map_request(server_t* s, xcb_map_request_event_t* ev) {
     xcb_map_window(s->conn, ev->window);
     return;
   }
-  if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_CHECK_MANAGE_MAP_REQUEST, HANDLE_INVALID, (uint64_t)ev->window, s->txn_id, wm_handle_reply)) {
-    LOG_ERROR("MapRequest attributes enqueue failed for window %u; mapping unmanaged", ev->window);
-    xcb_map_window(s->conn, ev->window);
-  }
+  cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_CHECK_MANAGE_MAP_REQUEST, HANDLE_INVALID, (uint64_t)ev->window, s->txn_id, wm_handle_reply);
 }
 
 void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
@@ -1114,34 +1104,41 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
   }
   else if (ev->atom == atoms.WM_PROTOCOLS) {
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_PROTOCOLS, XCB_ATOM_ATOM, 0, 32);
-    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_PROTOCOLS, s->txn_id, wm_handle_reply);
+    if (ck.sequence != 0)
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_PROTOCOLS, s->txn_id, wm_handle_reply);
   }
   else if (ev->atom == atoms._NET_WM_ICON) {
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 0, 1048576);
-    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_ICON, s->txn_id, wm_handle_reply);
+    if (ck.sequence != 0)
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_ICON, s->txn_id, wm_handle_reply);
   }
   else if (ev->atom == atoms._NET_WM_STATE) {
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STATE, XCB_ATOM_ATOM, 0, 32);
-    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_STATE, s->txn_id, wm_handle_reply);
+    if (ck.sequence != 0)
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_STATE, s->txn_id, wm_handle_reply);
   }
   else if (ev->atom == atoms._NET_WM_WINDOW_TYPE) {
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_WINDOW_TYPE, XCB_ATOM_ATOM, 0, 32);
-    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE, s->txn_id, wm_handle_reply);
+    if (ck.sequence != 0)
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_TYPE, s->txn_id, wm_handle_reply);
   }
   else if (ev->atom == atoms._NET_WM_DESKTOP) {
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 0, 1);
-    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_DESKTOP, s->txn_id, wm_handle_reply);
+    if (ck.sequence != 0)
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_DESKTOP, s->txn_id, wm_handle_reply);
   }
   else if (ev->atom == atoms._NET_WM_SYNC_REQUEST_COUNTER) {
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_SYNC_REQUEST_COUNTER, XCB_ATOM_CARDINAL, 0, 1);
-    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, s->txn_id, wm_handle_reply);
+    if (ck.sequence != 0)
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms._NET_WM_SYNC_REQUEST_COUNTER, s->txn_id, wm_handle_reply);
   }
   else if (ev->atom == atoms._NET_WM_STRUT || ev->atom == atoms._NET_WM_STRUT_PARTIAL) {
     hot->dirty |= DIRTY_STRUT;
     // Waterfall: Always request PARTIAL first. If it fails/empty, we fallback
     // to STRUT in reply handler
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 0, 12);
-    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | (uint32_t)atoms._NET_WM_STRUT_PARTIAL, s->txn_id, wm_handle_reply);
+    if (ck.sequence != 0)
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | (uint32_t)atoms._NET_WM_STRUT_PARTIAL, s->txn_id, wm_handle_reply);
   }
   else if (ev->atom == atoms._NET_WM_WINDOW_OPACITY) {
     hot->dirty |= DIRTY_OPACITY;
@@ -1391,11 +1388,7 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
     return;
   }
 
-  if (!cookie_jar_push(&s->cookie_jar, cookie.sequence, COOKIE_GRAB_POINTER, HANDLE_INVALID, (uintptr_t)hot->frame, s->txn_id, wm_handle_grab_pointer_reply)) {
-    LOG_ERROR("grab_pointer enqueue failed; aborting interaction start");
-    wm_cancel_interaction(s);
-    return;
-  }
+  cookie_jar_push(&s->cookie_jar, cookie.sequence, COOKIE_GRAB_POINTER, HANDLE_INVALID, (uintptr_t)hot->frame, s->txn_id, wm_handle_grab_pointer_reply);
 
   LOG_INFO("Started interactive %s for client %lx (dir=%d)", start_move ? "MOVE" : "RESIZE", h, resize_dir);
 }
@@ -2196,7 +2189,8 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     // Async path for unmanaged windows: ask for _MOTIF_WM_HINTS and reply
     // later
     xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, target, atoms._MOTIF_WM_HINTS, XCB_ATOM_ANY, 0, 5);
-    cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY_FRAME_EXTENTS, HANDLE_INVALID, (uintptr_t)target, s->txn_id, wm_handle_reply);
+    if (ck.sequence != 0)
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY_FRAME_EXTENTS, HANDLE_INVALID, (uintptr_t)target, s->txn_id, wm_handle_reply);
     TRACE_LOG("_NET_REQUEST_FRAME_EXTENTS win=%u queued async motif hints", target);
     return;
   }
@@ -2452,10 +2446,7 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
         LOG_ERROR("_NET_WM_MOVERESIZE query_pointer returned zero sequence; aborting interaction start");
         return;
       }
-      if (!cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, s->txn_id, wm_handle_reply)) {
-        LOG_ERROR("_NET_WM_MOVERESIZE query_pointer enqueue failed; aborting interaction start");
-        return;
-      }
+      cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_QUERY_POINTER, h, data, s->txn_id, wm_handle_reply);
     }
     else {
       wm_start_interaction(s, h, hot, start_move, resize_dir, root_x, root_y, 0, is_keyboard);

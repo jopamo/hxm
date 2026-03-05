@@ -114,10 +114,11 @@
  * consistent.
  */
 static bool client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t h, uint32_t seq, cookie_type_t type, uintptr_t data, const char* request_name) {
-  if (!cookie_jar_push(&s->cookie_jar, seq, type, h, data, s->txn_id, wm_handle_reply)) {
-    LOG_ERROR("Failed to enqueue manage probe for window %u (%s, seq=%u)", hot->xid, request_name, seq);
+  if (seq == 0) {
+    LOG_ERROR("Manage probe request returned zero sequence for window %u (%s)", hot->xid, request_name);
     return false;
   }
+  cookie_jar_push(&s->cookie_jar, seq, type, h, data, s->txn_id, wm_handle_reply);
   hot->pending_replies++;
   return true;
 }

@@ -363,12 +363,10 @@ static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, c
       }
 
       uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-      if (cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME, s->txn_id, wm_handle_reply)) {
+      if (c != 0) {
+        cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME, s->txn_id, wm_handle_reply);
         if (hot->manage_phase != MANAGE_DONE)
           hot->pending_replies++;
-      }
-      else {
-        LOG_ERROR("Failed to enqueue WM_NAME fallback probe for window %u", hot->xid);
       }
       return;
     }
@@ -393,12 +391,10 @@ static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, c
       }
 
       uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_ICON_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
-      if (cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_ICON_NAME, s->txn_id, wm_handle_reply)) {
+      if (c != 0) {
+        cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_ICON_NAME, s->txn_id, wm_handle_reply);
         if (hot->manage_phase != MANAGE_DONE)
           hot->pending_replies++;
-      }
-      else {
-        LOG_ERROR("Failed to enqueue WM_ICON_NAME fallback probe for window %u", hot->xid);
       }
       return;
     }
@@ -1236,7 +1232,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
         // Waterfall: If PARTIAL failed (or empty), try legacy STRUT
         if (is_partial && !*active) {
           xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, hot->xid, atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 0, 4);
-          cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, slot->client, ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT, s->txn_id, wm_handle_reply);
+          if (ck.sequence != 0)
+            cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_GET_PROPERTY, slot->client, ((uint64_t)hot->xid << 32) | atoms._NET_WM_STRUT, s->txn_id, wm_handle_reply);
         }
 
         client_update_effective_strut(cold);
@@ -1445,7 +1442,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
           hot->sync_value = 0;
           if (counter != XCB_NONE) {
             xcb_sync_query_counter_cookie_t ck = xcb_sync_query_counter(s->conn, counter);
-            cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_SYNC_QUERY_COUNTER, slot->client, (uintptr_t)counter, s->txn_id, wm_handle_reply);
+            if (ck.sequence != 0)
+              cookie_jar_push(&s->cookie_jar, ck.sequence, COOKIE_SYNC_QUERY_COUNTER, slot->client, (uintptr_t)counter, s->txn_id, wm_handle_reply);
           }
         }
         else {

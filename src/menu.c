@@ -136,9 +136,7 @@ static void menu_enqueue_grab_cookie(server_t* s, uint32_t sequence, cookie_type
   if (!s || !s->cookie_jar.slots || sequence == 0)
     return;
 
-  if (!cookie_jar_push(&s->cookie_jar, sequence, type, HANDLE_INVALID, (uintptr_t)ctx, s->txn_id, menu_handle_grab_reply)) {
-    LOG_WARN("%s: failed to enqueue %s grab cookie seq=%u", menu_grab_context_name(ctx), menu_grab_type_name(type), sequence);
-  }
+  cookie_jar_push(&s->cookie_jar, sequence, type, HANDLE_INVALID, (uintptr_t)ctx, s->txn_id, menu_handle_grab_reply);
 #else
   (void)s;
   (void)sequence;

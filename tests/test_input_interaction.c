@@ -25,25 +25,17 @@ extern int stub_sync_await_count;
 extern int stub_config_calls_len;
 extern void xcb_stubs_set_query_pointer_sequence(uint32_t sequence);
 
-bool __real_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
+void __real_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler);
 
-static bool g_fail_grab_pointer_enqueue = false;
-static bool g_fail_query_pointer_enqueue = false;
 static int g_cookie_push_query_pointer_calls = 0;
 
-bool __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
+void __wrap_cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, handle_t client, uintptr_t data, uint64_t txn_id, cookie_handler_fn handler) {
   if (type == COOKIE_QUERY_POINTER)
     g_cookie_push_query_pointer_calls++;
-  if (g_fail_query_pointer_enqueue && type == COOKIE_QUERY_POINTER)
-    return false;
-  if (g_fail_grab_pointer_enqueue && type == COOKIE_GRAB_POINTER)
-    return false;
-  return __real_cookie_jar_push(cj, sequence, type, client, data, txn_id, handler);
+  __real_cookie_jar_push(cj, sequence, type, client, data, txn_id, handler);
 }
 
 static void reset_cookie_push_spy(void) {
-  g_fail_grab_pointer_enqueue = false;
-  g_fail_query_pointer_enqueue = false;
   g_cookie_push_query_pointer_calls = 0;
 }
 
@@ -239,39 +231,6 @@ static void test_move_interaction(void) {
   assert(stub_ungrab_pointer_count == 1);
 
   printf("test_move_interaction passed\n");
-  cleanup_server(&s);
-}
-
-static void test_move_interaction_aborts_when_grab_enqueue_fails(void) {
-  server_t s;
-  setup_server(&s);
-  xcb_stubs_reset();
-  reset_cookie_push_spy();
-
-  handle_t h = add_mapped_client(&s, 2201, 2301);
-  client_hot_t* hot = server_chot(&s, h);
-
-  g_fail_grab_pointer_enqueue = true;
-
-  xcb_button_press_event_t press = {0};
-  press.event = hot->xid;
-  press.detail = 1;
-  press.state = XCB_MOD_MASK_1;
-  press.root_x = 80;
-  press.root_y = 90;
-
-  wm_handle_button_press(&s, &press);
-
-  g_fail_grab_pointer_enqueue = false;
-
-  assert(stub_grab_pointer_count == 1);
-  assert(stub_ungrab_pointer_count == 1);
-  assert(s.interaction_mode == INTERACTION_NONE);
-  assert(s.interaction_window == XCB_NONE);
-  assert(s.interaction_handle == HANDLE_INVALID);
-  assert(!cookie_jar_has_pending(&s.cookie_jar));
-
-  printf("test_move_interaction_aborts_when_grab_enqueue_fails passed\n");
   cleanup_server(&s);
 }
 
@@ -605,43 +564,10 @@ static void test_moveresize_keyboard_zero_query_sequence_skips_enqueue(void) {
   cleanup_server(&s);
 }
 
-static void test_moveresize_keyboard_query_pointer_enqueue_failure_aborts_start(void) {
-  server_t s;
-  setup_server(&s);
-  xcb_stubs_reset();
-  reset_cookie_push_spy();
-
-  handle_t h = add_mapped_client(&s, 7002, 7102);
-  client_hot_t* hot = server_chot(&s, h);
-
-  g_fail_query_pointer_enqueue = true;
-
-  xcb_client_message_event_t ev = {0};
-  ev.format = 32;
-  ev.window = hot->xid;
-  ev.type = atoms._NET_WM_MOVERESIZE;
-  ev.data.data32[0] = (uint32_t)-1;
-  ev.data.data32[1] = (uint32_t)-1;
-  ev.data.data32[2] = 10;  // NET_WM_MOVERESIZE_MOVE_KEYBOARD
-  ev.data.data32[3] = 0;
-  ev.data.data32[4] = 1;
-
-  wm_handle_client_message(&s, &ev);
-  g_fail_query_pointer_enqueue = false;
-
-  assert(g_cookie_push_query_pointer_calls == 1);
-  assert(!cookie_jar_has_pending(&s.cookie_jar));
-  assert(s.interaction_mode == INTERACTION_NONE);
-
-  printf("test_moveresize_keyboard_query_pointer_enqueue_failure_aborts_start passed\n");
-  cleanup_server(&s);
-}
-
 int main(void) {
   test_click_to_focus();
   test_click_ignores_dock_and_desktop();
   test_move_interaction();
-  test_move_interaction_aborts_when_grab_enqueue_fails();
   test_resize_interaction();
   test_resize_interaction_clamps_frame_overflow();
   test_resize_corner_top_left();
@@ -652,6 +578,5 @@ int main(void) {
   test_keybinding_conflict_deterministic();
   test_key_grabs_from_config();
   test_moveresize_keyboard_zero_query_sequence_skips_enqueue();
-  test_moveresize_keyboard_query_pointer_enqueue_failure_aborts_start();
   return 0;
 }

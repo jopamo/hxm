@@ -36,6 +36,7 @@ static void setup_server(server_t* s) {
     small_vec_init(&s->layers[i]);
 
   slotmap_init(&s->clients, 16, sizeof(client_hot_t), sizeof(client_cold_t));
+  cookie_jar_init(&s->cookie_jar);
   small_vec_init(&s->active_clients);
   arena_init(&s->tick_arena, 4096);
 
@@ -55,6 +56,7 @@ static void cleanup_server(server_t* s) {
       render_free(&hot->render_ctx);
   }
   slotmap_destroy(&s->clients);
+  cookie_jar_destroy(&s->cookie_jar);
   small_vec_destroy(&s->active_clients);
   hash_map_destroy(&s->window_to_client);
   hash_map_destroy(&s->frame_to_client);
