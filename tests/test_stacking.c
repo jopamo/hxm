@@ -261,6 +261,80 @@ void test_root_stacking_desktop_below_normal(void) {
   cleanup_server(&s);
 }
 
+void test_raise_lower_preserve_relative_order(void) {
+  server_t s;
+  if (!init_server(&s))
+    return;
+
+  handle_t h1 = add_client(&s, 101, 201, LAYER_NORMAL);
+  handle_t h2 = add_client(&s, 102, 202, LAYER_NORMAL);
+  handle_t h3 = add_client(&s, 103, 203, LAYER_NORMAL);
+
+  stack_raise(&s, h1);
+  stack_raise(&s, h2);
+  stack_raise(&s, h3);
+
+  {
+    handle_t order[] = {h1, h2, h3};
+    assert_layer_order(&s, LAYER_NORMAL, order, 3);
+  }
+
+  stack_raise(&s, h1);
+  {
+    handle_t order[] = {h2, h3, h1};
+    assert_layer_order(&s, LAYER_NORMAL, order, 3);
+  }
+
+  stack_lower(&s, h1);
+  {
+    handle_t order[] = {h1, h2, h3};
+    assert_layer_order(&s, LAYER_NORMAL, order, 3);
+  }
+
+  stack_lower(&s, h3);
+  {
+    handle_t order[] = {h3, h1, h2};
+    assert_layer_order(&s, LAYER_NORMAL, order, 3);
+  }
+
+  printf("test_raise_lower_preserve_relative_order passed\n");
+  cleanup_server(&s);
+}
+
+void test_stack_remove_recovers_from_stale_index(void) {
+  server_t s;
+  if (!init_server(&s))
+    return;
+
+  handle_t h1 = add_client(&s, 111, 211, LAYER_NORMAL);
+  handle_t h2 = add_client(&s, 112, 212, LAYER_NORMAL);
+  handle_t h3 = add_client(&s, 113, 213, LAYER_NORMAL);
+  stack_raise(&s, h1);
+  stack_raise(&s, h2);
+  stack_raise(&s, h3);
+
+  client_hot_t* hot2 = server_chot(&s, h2);
+  assert(hot2);
+  hot2->stacking_index = -1;
+
+  stack_remove(&s, h2);
+  {
+    handle_t order[] = {h1, h3};
+    assert_layer_order(&s, LAYER_NORMAL, order, 2);
+  }
+  assert(hot2->stacking_layer == -1);
+  assert(hot2->stacking_index == -1);
+
+  stack_raise(&s, h2);
+  {
+    handle_t order[] = {h1, h3, h2};
+    assert_layer_order(&s, LAYER_NORMAL, order, 3);
+  }
+
+  printf("test_stack_remove_recovers_from_stale_index passed\n");
+  cleanup_server(&s);
+}
+
 void test_focus_raise_on_focus(void) {
   server_t s;
   if (!init_server(&s))
@@ -289,6 +363,8 @@ int main(void) {
   test_stack_raise_transients_restack_count();
   test_root_stacking_property_order();
   test_root_stacking_desktop_below_normal();
+  test_raise_lower_preserve_relative_order();
+  test_stack_remove_recovers_from_stale_index();
   test_focus_raise_on_focus();
   return 0;
 }
