@@ -563,6 +563,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
       bool geom_changed = (hot->server.x != (int16_t)frame_x || hot->server.y != (int16_t)frame_y || hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h ||
                            hot->server_frame_w != (uint16_t)frame_w || hot->server_frame_h != (uint16_t)frame_h);
+      bool frame_size_changed = (hot->server_frame_w != (uint16_t)frame_w || hot->server_frame_h != (uint16_t)frame_h);
 
       bool synthetic_attempted = false;
       if (geom_changed) {
@@ -634,7 +635,10 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         }
         xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_FRAME_EXTENTS, XCB_ATOM_CARDINAL, 32, 4, extents);
 
-        frame_redraw(s, h, FRAME_REDRAW_ALL);
+        // Position-only moves do not require repainting decorations.
+        if (frame_size_changed) {
+          frame_redraw(s, h, FRAME_REDRAW_ALL);
+        }
 
         LOG_DEBUG(
             "Flushed DIRTY_GEOM for %lx: Frame Global(%d,%d) Client "
