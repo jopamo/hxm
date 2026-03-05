@@ -911,12 +911,12 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
         }
 
         if (valid) {
-          bool hints_changed = (hot->hints_flags != next_flags || memcmp(&hot->hints, &next_hints, sizeof(size_hints_t)) != 0);
+          bool hints_changed = (cold->hints_flags != next_flags || memcmp(&cold->hints, &next_hints, sizeof(size_hints_t)) != 0);
 
           if (hints_changed) {
-            hot->hints = next_hints;
+            cold->hints = next_hints;
 
-            hot->hints_flags = next_flags;
+            cold->hints_flags = next_flags;
 
             hot->dirty |= DIRTY_STATE;  // Allowed actions might change
             bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
@@ -951,12 +951,12 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               }
 
               if (!is_panel) {
-                client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+                client_constrain_size(&cold->hints, cold->hints_flags, &hot->desired.w, &hot->desired.h);
               }
             }
             else if (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame) {
               if (!is_panel) {
-                client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+                client_constrain_size(&cold->hints, cold->hints_flags, &hot->desired.w, &hot->desired.h);
               }
 
               hot->dirty |= DIRTY_GEOM;
@@ -970,7 +970,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               uint16_t h_val = hot->desired.h;
 
               if (!is_panel) {
-                client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
+                client_constrain_size(&cold->hints, cold->hints_flags, &w, &h_val);
               }
 
               if (w != hot->desired.w || h_val != hot->desired.h) {
@@ -1432,13 +1432,13 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
       else if (atom == atoms._NET_WM_USER_TIME) {
         if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
           uint32_t val = *(uint32_t*)xcb_get_property_value(r);
-          hot->user_time = val;
+          cold->user_time = val;
         }
       }
       else if (atom == atoms._NET_WM_USER_TIME_WINDOW) {
         if (r && r->type == XCB_ATOM_WINDOW && xcb_get_property_value_length(r) >= 4) {
           xcb_window_t w = *(xcb_window_t*)xcb_get_property_value(r);
-          hot->user_time_window = w;
+          cold->user_time_window = w;
 
           if (w != hot->xid) {
             uint32_t values[] = {XCB_EVENT_MASK_PROPERTY_CHANGE};

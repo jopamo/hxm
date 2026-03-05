@@ -106,10 +106,11 @@ static void test_frame_damage_triggers_flush(void) {
 
   handle_t h = add_client(&s, 100, 101);
   client_hot_t* hot = server_chot(&s, h);
-  assert(hot);
+  client_cold_t* cold = server_ccold(&s, h);
+  assert(hot && cold);
 
   hot->dirty = DIRTY_NONE;
-  hot->frame_damage = dirty_region_make(0, 0, 12, 10);
+  cold->frame_damage = dirty_region_make(0, 0, 12, 10);
 
   xcb_stubs_reset();
   stub_last_image_w = 0;
@@ -117,7 +118,7 @@ static void test_frame_damage_triggers_flush(void) {
   bool flushed = wm_flush_dirty(&s, monotonic_time_ns());
   assert(flushed);
   assert(stub_last_image_w > 0);
-  assert(!hot->frame_damage.valid);
+  assert(!cold->frame_damage.valid);
 
   cleanup_server(&s);
   printf("PASS: frame damage triggers flush\n");
@@ -130,11 +131,12 @@ static void test_undecorated_frame_dirty_quiesces(void) {
 
   handle_t h = add_client(&s, 110, 111);
   client_hot_t* hot = server_chot(&s, h);
-  assert(hot);
+  client_cold_t* cold = server_ccold(&s, h);
+  assert(hot && cold);
 
   hot->flags |= CLIENT_FLAG_UNDECORATED;
   hot->dirty = DIRTY_FRAME_ALL | DIRTY_FRAME_STYLE | DIRTY_FRAME_TITLE | DIRTY_TITLE;
-  hot->frame_damage = dirty_region_make(0, 0, 16, 12);
+  cold->frame_damage = dirty_region_make(0, 0, 16, 12);
 
   xcb_stubs_reset();
   stub_last_image_w = 0;
@@ -144,7 +146,7 @@ static void test_undecorated_frame_dirty_quiesces(void) {
 
   uint32_t frame_dirty_mask = DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_FRAME_STYLE | DIRTY_TITLE;
   assert((hot->dirty & frame_dirty_mask) == 0);
-  assert(!hot->frame_damage.valid);
+  assert(!cold->frame_damage.valid);
   assert(stub_last_image_w == 0);
 
   flushed = wm_flush_dirty(&s, monotonic_time_ns());

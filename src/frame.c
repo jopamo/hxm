@@ -143,11 +143,12 @@ void frame_redraw(server_t* s, handle_t h, uint32_t what) {
 
 void frame_redraw_region(server_t* s, handle_t h, const dirty_region_t* dirty) {
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return;
 
   if (dirty && dirty->valid) {
-    dirty_region_union(&hot->frame_damage, dirty);
+    dirty_region_union(&cold->frame_damage, dirty);
     // Let frame_flush use frame_damage as the clip region
   }
   else {
@@ -175,18 +176,18 @@ void frame_flush(server_t* s, handle_t h) {
   const uint32_t frame_dirty_mask = DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_TITLE | DIRTY_FRAME_STYLE;
   uint32_t f_dirty = hot->dirty & frame_dirty_mask;
 
-  if (!f_dirty && !hot->frame_damage.valid)
+  if (!f_dirty && !cold->frame_damage.valid)
     return;
 
   if (frame_render_disabled()) {
     hot->dirty &= ~frame_dirty_mask;
-    dirty_region_reset(&hot->frame_damage);
+    dirty_region_reset(&cold->frame_damage);
     return;
   }
 
   if (hot->flags & CLIENT_FLAG_UNDECORATED) {
     hot->dirty &= ~frame_dirty_mask;
-    dirty_region_reset(&hot->frame_damage);
+    dirty_region_reset(&cold->frame_damage);
     return;
   }
 
@@ -216,8 +217,8 @@ void frame_flush(server_t* s, handle_t h) {
   dirty_region_t partial_clip = {0};
 
   if (!(hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_STYLE))) {
-    if (hot->frame_damage.valid) {
-      clip_ptr = &hot->frame_damage;
+    if (cold->frame_damage.valid) {
+      clip_ptr = &cold->frame_damage;
     }
     else if (hot->dirty & (DIRTY_FRAME_TITLE | DIRTY_TITLE)) {
       partial_clip = dirty_region_make(0, 0, frame_w, (uint16_t)s->config.theme.title_height);
@@ -253,7 +254,7 @@ void frame_flush(server_t* s, handle_t h) {
                &s->config.theme, cold->icon_surface ? cold->icon_surface : s->default_icon, clip_ptr);
 
   hot->dirty &= ~frame_dirty_mask;
-  dirty_region_reset(&hot->frame_damage);
+  dirty_region_reset(&cold->frame_damage);
 }
 
 frame_button_t frame_get_button_at(server_t* s, handle_t h, int16_t x, int16_t y) {

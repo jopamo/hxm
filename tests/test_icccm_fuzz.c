@@ -138,9 +138,9 @@ static void test_wm_normal_hints_malformed_short(void) {
   hot->state = STATE_NEW;
   arena_init(&cold->string_arena, 128);
 
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
-  hot->hints.min_w = 123;
-  hot->hints.min_h = 456;
+  cold->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
+  cold->hints.min_w = 123;
+  cold->hints.min_h = 456;
 
   struct {
     xcb_get_property_reply_t r;
@@ -158,9 +158,9 @@ static void test_wm_normal_hints_malformed_short(void) {
 
   wm_handle_reply(&s, &slot, &reply.r, NULL);
 
-  assert(hot->hints_flags == XCB_ICCCM_SIZE_HINT_P_MIN_SIZE);
-  assert(hot->hints.min_w == 123);
-  assert(hot->hints.min_h == 456);
+  assert(cold->hints_flags == XCB_ICCCM_SIZE_HINT_P_MIN_SIZE);
+  assert(cold->hints.min_w == 123);
+  assert(cold->hints.min_h == 456);
 
   printf("test_wm_normal_hints_malformed_short passed\n");
   cleanup_server(&s);
@@ -206,9 +206,9 @@ static void test_wm_normal_hints_malformed_long(void) {
 
   wm_handle_reply(&s, &slot, &reply.r, NULL);
 
-  assert((hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) != 0);
-  assert(hot->hints.min_w == 200);
-  assert(hot->hints.min_h == 150);
+  assert((cold->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) != 0);
+  assert(cold->hints.min_w == 200);
+  assert(cold->hints.min_h == 150);
 
   printf("test_wm_normal_hints_malformed_long passed\n");
   cleanup_server(&s);

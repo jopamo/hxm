@@ -219,9 +219,10 @@ static void test_configure_request_min_size_clamps(void) {
 
   handle_t h = add_client(&s, 3001, 3101);
   client_hot_t* hot = server_chot(&s, h);
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
-  hot->hints.min_w = 50;
-  hot->hints.min_h = 20;
+  client_cold_t* cold = server_ccold(&s, h);
+  cold->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
+  cold->hints.min_w = 50;
+  cold->hints.min_h = 20;
 
   pending_config_t pc = {0};
   pc.window = hot->xid;
@@ -355,11 +356,12 @@ static void test_panel_configure_request_skips_min_constraints(void) {
 
   handle_t h = add_client(&s, 5001, 5101);
   client_hot_t* hot = server_chot(&s, h);
+  client_cold_t* cold = server_ccold(&s, h);
   hot->type = WINDOW_TYPE_DOCK;
   hot->flags |= CLIENT_FLAG_UNDECORATED;
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
-  hot->hints.min_w = 50;
-  hot->hints.min_h = 20;
+  cold->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
+  cold->hints.min_w = 50;
+  cold->hints.min_h = 20;
 
   pending_config_t pc = {0};
   pc.window = hot->xid;
@@ -512,13 +514,14 @@ static void test_configure_notify_resync_constrained_size_reconfigures_client(vo
 
   handle_t h = add_client(&s, 7003, 7103);
   client_hot_t* hot = server_chot(&s, h);
-  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
+  client_cold_t* cold = server_ccold(&s, h);
+  cold->manage_phase = MANAGE_DONE;
   hot->desired = (rect_t){10, 20, 100, 80};
   hot->server = hot->desired;
   hot->dirty = DIRTY_NONE;
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
-  hot->hints.min_w = 200;
-  hot->hints.min_h = 120;
+  cold->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
+  cold->hints.min_w = 200;
+  cold->hints.min_h = 120;
 
   xcb_configure_notify_event_t ev = {0};
   ev.window = hot->xid;

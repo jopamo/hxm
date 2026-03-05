@@ -1473,10 +1473,11 @@ void event_process(server_t* s) {
     if (h == HANDLE_INVALID)
       continue;
     client_hot_t* hot = server_chot(s, h);
-    if (!hot)
+    client_cold_t* cold = server_ccold(s, h);
+    if (!hot || !cold)
       continue;
 
-    dirty_region_union(&hot->damage_region, region);
+    dirty_region_union(&cold->damage_region, region);
   }
 
   // 11. RandR (coalesced)

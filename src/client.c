@@ -201,13 +201,13 @@ static bool should_hide_for_show_desktop(const client_hot_t* hot) {
   return hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
 }
 
-bool client_has_fixed_size(const client_hot_t* hot) {
-  assert(hot);
+bool client_has_fixed_size(const client_cold_t* cold) {
+  assert(cold);
 
-  bool has_min_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) != 0;
-  bool has_max_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) != 0;
-  return has_min_size && has_max_size && hot->hints.max_w > 0 && hot->hints.max_h > 0 &&
-         hot->hints.min_w == hot->hints.max_w && hot->hints.min_h == hot->hints.max_h;
+  bool has_min_size = (cold->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) != 0;
+  bool has_max_size = (cold->hints_flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) != 0;
+  return has_min_size && has_max_size && cold->hints.max_w > 0 && cold->hints.max_h > 0 &&
+         cold->hints.min_w == cold->hints.max_w && cold->hints.min_h == cold->hints.max_h;
 }
 
 static uint16_t clamp_u16_from_i64(int64_t v) {
@@ -339,15 +339,16 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   client_manage_staging_init(cold);
   client_optional_state_init(cold);
 
-  hot->damage = XCB_NONE;
-  dirty_region_reset(&hot->damage_region);
+  cold->damage = XCB_NONE;
+  dirty_region_reset(&cold->damage_region);
+  dirty_region_reset(&cold->frame_damage);
 
   hot->ignore_unmap = 1;
   hot->override_redirect = false;
   hot->manage_aborted = false;
 
-  hot->user_time = 0;
-  hot->user_time_window = XCB_NONE;
+  cold->user_time = 0;
+  cold->user_time_window = XCB_NONE;
 
   hot->original_border_width = 0;
 
@@ -717,7 +718,7 @@ void client_finish_manage(server_t* s, handle_t h) {
   actions[num_actions++] = atoms._NET_WM_ACTION_ABOVE;
   actions[num_actions++] = atoms._NET_WM_ACTION_BELOW;
 
-  if (!client_has_fixed_size(hot)) {
+  if (!client_has_fixed_size(cold)) {
     actions[num_actions++] = atoms._NET_WM_ACTION_RESIZE;
     actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_HORZ;
     actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_VERT;
@@ -765,9 +766,9 @@ void client_finish_manage(server_t* s, handle_t h) {
   hot->dirty |= DIRTY_STATE;
 
   if (s->damage_supported) {
-    hot->damage = xcb_generate_id(s->conn);
-    xcb_damage_create(s->conn, hot->damage, hot->xid, XCB_DAMAGE_REPORT_LEVEL_NON_EMPTY);
-    dirty_region_reset(&hot->damage_region);
+    cold->damage = xcb_generate_id(s->conn);
+    xcb_damage_create(s->conn, cold->damage, hot->xid, XCB_DAMAGE_REPORT_LEVEL_NON_EMPTY);
+    dirty_region_reset(&cold->damage_region);
   }
 
   // Setup passive grabs for click-to-focus and Alt-move/resize
@@ -1045,10 +1046,10 @@ void client_unmanage(server_t* s, handle_t h) {
     xcb_reparent_window(s->conn, hot->xid, s->root, (int16_t)root_x, (int16_t)root_y);
   }
 
-  if (hot->damage != XCB_NONE) {
-    xcb_damage_destroy(s->conn, hot->damage);
-    hot->damage = XCB_NONE;
-    dirty_region_reset(&hot->damage_region);
+  if (cold->damage != XCB_NONE) {
+    xcb_damage_destroy(s->conn, cold->damage);
+    cold->damage = XCB_NONE;
+    dirty_region_reset(&cold->damage_region);
   }
 
   // Destroy frame
@@ -1240,11 +1241,12 @@ bool client_can_move(const client_hot_t* hot) {
   }
 }
 
-bool client_can_resize(const client_hot_t* hot) {
+bool client_can_resize(const client_hot_t* hot, const client_cold_t* cold) {
   assert(hot);
+  assert(cold);
 
   if (!client_can_move(hot))
     return false;
 
-  return !client_has_fixed_size(hot);
+  return !client_has_fixed_size(cold);
 }

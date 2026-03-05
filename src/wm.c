@@ -127,6 +127,7 @@ static bool wm_x11_time_after_or_equal(uint32_t lhs, uint32_t rhs) {
 static bool wm_net_active_request_allowed(server_t* s, handle_t target, const client_hot_t* hot, uint32_t source, uint32_t timestamp) {
   if (!s || !hot)
     return false;
+  const client_cold_t* target_cold = server_ccold(s, target);
 
   if (source > 2) {
     LOG_WARN("Ignoring _NET_ACTIVE_WINDOW with invalid source=%u", source);
@@ -146,8 +147,9 @@ static bool wm_net_active_request_allowed(server_t* s, handle_t target, const cl
   uint32_t focused_user_time = 0;
   if (s->focused_client != HANDLE_INVALID && s->focused_client != target) {
     const client_hot_t* focused = server_chot(s, s->focused_client);
-    if (focused && focused->state == STATE_MAPPED)
-      focused_user_time = focused->user_time;
+    const client_cold_t* focused_cold = server_ccold(s, s->focused_client);
+    if (focused && focused_cold && focused->state == STATE_MAPPED)
+      focused_user_time = focused_cold->user_time;
   }
 
   if (timestamp == XCB_CURRENT_TIME) {
@@ -163,8 +165,8 @@ static bool wm_net_active_request_allowed(server_t* s, handle_t target, const cl
     return false;
   }
 
-  if (hot->user_time != 0 && !wm_x11_time_after_or_equal(timestamp, hot->user_time)) {
-    LOG_INFO("Ignoring stale _NET_ACTIVE_WINDOW timestamp=%u target_user_time=%u", timestamp, hot->user_time);
+  if (target_cold && target_cold->user_time != 0 && !wm_x11_time_after_or_equal(timestamp, target_cold->user_time)) {
+    LOG_INFO("Ignoring stale _NET_ACTIVE_WINDOW timestamp=%u target_user_time=%u", timestamp, target_cold->user_time);
     return false;
   }
 
@@ -885,7 +887,8 @@ void wm_handle_unmap_notify(server_t* s, xcb_unmap_notify_event_t* ev) {
     return;
 
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return;
 
   if (hot->ignore_unmap > 0 && (ev->window == hot->xid || ev->window == hot->frame)) {
@@ -1030,7 +1033,7 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
 
   bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
   if (!is_panel) {
-    client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+    client_constrain_size(&cold->hints, cold->hints_flags, &hot->desired.w, &hot->desired.h);
   }
   hot->dirty |= DIRTY_GEOM;
 
@@ -1081,7 +1084,7 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
       uint16_t target_h = hot->desired.h;
       bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
       if (!is_panel)
-        client_constrain_size(&hot->hints, hot->hints_flags, &target_w, &target_h);
+        client_constrain_size(&cold->hints, cold->hints_flags, &target_w, &target_h);
 
       if (ev->width != target_w || ev->height != target_h) {
         hot->dirty |= DIRTY_GEOM;
@@ -1098,7 +1101,8 @@ void wm_handle_property_notify(server_t* s, handle_t h, xcb_property_notify_even
     return;
   }
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return;
 
   TRACE_LOG("property_notify h=%lx xid=%u atom=%u (%s) state=%u", h, hot->xid, ev->atom, atom_name(ev->atom), ev->state);
@@ -1450,7 +1454,8 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
     return;
 
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return;
 
   // Focus + optional raise on click
@@ -1508,7 +1513,7 @@ void wm_handle_button_press(server_t* s, xcb_button_press_event_t* ev) {
 
   if (start_move && !client_can_move(hot))
     start_move = false;
-  if (start_resize && !client_can_resize(hot))
+  if (start_resize && !client_can_resize(hot, cold))
     start_resize = false;
 
   if (start_move && s->snap_enabled && hot->snap_active) {
@@ -1722,7 +1727,7 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
 
   // Apply hints
   if (!is_panel) {
-    client_constrain_size(&hot->hints, hot->hints_flags, &w, &h_val);
+    client_constrain_size(&cold->hints, cold->hints_flags, &w, &h_val);
     if (w > max_client_w)
       w = max_client_w;
     if (h_val > max_client_h)
@@ -2490,7 +2495,8 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
 void wm_place_window(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return;
 
   if (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP || hot->type == WINDOW_TYPE_NOTIFICATION || hot->type == WINDOW_TYPE_MENU || hot->type == WINDOW_TYPE_DROPDOWN_MENU ||
@@ -2521,7 +2527,7 @@ void wm_place_window(server_t* s, handle_t h) {
   }
 
   // Honor user/program position if specified (only if no rule applied)
-  if (hot->placement == PLACEMENT_DEFAULT && (hot->hints_flags & XCB_ICCCM_SIZE_HINT_US_POSITION)) {
+  if (hot->placement == PLACEMENT_DEFAULT && (cold->hints_flags & XCB_ICCCM_SIZE_HINT_US_POSITION)) {
     return;
   }
 

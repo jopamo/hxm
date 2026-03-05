@@ -448,12 +448,12 @@ static void test_property_deletions_reset_defaults(void) {
   empty_reply.r.format = 8;
   empty_reply.r.value_len = 0;
 
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
-  hot->hints.min_w = 10;
+  cold->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
+  cold->hints.min_w = 10;
   slot.data = ((uint64_t)hot->xid << 32) | atoms.WM_NORMAL_HINTS;
   wm_handle_reply(&s, &slot, &empty_reply.r, NULL);
-  assert(hot->hints_flags == 0);
-  assert(hot->hints.min_w == 0);
+  assert(cold->hints_flags == 0);
+  assert(cold->hints.min_w == 0);
 
   struct {
     xcb_atom_t atoms_list[2];
@@ -532,7 +532,7 @@ static void test_focused_client_recommits_on_wm_protocols_take_focus_enable(void
   hot->self = h;
   hot->xid = 901;
   hot->state = STATE_MAPPED;
-  hot->user_time = 1234;
+  cold->user_time = 1234;
   list_init(&hot->focus_node);
   cold->can_focus = false;
   cold->protocols = 0;
@@ -558,7 +558,7 @@ static void test_focused_client_recommits_on_wm_protocols_take_focus_enable(void
   xcb_client_message_event_t* ev = (xcb_client_message_event_t*)stub_last_event;
   assert(ev->type == atoms.WM_PROTOCOLS);
   assert(ev->data.data32[0] == atoms.WM_TAKE_FOCUS);
-  assert(ev->data.data32[1] == hot->user_time);
+  assert(ev->data.data32[1] == cold->user_time);
 
   printf("test_focused_client_recommits_on_wm_protocols_take_focus_enable passed\n");
   cleanup_server(&s);

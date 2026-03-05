@@ -45,6 +45,7 @@ void test_resize_logic(void) {
   assert(hot_ptr != NULL);
   assert(cold_ptr != NULL);
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
 
   // Setup client
   hot->state = STATE_MAPPED;
@@ -53,15 +54,15 @@ void test_resize_logic(void) {
   hot->server.y = 100;
   hot->server.w = 200;
   hot->server.h = 200;
-  hot->hints.min_w = 50;
-  hot->hints.min_h = 50;
-  hot->hints.max_w = 1000;
-  hot->hints.max_h = 1000;
-  hot->hints.base_w = 0;
-  hot->hints.base_h = 0;
-  hot->hints.inc_w = 1;
-  hot->hints.inc_h = 1;
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE | XCB_ICCCM_SIZE_HINT_P_MAX_SIZE;
+  cold->hints.min_w = 50;
+  cold->hints.min_h = 50;
+  cold->hints.max_w = 1000;
+  cold->hints.max_h = 1000;
+  cold->hints.base_w = 0;
+  cold->hints.base_h = 0;
+  cold->hints.inc_w = 1;
+  cold->hints.inc_h = 1;
+  cold->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE | XCB_ICCCM_SIZE_HINT_P_MAX_SIZE;
 
   // Init list nodes
   hot->stacking_index = -1;

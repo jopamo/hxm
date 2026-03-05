@@ -210,7 +210,7 @@ void test_wm_take_focus_on_focus(void) {
   assert(ev->data.data32[0] == atoms.WM_TAKE_FOCUS);
   assert(ev->data.data32[1] == XCB_CURRENT_TIME);
 
-  hot->user_time = 424242;
+  cold->user_time = 424242;
   wm_set_focus(&s, HANDLE_INVALID);
   wm_flush_dirty(&s, monotonic_time_ns());
   stub_send_event_count = 0;
@@ -219,7 +219,7 @@ void test_wm_take_focus_on_focus(void) {
   assert(stub_send_event_count == 1);
   ev = (xcb_client_message_event_t*)stub_last_event;
   assert(ev->data.data32[0] == atoms.WM_TAKE_FOCUS);
-  assert(ev->data.data32[1] == hot->user_time);
+  assert(ev->data.data32[1] == cold->user_time);
 
   printf("test_wm_take_focus_on_focus passed\n");
   arena_destroy(&cold->string_arena);

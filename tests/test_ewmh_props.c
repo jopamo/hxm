@@ -216,14 +216,16 @@ static void test_active_window_exits_show_desktop_mode(void) {
   handle_t h2 = add_mapped_client(&s, 1202, 1302);
   client_hot_t* a = server_chot(&s, h1);
   client_hot_t* b = server_chot(&s, h2);
-  assert(a && b);
+  client_cold_t* a_cold = server_ccold(&s, h1);
+  client_cold_t* b_cold = server_ccold(&s, h2);
+  assert(a && b && a_cold && b_cold);
 
   server_ccold(&s, h1)->manage_phase = MANAGE_DONE;
   server_ccold(&s, h2)->manage_phase = MANAGE_DONE;
   a->desktop = 0;
   b->desktop = 0;
-  a->user_time = 100;
-  b->user_time = 100;
+  a_cold->user_time = 100;
+  b_cold->user_time = 100;
 
   wm_set_showing_desktop(&s, true);
   wm_flush_dirty(&s, monotonic_time_ns());

@@ -55,8 +55,8 @@ void test_resize_handle_logic(void) {
   hot->server.y = 100;
   hot->server.w = 200;
   hot->server.h = 200;
-  hot->hints.max_w = 1000;
-  hot->hints.max_h = 1000;
+  cold->hints.max_w = 1000;
+  cold->hints.max_h = 1000;
 
   list_init(&hot->transient_sibling);
   list_init(&hot->transients_head);

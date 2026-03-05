@@ -20,13 +20,14 @@ void test_configure_request_managed(void) {
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->xid = 123;
   hot->frame = 456;
   hot->desired = (rect_t){10, 10, 100, 100};
-  hot->hints.min_w = 50;
-  hot->hints.min_h = 50;
-  hot->hints.max_w = 200;
-  hot->hints.max_h = 200;
+  cold->hints.min_w = 50;
+  cold->hints.min_h = 50;
+  cold->hints.max_w = 200;
+  cold->hints.max_h = 200;
 
   hash_map_insert(&s.window_to_client, 123, handle_to_ptr(h));
 

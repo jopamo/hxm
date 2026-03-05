@@ -20,12 +20,10 @@ int main(void) {
   PRINT_OFFSET(client_hot_t, server);
   PRINT_OFFSET(client_hot_t, desired);
   PRINT_OFFSET(client_hot_t, pending);
-  PRINT_OFFSET(client_hot_t, hints);
   PRINT_OFFSET(client_hot_t, stacking_index);
   PRINT_OFFSET(client_hot_t, dirty);
   PRINT_OFFSET(client_hot_t, state);
   PRINT_OFFSET(client_hot_t, flags);
-  PRINT_OFFSET(client_hot_t, damage_region);
 
   PRINT_OFFSET(client_cold_t, title);
   PRINT_OFFSET(client_cold_t, visual_id);
@@ -34,6 +32,13 @@ int main(void) {
   PRINT_OFFSET(client_cold_t, frame_colormap);
   PRINT_OFFSET(client_cold_t, render_ctx);
   PRINT_OFFSET(client_cold_t, icon_surface);
+  PRINT_OFFSET(client_cold_t, hints);
+  PRINT_OFFSET(client_cold_t, hints_flags);
+  PRINT_OFFSET(client_cold_t, user_time);
+  PRINT_OFFSET(client_cold_t, user_time_window);
+  PRINT_OFFSET(client_cold_t, damage);
+  PRINT_OFFSET(client_cold_t, damage_region);
+  PRINT_OFFSET(client_cold_t, frame_damage);
   PRINT_OFFSET(client_cold_t, protocols);
   PRINT_OFFSET(client_cold_t, sync_value);
   PRINT_OFFSET(client_cold_t, manage_phase);

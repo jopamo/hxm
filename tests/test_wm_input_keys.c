@@ -293,8 +293,9 @@ bool __wrap_client_can_move(const client_hot_t* hot) {
   return g_client_can_move;
 }
 
-bool __wrap_client_can_resize(const client_hot_t* hot) {
+bool __wrap_client_can_resize(const client_hot_t* hot, const client_cold_t* cold) {
   (void)hot;
+  (void)cold;
   return g_client_can_resize;
 }
 

@@ -80,7 +80,8 @@ static void test_us_position_preserved(void) {
 
   handle_t h = add_client(&s, 100, 200, 120, 80);
   client_hot_t* hot = server_chot(&s, h);
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_US_POSITION;
+  client_cold_t* cold = server_ccold(&s, h);
+  cold->hints_flags = XCB_ICCCM_SIZE_HINT_US_POSITION;
 
   wm_place_window(&s, h);
   assert(hot->desired.x == 100);
@@ -96,7 +97,8 @@ static void test_p_position_preserved(void) {
 
   handle_t h = add_client(&s, 50, 60, 120, 80);
   client_hot_t* hot = server_chot(&s, h);
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_POSITION;
+  client_cold_t* cold = server_ccold(&s, h);
+  cold->hints_flags = XCB_ICCCM_SIZE_HINT_P_POSITION;
 
   wm_place_window(&s, h);
   assert(hot->desired.x == 50);

@@ -69,6 +69,7 @@ static inline bool wm_client_geom_mismatch(const client_hot_t* hot, const client
 }
 
 void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, uint32_t time) {
+  const client_cold_t* cold = server_ccold(s, hot->self);
   xcb_client_message_event_t ev;
   memset(&ev, 0, sizeof(ev));
   ev.response_type = XCB_CLIENT_MESSAGE;
@@ -77,7 +78,7 @@ void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, 
   ev.type = atoms.WM_PROTOCOLS;
   ev.data.data32[0] = atoms._NET_WM_SYNC_REQUEST;
   if (time == 0)
-    time = hot->user_time ? hot->user_time : XCB_CURRENT_TIME;
+    time = (cold && cold->user_time) ? cold->user_time : XCB_CURRENT_TIME;
   ev.data.data32[1] = time;
   ev.data.data32[2] = (uint32_t)(value & 0xFFFFFFFFu);
   ev.data.data32[3] = (uint32_t)(value >> 32);
@@ -473,9 +474,10 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       if (h == HANDLE_INVALID)
         continue;
       client_hot_t* hot = server_chot(s, h);
-      if (!hot || hot->damage == XCB_NONE)
+      client_cold_t* cold = server_ccold(s, h);
+      if (!hot || !cold || cold->damage == XCB_NONE)
         continue;
-      xcb_damage_subtract(s->conn, hot->damage, XCB_NONE, XCB_NONE);
+      xcb_damage_subtract(s->conn, cold->damage, XCB_NONE, XCB_NONE);
       flushed = true;
     }
   }
@@ -489,9 +491,10 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       if (h == HANDLE_INVALID)
         continue;
       client_hot_t* hot = server_chot(s, h);
-      if (!hot || hot->damage == XCB_NONE)
+      client_cold_t* cold = server_ccold(s, h);
+      if (!hot || !cold || cold->damage == XCB_NONE)
         continue;
-      xcb_damage_subtract(s->conn, hot->damage, XCB_NONE, XCB_NONE);
+      xcb_damage_subtract(s->conn, cold->damage, XCB_NONE, XCB_NONE);
       flushed = true;
     }
   }
@@ -539,7 +542,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
     }
     bool geom_mismatch = wm_client_geom_mismatch(hot, cold);
 
-    if (hot->dirty == DIRTY_NONE && !hot->frame_damage.valid && !geom_mismatch) {
+    if (hot->dirty == DIRTY_NONE && !cold->frame_damage.valid && !geom_mismatch) {
       if (i < s->active_clients.length && s->active_clients.items[i] == ptr)
         i++;
       continue;
@@ -634,7 +637,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
         // Apply size hints (increments, aspect ratio, min/max) to ensure we
         // send a valid geometry that the client won't immediately reject.
-        client_constrain_size(&hot->hints, hot->hints_flags, &hot->desired.w, &hot->desired.h);
+        client_constrain_size(&cold->hints, cold->hints_flags, &hot->desired.w, &hot->desired.h);
         if (hot->desired.w > max_client_w)
           hot->desired.w = max_client_w;
         if (hot->desired.h > max_client_h)
@@ -855,7 +858,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       hot->dirty &= ~DIRTY_DESKTOP;
     }
 
-    if (hot->frame_damage.valid || (hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_FRAME_STYLE | DIRTY_TITLE))) {
+    if (cold->frame_damage.valid || (hot->dirty & (DIRTY_FRAME_ALL | DIRTY_FRAME_TITLE | DIRTY_FRAME_BUTTONS | DIRTY_FRAME_BORDER | DIRTY_FRAME_STYLE | DIRTY_TITLE))) {
       flushed = true;
     }
 
@@ -928,7 +931,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       actions[num_actions++] = atoms._NET_WM_ACTION_ABOVE;
       actions[num_actions++] = atoms._NET_WM_ACTION_BELOW;
 
-      if (!client_has_fixed_size(hot)) {
+      if (!client_has_fixed_size(cold)) {
         actions[num_actions++] = atoms._NET_WM_ACTION_RESIZE;
         actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_HORZ;
         actions[num_actions++] = atoms._NET_WM_ACTION_MAXIMIZE_VERT;
@@ -999,7 +1002,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         ev.window = focus_hot->xid;
         ev.type = atoms.WM_PROTOCOLS;
         ev.data.data32[0] = atoms.WM_TAKE_FOCUS;
-        ev.data.data32[1] = focus_hot->user_time ? focus_hot->user_time : XCB_CURRENT_TIME;
+        ev.data.data32[1] = focus_cold->user_time ? focus_cold->user_time : XCB_CURRENT_TIME;
         xcb_void_cookie_t ck = xcb_send_event(s->conn, 0, focus_hot->xid, XCB_EVENT_MASK_NO_EVENT, (const char*)&ev);
         wm_note_focus_request_sequence(s, ck);
       }

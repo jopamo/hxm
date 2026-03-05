@@ -14,6 +14,11 @@ typedef enum scenario_kind {
   SCENARIO_FLUSH_LOOPS,
 } scenario_kind_t;
 
+typedef struct flush_state {
+  dirty_region_t damage_region;
+  dirty_region_t frame_damage;
+} flush_state_t;
+
 static uint64_t parse_u64(const char* s, const char* name) {
   char* end = NULL;
   unsigned long long v = strtoull(s, &end, 10);
@@ -63,12 +68,6 @@ static void init_clients(client_hot_t* clients, size_t n) {
     c->desired = c->server;
     c->pending = c->server;
 
-    c->hints.min_w = 64;
-    c->hints.min_h = 64;
-    c->hints.max_w = 4096;
-    c->hints.max_h = 4096;
-    c->hints_flags = 0;
-
     c->stacking_index = (int32_t)i;
     c->stacking_layer = (int8_t)LAYER_NORMAL;
     c->layer = (uint8_t)LAYER_NORMAL;
@@ -77,9 +76,6 @@ static void init_clients(client_hot_t* clients, size_t n) {
     list_init(&c->focus_node);
     list_init(&c->transient_sibling);
     list_init(&c->transients_head);
-
-    dirty_region_reset(&c->damage_region);
-    dirty_region_reset(&c->frame_damage);
   }
 }
 
@@ -183,23 +179,26 @@ static uint64_t run_move_resize(client_hot_t* clients, size_t n, uint64_t iters)
   return ops;
 }
 
-static uint64_t run_flush_loops(client_hot_t* clients, size_t n, uint64_t iters) {
+static uint64_t run_flush_loops(client_hot_t* clients, flush_state_t* states, size_t n, uint64_t iters) {
   uint64_t ops = 0;
+  if (!states)
+    return 0;
 
   for (uint64_t i = 0; i < iters; ++i) {
     size_t idx = (size_t)(i % (uint64_t)n);
     client_hot_t* c = &clients[idx];
+    flush_state_t* st = &states[idx];
 
     int16_t x = (int16_t)((i * 13u) % 1920u);
     int16_t y = (int16_t)((i * 7u) % 1080u);
     uint16_t w = (uint16_t)(16u + (i % 64u));
     uint16_t h = (uint16_t)(16u + ((i >> 1u) % 64u));
 
-    dirty_region_union_rect(&c->damage_region, x, y, w, h);
-    dirty_region_union(&c->frame_damage, &c->damage_region);
-    dirty_region_clamp(&c->frame_damage, 0, 0, 1920, 1080);
+    dirty_region_union_rect(&st->damage_region, x, y, w, h);
+    dirty_region_union(&st->frame_damage, &st->damage_region);
+    dirty_region_clamp(&st->frame_damage, 0, 0, 1920, 1080);
 
-    if (c->frame_damage.valid)
+    if (st->frame_damage.valid)
       c->dirty |= DIRTY_FRAME_ALL;
 
     ops += 4;
@@ -208,8 +207,11 @@ static uint64_t run_flush_loops(client_hot_t* clients, size_t n, uint64_t iters)
   return ops;
 }
 
-static void run_one_scenario(const char* name, scenario_kind_t kind, client_hot_t* clients, size_t n, uint64_t iters) {
+static void run_one_scenario(const char* name, scenario_kind_t kind, client_hot_t* clients, flush_state_t* states, size_t n, uint64_t iters) {
   init_clients(clients, n);
+  if (states) {
+    memset(states, 0, n * sizeof(*states));
+  }
 
   uint64_t ops = 0;
   switch (kind) {
@@ -223,7 +225,7 @@ static void run_one_scenario(const char* name, scenario_kind_t kind, client_hot_
       ops = run_move_resize(clients, n, iters);
       break;
     case SCENARIO_FLUSH_LOOPS:
-      ops = run_flush_loops(clients, n, iters);
+      ops = run_flush_loops(clients, states, n, iters);
       break;
     case SCENARIO_ALL:
     default:
@@ -277,22 +279,29 @@ int main(int argc, char** argv) {
     fprintf(stderr, "failed to allocate %zu clients\n", clients_n);
     return 1;
   }
-
-  if (scenario == SCENARIO_ALL) {
-    run_one_scenario("focus_cycle", SCENARIO_FOCUS_CYCLE, clients, clients_n, iters);
-    run_one_scenario("stacking_ops", SCENARIO_STACKING_OPS, clients, clients_n, iters);
-    run_one_scenario("move_resize", SCENARIO_MOVE_RESIZE, clients, clients_n, iters);
-    run_one_scenario("flush_loops", SCENARIO_FLUSH_LOOPS, clients, clients_n, iters);
-  } else if (scenario == SCENARIO_FOCUS_CYCLE) {
-    run_one_scenario("focus_cycle", scenario, clients, clients_n, iters);
-  } else if (scenario == SCENARIO_STACKING_OPS) {
-    run_one_scenario("stacking_ops", scenario, clients, clients_n, iters);
-  } else if (scenario == SCENARIO_MOVE_RESIZE) {
-    run_one_scenario("move_resize", scenario, clients, clients_n, iters);
-  } else {
-    run_one_scenario("flush_loops", scenario, clients, clients_n, iters);
+  flush_state_t* states = calloc(clients_n, sizeof(*states));
+  if (!states) {
+    free(clients);
+    fprintf(stderr, "failed to allocate %zu flush states\n", clients_n);
+    return 1;
   }
 
+  if (scenario == SCENARIO_ALL) {
+    run_one_scenario("focus_cycle", SCENARIO_FOCUS_CYCLE, clients, states, clients_n, iters);
+    run_one_scenario("stacking_ops", SCENARIO_STACKING_OPS, clients, states, clients_n, iters);
+    run_one_scenario("move_resize", SCENARIO_MOVE_RESIZE, clients, states, clients_n, iters);
+    run_one_scenario("flush_loops", SCENARIO_FLUSH_LOOPS, clients, states, clients_n, iters);
+  } else if (scenario == SCENARIO_FOCUS_CYCLE) {
+    run_one_scenario("focus_cycle", scenario, clients, states, clients_n, iters);
+  } else if (scenario == SCENARIO_STACKING_OPS) {
+    run_one_scenario("stacking_ops", scenario, clients, states, clients_n, iters);
+  } else if (scenario == SCENARIO_MOVE_RESIZE) {
+    run_one_scenario("move_resize", scenario, clients, states, clients_n, iters);
+  } else {
+    run_one_scenario("flush_loops", scenario, clients, states, clients_n, iters);
+  }
+
+  free(states);
   free(clients);
   return 0;
 }

@@ -169,9 +169,6 @@ typedef struct client_hot {
   rect_t desired;
   rect_t pending;
 
-  size_hints_t hints;
-  uint32_t hints_flags;
-
   uint32_t pending_epoch;
   uint16_t original_border_width;
   uint64_t last_applied_txn_id;
@@ -245,17 +242,18 @@ typedef struct client_hot {
 
   int last_cursor_dir;
 
-  xcb_damage_damage_t damage;
-  dirty_region_t damage_region;
-  dirty_region_t frame_damage;
-
-  uint32_t user_time;
-  xcb_window_t user_time_window;
+  /*
+   * Keep hot stride at one 256-byte block for predictable cacheline stepping in
+   * slot arrays. Update if hot fields are added/removed.
+   */
+  uint8_t hot_cacheline_pad[16];
 } client_hot_t;
 
-#define CLIENT_HOT_SIZE_GUARD_BYTES 384u
+#define CLIENT_HOT_SIZE_GUARD_BYTES 256u
 HXM_STATIC_ASSERT(sizeof(client_hot_t) <= CLIENT_HOT_SIZE_GUARD_BYTES,
                   "client_hot_t exceeded guard; move non-hot fields to cold storage");
+HXM_STATIC_ASSERT(sizeof(client_hot_t) == CLIENT_HOT_SIZE_GUARD_BYTES,
+                  "client_hot_t size must remain exactly 256 bytes");
 
 /* Determine a derived layer based on above/below state flags */
 static inline uint8_t client_layer_from_state(const client_hot_t* hot) {
@@ -305,6 +303,16 @@ typedef struct client_cold {
   bool has_net_wm_name;
   bool has_net_wm_icon_name;
 
+  size_hints_t hints;
+  uint32_t hints_flags;
+
+  uint32_t user_time;
+  xcb_window_t user_time_window;
+
+  xcb_damage_damage_t damage;
+  dirty_region_t damage_region;
+  dirty_region_t frame_damage;
+
   uint32_t protocols;
   bool sync_enabled;
   uint32_t sync_counter;
@@ -340,7 +348,17 @@ typedef struct client_cold {
   bool strut_full_active;
 
   uint32_t pid;
+
+  /*
+   * Round cold stride to a cacheline multiple for predictable packing in slot
+   * arrays. Keep this in sync with cold field changes.
+   */
+  uint8_t cold_cacheline_pad[32];
 } client_cold_t;
+
+#define CLIENT_COLD_SIZE_ALIGN_BYTES 64u
+HXM_STATIC_ASSERT((sizeof(client_cold_t) % CLIENT_COLD_SIZE_ALIGN_BYTES) == 0u,
+                  "client_cold_t size must be a 64-byte multiple");
 
 static inline void client_render_payload_init(client_cold_t* cold) {
   if (!cold)
@@ -445,8 +463,8 @@ bool should_focus_on_map(const client_hot_t* hot);
 void client_setup_grabs(server_t* s, handle_t h);
 
 bool client_can_move(const client_hot_t* hot);
-bool client_can_resize(const client_hot_t* hot);
-bool client_has_fixed_size(const client_hot_t* hot);
+bool client_can_resize(const client_hot_t* hot, const client_cold_t* cold);
+bool client_has_fixed_size(const client_cold_t* cold);
 
 #ifdef __cplusplus
 }

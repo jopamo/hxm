@@ -372,11 +372,12 @@ static void test_active_window_rejects_stale_application_timestamp(void) {
   handle_t h2 = add_mapped_client(&s, 5002, 5102);
   client_hot_t* a = server_chot(&s, h1);
   client_hot_t* b = server_chot(&s, h2);
-  assert(a && b);
+  client_cold_t* a_cold = server_ccold(&s, h1);
+  assert(a && b && a_cold);
 
   a->desktop = 0;
   b->desktop = 0;
-  a->user_time = 500;
+  a_cold->user_time = 500;
 
   wm_set_focus(&s, h1);
   assert(s.focused_client == h1);
@@ -402,11 +403,12 @@ static void test_active_window_rejects_non_user_cross_desktop_activation(void) {
   handle_t h2 = add_mapped_client(&s, 6002, 6102);
   client_hot_t* a = server_chot(&s, h1);
   client_hot_t* b = server_chot(&s, h2);
-  assert(a && b);
+  client_cold_t* a_cold = server_ccold(&s, h1);
+  assert(a && b && a_cold);
 
   a->desktop = 0;
   b->desktop = 1;
-  a->user_time = 700;
+  a_cold->user_time = 700;
 
   wm_set_focus(&s, h1);
   assert(s.focused_client == h1);
@@ -432,11 +434,12 @@ static void test_active_window_user_request_can_switch_desktop(void) {
   handle_t h2 = add_mapped_client(&s, 7002, 7102);
   client_hot_t* a = server_chot(&s, h1);
   client_hot_t* b = server_chot(&s, h2);
-  assert(a && b);
+  client_cold_t* a_cold = server_ccold(&s, h1);
+  assert(a && b && a_cold);
 
   a->desktop = 0;
   b->desktop = 1;
-  a->user_time = 700;
+  a_cold->user_time = 700;
 
   wm_set_focus(&s, h1);
   assert(s.focused_client == h1);
@@ -462,11 +465,12 @@ static void test_active_window_rejects_missing_timestamp_when_focus_time_known(v
   handle_t h2 = add_mapped_client(&s, 8002, 8102);
   client_hot_t* a = server_chot(&s, h1);
   client_hot_t* b = server_chot(&s, h2);
-  assert(a && b);
+  client_cold_t* a_cold = server_ccold(&s, h1);
+  assert(a && b && a_cold);
 
   a->desktop = 0;
   b->desktop = 0;
-  a->user_time = 900;
+  a_cold->user_time = 900;
 
   wm_set_focus(&s, h1);
   assert(s.focused_client == h1);

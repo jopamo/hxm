@@ -167,9 +167,9 @@ void test_allowed_actions(void) {
   hot->frame = 456;
 
   // Case 1: Resizable window
-  hot->hints_flags = 0;
-  hot->hints.min_w = 0;
-  hot->hints.max_w = 0;  // unlimited
+  cold->hints_flags = 0;
+  cold->hints.min_w = 0;
+  cold->hints.max_w = 0;  // unlimited
   hot->dirty = DIRTY_STATE;
 
   // wm_flush_dirty will set WM_STATE and ALLOWED_ACTIONS.
@@ -197,11 +197,11 @@ void test_allowed_actions(void) {
   assert(has_resize);
 
   // Case 2: Fixed size window
-  hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE | XCB_ICCCM_SIZE_HINT_P_MAX_SIZE;
-  hot->hints.min_w = 100;
-  hot->hints.max_w = 100;
-  hot->hints.min_h = 100;
-  hot->hints.max_h = 100;
+  cold->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE | XCB_ICCCM_SIZE_HINT_P_MAX_SIZE;
+  cold->hints.min_w = 100;
+  cold->hints.max_w = 100;
+  cold->hints.min_h = 100;
+  cold->hints.max_h = 100;
   hot->dirty = DIRTY_STATE;
 
   stub_last_prop_atom = 0;

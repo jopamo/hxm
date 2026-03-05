@@ -369,12 +369,13 @@ void wm_handle_key_press(server_t* s, xcb_key_press_event_t* ev) {
       case ACTION_RESIZE:
         if (s->focused_client != HANDLE_INVALID) {
           client_hot_t* hot = server_chot(s, s->focused_client);
-          if (!hot)
+          client_cold_t* cold = server_ccold(s, s->focused_client);
+          if (!hot || !cold)
             break;
 
           if (b->action == ACTION_MOVE && !client_can_move(hot))
             break;
-          if (b->action == ACTION_RESIZE && !client_can_resize(hot))
+          if (b->action == ACTION_RESIZE && !client_can_resize(hot, cold))
             break;
 
           int16_t root_x, root_y;
