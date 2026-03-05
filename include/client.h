@@ -152,6 +152,12 @@ typedef enum window_type {
   WINDOW_TYPE_COUNT
 } window_type_t;
 
+/*
+ * Hot storage contract for client_hot_t:
+ * - Keep only fields touched in hot event-loop, stacking/focus, and geometry paths.
+ * - Keep rarely accessed metadata and optional protocol payloads in client_cold_t.
+ * - New hot fields require clear hot-path justification and size impact review.
+ */
 /* client_hot_t: frequently accessed client state */
 typedef struct client_hot {
   handle_t self;
@@ -283,6 +289,10 @@ typedef struct client_hot {
   bool fullscreen_monitors_valid;
   uint32_t fullscreen_monitors[4];
 } client_hot_t;
+
+#define CLIENT_HOT_SIZE_GUARD_BYTES 584u
+HXM_STATIC_ASSERT(sizeof(client_hot_t) <= CLIENT_HOT_SIZE_GUARD_BYTES,
+                  "client_hot_t exceeded guard; move non-hot fields to cold storage");
 
 /* Determine a derived layer based on above/below state flags */
 static inline uint8_t client_layer_from_state(const client_hot_t* hot) {

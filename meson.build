@@ -135,6 +135,13 @@ client_layout_dump = executable('client_layout_dump',
   install: false,
 )
 
+perf_harness = executable('perf_harness',
+  'src/perf_harness.c',
+  include_directories: incdir,
+  dependencies: deps,
+  install: false,
+)
+
 if get_option('debug')
 # Tests
 test_src = [
@@ -697,6 +704,9 @@ integration_real_x11_script_test_script = find_program('tests/test_integration_r
 sync_reply_allowlist_test_script = find_program('tests/test_sync_reply_allowlist.sh', required: true)
 cookie_handler_ownership_test_script = find_program('tests/test_cookie_handler_ownership.sh', required: true)
 client_layout_dump_test_script = find_program('tests/test_client_layout_dump.sh', required: true)
+client_layout_snapshot_script_test_script = find_program('tests/test_client_layout_snapshot_script.sh', required: true)
+client_hot_guard_test_script = find_program('tests/test_client_hot_guard.sh', required: true)
+perf_harness_test_script = find_program('tests/test_perf_harness.sh', required: true)
 
 script_env = environment()
 script_env.set('HXM_BIN', hxm.full_path())
@@ -704,6 +714,7 @@ script_env.set('INTEGRATION_CLIENT', integration_client.full_path())
 script_env.set('DUMMY_CLIENT', dummy_client.full_path())
 script_env.set('CONKY_PROBE_BIN', conky_probe.full_path())
 script_env.set('CONKY_NORMAL_BIN', conky_normal_client.full_path())
+script_env.set('PERF_HARNESS_BIN', perf_harness.full_path())
 
 test('fail_on_skips_checker', fail_on_skips_test_script,
   workdir: source_root,
@@ -749,6 +760,27 @@ test('client_layout_dump', client_layout_dump_test_script,
   is_parallel: true,
   timeout: 30,
   depends: [client_layout_dump],
+)
+
+test('client_layout_snapshot_script', client_layout_snapshot_script_test_script,
+  env: script_env,
+  workdir: source_root,
+  is_parallel: true,
+  timeout: 30,
+)
+
+test('client_hot_guard', client_hot_guard_test_script,
+  workdir: source_root,
+  is_parallel: true,
+  timeout: 30,
+)
+
+test('perf_harness', perf_harness_test_script,
+  env: script_env,
+  workdir: source_root,
+  is_parallel: true,
+  timeout: 60,
+  depends: [perf_harness],
 )
 
 test('integration_script', integration_script,
