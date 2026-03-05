@@ -528,6 +528,12 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         i++;
       continue;
     }
+    client_cold_t* cold = server_ccold(s, h);
+    if (!cold) {
+      if (i < s->active_clients.length && s->active_clients.items[i] == ptr)
+        i++;
+      continue;
+    }
     bool geom_mismatch = wm_client_geom_mismatch(hot);
 
     if (hot->dirty == DIRTY_NONE && !hot->frame_damage.valid && !geom_mismatch) {
@@ -568,8 +574,8 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       }
 
       bool interactive_resize = (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame);
-      if (interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE) {
-        uint64_t sync_value = ++hot->sync_value;
+      if (interactive_resize && cold->sync_enabled && cold->sync_counter != XCB_NONE) {
+        uint64_t sync_value = ++cold->sync_value;
         wm_send_sync_request(s, hot, sync_value, s->interaction_time);
       }
 
@@ -689,9 +695,9 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
       bool synthetic_attempted = false;
       if (geom_changed) {
-        if (!interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE) {
+        if (!interactive_resize && cold->sync_enabled && cold->sync_counter != XCB_NONE) {
           if (hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h) {
-            uint64_t sync_value = ++hot->sync_value;
+            uint64_t sync_value = ++cold->sync_value;
             wm_send_sync_request(s, hot, sync_value, XCB_CURRENT_TIME);
           }
         }

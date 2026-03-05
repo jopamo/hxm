@@ -261,10 +261,6 @@ typedef struct client_hot {
   uint32_t user_time;
   xcb_window_t user_time_window;
 
-  bool sync_enabled;
-  uint32_t sync_counter;
-  uint64_t sync_value;
-
   bool icon_geometry_valid;
   rect_t icon_geometry;
 
@@ -278,7 +274,7 @@ typedef struct client_hot {
   uint32_t fullscreen_monitors[4];
 } client_hot_t;
 
-#define CLIENT_HOT_SIZE_GUARD_BYTES 480u
+#define CLIENT_HOT_SIZE_GUARD_BYTES 448u
 HXM_STATIC_ASSERT(sizeof(client_hot_t) <= CLIENT_HOT_SIZE_GUARD_BYTES,
                   "client_hot_t exceeded guard; move non-hot fields to cold storage");
 
@@ -331,6 +327,10 @@ typedef struct client_cold {
   bool has_net_wm_icon_name;
 
   uint32_t protocols;
+  bool sync_enabled;
+  uint32_t sync_counter;
+  uint64_t sync_value;
+
   xcb_window_t transient_for_xid;
   bool can_focus;
 
@@ -379,6 +379,14 @@ static inline void client_visual_payload_destroy(xcb_connection_t* conn, client_
   }
   cold->frame_colormap = XCB_NONE;
   cold->frame_colormap_owned = false;
+}
+
+static inline void client_sync_payload_init(client_cold_t* cold) {
+  if (!cold)
+    return;
+  cold->sync_enabled = false;
+  cold->sync_counter = 0;
+  cold->sync_value = 0;
 }
 
 typedef struct server server_t;

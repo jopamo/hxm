@@ -378,9 +378,10 @@ static void test_resize_no_sync_await(void) {
 
   handle_t h = add_mapped_client(&s, 6001, 6101);
   client_hot_t* hot = server_chot(&s, h);
+  client_cold_t* cold = server_ccold(&s, h);
 
-  hot->sync_enabled = true;
-  hot->sync_counter = 1;
+  cold->sync_enabled = true;
+  cold->sync_counter = 1;
   hot->dirty |= DIRTY_GEOM;
 
   s.interaction_mode = INTERACTION_RESIZE;

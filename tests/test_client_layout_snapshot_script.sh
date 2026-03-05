@@ -26,7 +26,7 @@ require_output_line '^TYPE client_hot_t SIZE [0-9]+$'
 require_output_line '^TYPE client_cold_t SIZE [0-9]+$'
 require_output_line '^OFFSET client_cold_t.visual_id [0-9]+$'
 require_output_line '^OFFSET client_cold_t.render_ctx [0-9]+$'
-require_output_line '^OFFSET client_hot_t.sync_value [0-9]+$'
+require_output_line '^OFFSET client_cold_t.sync_value [0-9]+$'
 
 expected_commit=$(git -C "$repo_root" rev-parse HEAD)
 actual_commit=$(grep '^SNAPSHOT_COMMIT ' <<<"$output" | awk '{print $2}')

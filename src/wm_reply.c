@@ -1147,7 +1147,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
       else if (atom == atoms.WM_PROTOCOLS) {
         protocol_flags_t prev_protocols = (protocol_flags_t)cold->protocols;
         cold->protocols = 0;
-        hot->sync_enabled = false;
+        cold->sync_enabled = false;
         int num_protocols = 0;
         xcb_atom_t* protocols = (xcb_atom_t*)prop_get_u32_array(r, 1, &num_protocols);
         if (!protocols && r && r->format == 32 && r->value_len > 0) {
@@ -1164,7 +1164,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             }
             else if (protocols[i] == atoms._NET_WM_SYNC_REQUEST) {
               cold->protocols |= PROTOCOL_SYNC_REQUEST;
-              hot->sync_enabled = true;
+              cold->sync_enabled = true;
             }
             else if (protocols[i] == atoms._NET_WM_PING) {
               cold->protocols |= PROTOCOL_PING;
@@ -1446,8 +1446,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
       else if (atom == atoms._NET_WM_SYNC_REQUEST_COUNTER) {
         if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
           xcb_sync_counter_t counter = *(xcb_sync_counter_t*)xcb_get_property_value(r);
-          hot->sync_counter = counter;
-          hot->sync_value = 0;
+          cold->sync_counter = counter;
+          cold->sync_value = 0;
           if (counter != XCB_NONE) {
             xcb_sync_query_counter_cookie_t ck = xcb_sync_query_counter(s->conn, counter);
             if (ck.sequence != 0)
@@ -1455,8 +1455,8 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
           }
         }
         else {
-          hot->sync_counter = 0;
-          hot->sync_value = 0;
+          cold->sync_counter = 0;
+          cold->sync_value = 0;
         }
       }
       else if (atom == atoms._NET_WM_WINDOW_OPACITY) {
@@ -1555,10 +1555,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
     case COOKIE_SYNC_QUERY_COUNTER: {
       xcb_sync_query_counter_reply_t* r = (xcb_sync_query_counter_reply_t*)reply;
       xcb_sync_counter_t counter = (xcb_sync_counter_t)slot->data;
-      if (hot->sync_counter == counter) {
+      if (cold->sync_counter == counter) {
         uint64_t uvalue = ((uint64_t)(uint32_t)r->counter_value.hi << 32) | (uint64_t)(uint32_t)r->counter_value.lo;
-        if (uvalue > hot->sync_value) {
-          hot->sync_value = uvalue;
+        if (uvalue > cold->sync_value) {
+          cold->sync_value = uvalue;
         }
       }
       break;

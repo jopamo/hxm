@@ -336,6 +336,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
 
   client_render_payload_init(cold);
   client_visual_payload_init(cold, s->root_visual);
+  client_sync_payload_init(cold);
 
   hot->damage = XCB_NONE;
   dirty_region_reset(&hot->damage_region);
@@ -346,9 +347,6 @@ void client_manage_start(server_t* s, xcb_window_t win) {
 
   hot->user_time = 0;
   hot->user_time_window = XCB_NONE;
-  hot->sync_enabled = false;
-  hot->sync_counter = 0;
-  hot->sync_value = 0;
   hot->icon_geometry_valid = false;
 
   hot->gtk_frame_extents_set = false;
@@ -742,8 +740,8 @@ void client_finish_manage(server_t* s, handle_t h) {
   TRACE_LOG("finish_manage visibility h=%lx visible=%d current_desktop=%u", h, visible, s->current_desktop);
 
   if (visible) {
-    if (hot->sync_enabled && hot->sync_counter != XCB_NONE) {
-      uint64_t sync_value = ++hot->sync_value;
+    if (cold->sync_enabled && cold->sync_counter != XCB_NONE) {
+      uint64_t sync_value = ++cold->sync_value;
       wm_send_sync_request(s, hot, sync_value, XCB_CURRENT_TIME);
     }
 

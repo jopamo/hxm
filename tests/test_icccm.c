@@ -53,6 +53,7 @@ void test_icccm_protocols(void) {
   atoms.WM_PROTOCOLS = 10;
   atoms.WM_DELETE_WINDOW = 11;
   atoms.WM_TAKE_FOCUS = 12;
+  atoms._NET_WM_SYNC_REQUEST = 13;
 
   if (!slotmap_init(&s.clients, 16, sizeof(client_hot_t), sizeof(client_cold_t)))
     return;
@@ -65,17 +66,18 @@ void test_icccm_protocols(void) {
   hot->state = STATE_NEW;
   arena_init(&cold->string_arena, 512);
 
-  // Mock reply for WM_PROTOCOLS with both DELETE and TAKE_FOCUS
+  // Mock reply for WM_PROTOCOLS with DELETE, TAKE_FOCUS, and SYNC_REQUEST.
   struct {
     xcb_get_property_reply_t reply;
-    xcb_atom_t atoms[2];
+    xcb_atom_t atoms[3];
   } mock_r;
   memset(&mock_r, 0, sizeof(mock_r));
   mock_r.reply.format = 32;
   mock_r.reply.type = XCB_ATOM_ATOM;
-  mock_r.reply.value_len = 2;
+  mock_r.reply.value_len = 3;
   mock_r.atoms[0] = atoms.WM_DELETE_WINDOW;
   mock_r.atoms[1] = atoms.WM_TAKE_FOCUS;
+  mock_r.atoms[2] = atoms._NET_WM_SYNC_REQUEST;
 
   cookie_slot_t slot;
   slot.type = COOKIE_GET_PROPERTY;
@@ -86,6 +88,8 @@ void test_icccm_protocols(void) {
 
   assert(cold->protocols & PROTOCOL_DELETE_WINDOW);
   assert(cold->protocols & PROTOCOL_TAKE_FOCUS);
+  assert(cold->protocols & PROTOCOL_SYNC_REQUEST);
+  assert(cold->sync_enabled);
   printf("test_icccm_protocols passed\n");
 
   arena_destroy(&cold->string_arena);
