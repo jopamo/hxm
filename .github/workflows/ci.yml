@@ -30,8 +30,8 @@ jobs:
       CXX: clang++
       LLVM_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
       ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
-      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
-      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
+      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
+      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
       LDFLAGS: -fuse-ld=lld
 
     steps:
