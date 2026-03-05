@@ -138,7 +138,6 @@ static void test_wm_normal_hints_malformed_short(void) {
   memset(cold, 0, sizeof(*cold));
   hot->xid = 4001;
   hot->state = STATE_NEW;
-  hot->pending_replies = 1;
   arena_init(&cold->string_arena, 128);
 
   hot->hints_flags = XCB_ICCCM_SIZE_HINT_P_MIN_SIZE;
@@ -184,7 +183,6 @@ static void test_wm_normal_hints_malformed_long(void) {
   memset(cold, 0, sizeof(*cold));
   hot->xid = 4002;
   hot->state = STATE_MAPPED;
-  hot->pending_replies = 1;
   arena_init(&cold->string_arena, 128);
 
   xcb_size_hints_t hints;
@@ -233,7 +231,6 @@ static void test_wm_name_huge_bounded(void) {
   memset(cold, 0, sizeof(*cold));
   hot->xid = 4003;
   hot->state = STATE_MAPPED;
-  hot->pending_replies = 1;
   arena_init(&cold->string_arena, 512);
 
   size_t huge_len = 1024 * 1024;
@@ -274,7 +271,6 @@ static void test_override_redirect_midstream_aborts_manage(void) {
   hot->xid = 4004;
   hot->state = STATE_NEW;
   hot->manage_phase = MANAGE_PHASE1;
-  hot->pending_replies = 1;
   arena_init(&cold->string_arena, 128);
 
   xcb_get_window_attributes_reply_t r;

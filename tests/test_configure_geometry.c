@@ -268,7 +268,6 @@ static void test_geometry_reply_tiny_fallback(void) {
   hot->xid = 9001;
   hot->state = STATE_NEW;
   hot->manage_phase = MANAGE_PHASE1;
-  hot->pending_replies = 1;
   hot->desired = (rect_t){0, 0, 0, 0};
 
   cookie_slot_t slot = {0};

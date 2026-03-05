@@ -32,7 +32,6 @@ void test_wm_icon(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->xid = 123;
   hot->state = STATE_NEW;
-  hot->pending_replies = 10;
   arena_init(&cold->string_arena, 512);
 
   // Mock reply for _NET_WM_ICON

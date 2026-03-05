@@ -29,7 +29,7 @@
  *    wm_handle_reply():
  *      - cookie jar maps sequence -> (client handle, probe metadata)
  *      - updates client fields as replies arrive
- *      - decrements hot->pending_replies
+ *      - marks required probe bits for manage completion
  *    State: STATE_NEW
  *
  *    Invariant: hot management paths do not block waiting for X replies.
@@ -85,9 +85,9 @@
 #include "client.h"
 
 #include <assert.h>
-#include <ctype.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <strings.h>
 #include <string.h>
 #include <xcb/xcb_icccm.h>
 
@@ -104,13 +104,14 @@
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 #endif
 
+#define NET_WM_ICON_LONG_LEN 4096u
+
 /*
  * Register one async manage probe in the cookie jar.
  *
  * Replies are keyed by X request sequence number:
  *   sequence -> (client handle, cookie type, data) -> wm_handle_reply()
  *
- * pending_replies counts successfully enqueued probes for this manage pass.
  * Probe cookies are expected to always be valid while connected.
  */
 static void client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t h, uint32_t seq, cookie_type_t type, uintptr_t data, const char* request_name) {
@@ -119,7 +120,6 @@ static void client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t
   assert(request_name);
   assert(seq != 0);
   cookie_jar_push(&s->cookie_jar, seq, type, h, data, s->txn_id, wm_handle_reply);
-  hot->pending_replies++;
 }
 
 /*
@@ -141,17 +141,10 @@ static bool str_contains_case(const char* haystack, const char* needle) {
   assert(haystack);
   assert(needle);
   assert(*needle);
+
   size_t nlen = strlen(needle);
   for (const char* p = haystack; *p; p++) {
-    size_t i = 0;
-    while (i < nlen && p[i]) {
-      char hc = (char)tolower((unsigned char)p[i]);
-      char nc = (char)tolower((unsigned char)needle[i]);
-      if (hc != nc)
-        break;
-      i++;
-    }
-    if (i == nlen)
+    if (strncasecmp(p, needle, nlen) == 0)
       return true;
   }
   return false;
@@ -287,8 +280,8 @@ void client_abort_manage(server_t* s, handle_t h) {
  *   treated as invariant breaks.
  *
  * Finalization:
- *   wm_handle_reply() decrements hot->pending_replies as probes resolve. Once
- *   critical metadata is ready, client_finish_manage() completes framing.
+ *   wm_handle_reply() records critical probe completion bits. Once all required
+ *   bits are present, client_finish_manage() completes framing.
  */
 void client_manage_start(server_t* s, xcb_window_t win) {
   TRACE_LOG("manage_start win=%u", win);
@@ -370,7 +363,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   hot->gtk_extents.bottom = 0;
   hot->original_border_width = 0;
 
-  // Phase 1 probes. pending_replies tracks all enqueued cookies.
+  // Phase 1 probes. Completion is bitmask-driven from required critical probes.
   const struct {
     xcb_atom_t prop;
     xcb_atom_t type;
@@ -393,7 +386,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
       {atoms._NET_WM_DESKTOP, XCB_ATOM_CARDINAL, 1},
       {atoms._NET_WM_STRUT, XCB_ATOM_CARDINAL, 4},
       {atoms._NET_WM_STRUT_PARTIAL, XCB_ATOM_CARDINAL, 12},
-      {atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, 1048576},
+      {atoms._NET_WM_ICON, XCB_ATOM_CARDINAL, NET_WM_ICON_LONG_LEN},
       {atoms._NET_WM_PID, XCB_ATOM_CARDINAL, 1},
       {atoms._NET_WM_USER_TIME, XCB_ATOM_CARDINAL, 1},
       {atoms._NET_WM_USER_TIME_WINDOW, XCB_ATOM_WINDOW, 1},
@@ -406,18 +399,15 @@ void client_manage_start(server_t* s, xcb_window_t win) {
       {atoms._NET_WM_BYPASS_COMPOSITOR, XCB_ATOM_CARDINAL, 1},
   };
 
-  hot->pending_replies = 0;
-  hot->late_probe_ticks = 0;
-  hot->late_probe_attempts = 0;
-  hot->late_probe_deadline_ns = 0;
+  hot->probe_required_mask =
+      MANAGE_PROBE_ATTR | MANAGE_PROBE_GEOMETRY | MANAGE_PROBE_WINDOW_TYPE | MANAGE_PROBE_TRANSIENT_FOR | MANAGE_PROBE_WM_HINTS;
+  hot->probe_received_mask = MANAGE_PROBE_NONE;
 
   cold->can_focus = true;
   cold->strut_partial_active = false;
   cold->strut_full_active = false;
   arena_init(&cold->string_arena, 512);
 
-  list_init(&hot->transient_sibling);
-  list_init(&hot->transients_head);
   list_init(&hot->focus_node);
 
   TRACE_LOG("manage_start init nodes h=%lx focus_node=%p", h, (void*)&hot->focus_node);
@@ -567,11 +557,6 @@ void client_finish_manage(server_t* s, handle_t h) {
   bool is_conky = client_is_conky(cold);
   TRACE_LOG("finish_manage h=%lx xid=%u desktop=%d sticky=%d initial_state=%u", h, hot->xid, hot->desktop, hot->sticky, hot->initial_state);
 
-  hot->late_probe_ticks = 200;
-  hot->late_probe_attempts = 0;
-  hot->late_probe_deadline_ns = 0;
-  server_schedule_timer(s, 20);
-
   client_apply_rules(s, h);
 
   wm_place_window(s, h);
@@ -586,19 +571,22 @@ void client_finish_manage(server_t* s, handle_t h) {
   rect_t geom = hot->desired;
 
   uint32_t mask = XCB_CW_EVENT_MASK;
-  uint32_t values[3];
+  uint32_t values[2];
+  uint32_t values_len = 0;
 
-  // Use parent-relative background for desktop windows to avoid opaque frames
+  // Pack value-list in mask-bit order for xcb_create_window().
   if (hot->type == WINDOW_TYPE_DESKTOP) {
     mask |= XCB_CW_BACK_PIXMAP;
-    values[0] = XCB_BACK_PIXMAP_PARENT_RELATIVE;
+    values[values_len++] = XCB_BACK_PIXMAP_PARENT_RELATIVE;
   }
   else {
     mask |= XCB_CW_BACK_PIXEL;
-    values[0] = 0x333333;
+    values[values_len++] = 0x333333;
   }
 
-  values[1] = XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW;
+  values[values_len++] =
+      XCB_EVENT_MASK_SUBSTRUCTURE_NOTIFY | XCB_EVENT_MASK_EXPOSURE | XCB_EVENT_MASK_BUTTON_PRESS | XCB_EVENT_MASK_POINTER_MOTION | XCB_EVENT_MASK_ENTER_WINDOW | XCB_EVENT_MASK_LEAVE_WINDOW;
+  assert(values_len == 2);
 
   uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
   uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;

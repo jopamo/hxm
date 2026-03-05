@@ -55,6 +55,44 @@ cleanup() {
 }
 trap cleanup EXIT
 
+start_xvfb() {
+  local start=99
+  local end=150
+  if [ -n "${XVFB_DISPLAY:-}" ]; then
+    start=${XVFB_DISPLAY#:}
+    end=$start
+  fi
+
+  for i in $(seq "$start" "$end"); do
+    local disp=":$i"
+    Xvfb "$disp" -screen 0 1024x768x24 +extension RANDR >/dev/null 2>&1 &
+    xvfb_pid=$!
+
+    local alive=1
+    for _ in $(seq 1 40); do
+      if ! kill -0 "$xvfb_pid" 2>/dev/null; then
+        alive=0
+        break
+      fi
+      sleep 0.05
+    done
+
+    if [ "$alive" -eq 1 ]; then
+      export DISPLAY="$disp"
+      return 0
+    fi
+
+    wait "$xvfb_pid" 2>/dev/null || true
+    unset xvfb_pid
+
+    if [ -n "${XVFB_DISPLAY:-}" ]; then
+      break
+    fi
+  done
+
+  return 1
+}
+
 export HOME="$tmp_home"
 export XDG_CONFIG_HOME="$tmp_home/.config"
 mkdir -p "$XDG_CONFIG_HOME/hxm"
@@ -70,12 +108,13 @@ export HXM_LOG_FILE="${HXM_LOG_FILE:-/dev/null}"
 export EWMH_CLIENT_BIN="$client_bin"
 export EWMH_SCRIPT_DIR="$script_dir"
 
-export DISPLAY=:99
-Xvfb :99 -screen 0 1024x768x24 +extension RANDR >/dev/null 2>&1 &
-xvfb_pid=$!
-sleep 0.2
+if ! start_xvfb; then
+  echo "SKIP: unable to start Xvfb (check xkeyboard-config setup)" >&2
+  exit 77
+fi
 
-if [ "$("$EWMH_CLIENT_BIN" has-extension RANDR)" != "yes" ]; then
+randr_ext="$("$EWMH_CLIENT_BIN" has-extension RANDR 2>/dev/null || true)"
+if [ "$randr_ext" != "yes" ]; then
   echo "warning: RANDR extension not available on Xvfb" >&2
 fi
 

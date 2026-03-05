@@ -45,7 +45,6 @@ void test_wm_icon_invalid(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->xid = 123;
   hot->state = STATE_MAPPED;
-  hot->pending_replies = 1;
   arena_init(&cold->string_arena, 512);
 
   cookie_slot_t slot;

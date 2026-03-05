@@ -93,32 +93,50 @@ if [ "$has_xvfb_run" -eq 1 ]; then
     wait \$HXM_PID || true
   "
 else
-  pick_display() {
+  start_xvfb() {
+    local start=98
+    local end=140
     if [ -n "${XVFB_DISPLAY:-}" ]; then
-      echo "$XVFB_DISPLAY"
-      return 0
+      start=${XVFB_DISPLAY#:}
+      end=$start
     fi
-    for i in $(seq 98 110); do
-      if [ ! -e "/tmp/.X${i}-lock" ]; then
-        echo ":$i"
+
+    for i in $(seq "$start" "$end"); do
+      local disp=":$i"
+      Xvfb "$disp" -screen 0 1600x1200x24 +extension RANDR >/dev/null 2>&1 &
+      XVFB_PID=$!
+
+      local alive=1
+      for _ in $(seq 1 40); do
+        if ! kill -0 "$XVFB_PID" 2>/dev/null; then
+          alive=0
+          break
+        fi
+        sleep 0.05
+      done
+
+      if [ "$alive" -eq 1 ]; then
+        export DISPLAY="$disp"
         return 0
       fi
+
+      wait "$XVFB_PID" 2>/dev/null || true
+      unset XVFB_PID
+
+      if [ -n "${XVFB_DISPLAY:-}" ]; then
+        break
+      fi
     done
-    echo ":99"
+
+    return 1
   }
 
-  display_num=$(pick_display)
-  export DISPLAY="$display_num"
+  if ! start_xvfb; then
+    echo "SKIP: unable to start Xvfb (check xkeyboard-config setup)" >&2
+    exit 77
+  fi
 
   echo "Running integration client with direct Xvfb on $DISPLAY..."
-  Xvfb "$DISPLAY" -screen 0 1600x1200x24 +extension RANDR >/dev/null 2>&1 &
-  XVFB_PID=$!
-
-  sleep 2
-  if ! kill -0 "$XVFB_PID" 2>/dev/null; then
-    echo "Xvfb failed to start on $DISPLAY" >&2
-    exit 1
-  fi
 
   "$hxm_bin" >"$wm_log" 2>&1 &
   HXM_PID=$!

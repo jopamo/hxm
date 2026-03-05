@@ -500,7 +500,6 @@ static void test_map_request_maps_and_stays_mapped(void) {
   hot->desired = (rect_t){0, 0, 120, 90};
   hot->visual_id = s.root_visual;
   hot->depth = s.root_depth;
-  hot->pending_replies = 0;
   hot->state = STATE_READY;
 
   stub_map_window_count = 0;

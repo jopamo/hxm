@@ -7,15 +7,16 @@
  * hot/cold state without blocking the event loop
  *
  * Core invariants:
- * - every manage probe registered in the jar is accounted by pending_replies
- * - each handled reply decrements pending_replies at most once
- * - STATE_NEW clients transition only after pending_replies drains to zero
+ * - initial manage completion is driven by critical probe bitmasks
+ * - optional probe replies never block management
+ * - STATE_NEW clients transition only after required probes are observed
  * - stale replies are ignored using txn ordering to prevent old data overwrite
  *
  * Async flow:
  * - client_manage_start issues batched probes and stores sequence metadata
  * - wm_handle_reply dispatches by cookie type and updates fields incrementally
- * - when probes are drained, manage either aborts or advances to STATE_READY
+ * - when required probes are observed, manage either aborts or advances to
+ *   STATE_READY
  *
  * WM/EWMH correctness constraints:
  * - override_redirect and InputOnly windows are not managed
@@ -365,8 +366,6 @@ static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, c
       uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
       if (c != 0) {
         cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_NAME, s->txn_id, wm_handle_reply);
-        if (hot->manage_phase != MANAGE_DONE)
-          hot->pending_replies++;
       }
       return;
     }
@@ -393,8 +392,6 @@ static void parse_net_wm_name_like(server_t* s, handle_t h, client_hot_t* hot, c
       uint32_t c = xcb_get_property(s->conn, 0, hot->xid, atoms.WM_ICON_NAME, XCB_ATOM_STRING, 0, 1024).sequence;
       if (c != 0) {
         cookie_jar_push(&s->cookie_jar, c, COOKIE_GET_PROPERTY, h, ((uint64_t)hot->xid << 32) | atoms.WM_ICON_NAME, s->txn_id, wm_handle_reply);
-        if (hot->manage_phase != MANAGE_DONE)
-          hot->pending_replies++;
       }
       return;
     }
@@ -494,6 +491,30 @@ static bool check_transient_cycle(server_t* s, handle_t child, handle_t parent) 
   return false;
 }
 
+static uint32_t manage_probe_mask_for_slot(const cookie_slot_t* slot) {
+  if (!slot)
+    return MANAGE_PROBE_NONE;
+
+  switch (slot->type) {
+    case COOKIE_GET_WINDOW_ATTRIBUTES:
+      return MANAGE_PROBE_ATTR;
+    case COOKIE_GET_GEOMETRY:
+      return MANAGE_PROBE_GEOMETRY;
+    case COOKIE_GET_PROPERTY: {
+      xcb_atom_t atom = (xcb_atom_t)(slot->data & 0xFFFFFFFFu);
+      if (atom == atoms._NET_WM_WINDOW_TYPE)
+        return MANAGE_PROBE_WINDOW_TYPE;
+      if (atom == atoms.WM_TRANSIENT_FOR)
+        return MANAGE_PROBE_TRANSIENT_FOR;
+      if (atom == atoms.WM_HINTS)
+        return MANAGE_PROBE_WM_HINTS;
+      return MANAGE_PROBE_NONE;
+    }
+    default:
+      return MANAGE_PROBE_NONE;
+  }
+}
+
 /*
  * Central async reply callback for cookie_jar slots
  *
@@ -501,12 +522,12 @@ static bool check_transient_cycle(server_t* s, handle_t child, handle_t parent) 
  * - normalize X errors into NULL replies for unified error paths
  * - reject stale handles and stale txn payloads before mutation
  * - dispatch by cookie type and apply parsed state deltas
- * - keep manage progression monotonic by draining pending_replies exactly once
+ * - keep manage progression monotonic via critical probe mask progression
  *
  * State machine behavior during initial manage:
  * - replies arrive while client is STATE_NEW and manage_phase is MANAGE_PHASE1
- * - each completed slot decrements pending_replies in done_one
- * - when pending_replies reaches zero:
+ * - critical probes set bits in probe_received_mask
+ * - when required bits are all present:
  *   - manage_aborted -> client_abort_manage
  *   - otherwise STATE_NEW -> STATE_READY
  *
@@ -1551,25 +1572,20 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
     hot->dirty |= DIRTY_FRAME_STYLE;
 
 done_one:
-  /*
-   * pending_replies is drained in one place to keep manage accounting coherent
-   * across all cookie types, including stale or NULL replies
-   */
-  if (hot->pending_replies > 0)
-    hot->pending_replies--;
-
   if (hot->state != STATE_NEW)
     return;
-  if (hot->pending_replies != 0)
+  if (hot->manage_phase != MANAGE_PHASE1)
     return;
-
   if (hot->manage_aborted) {
     client_abort_manage(s, slot->client);
     return;
   }
+  if (hot->probe_required_mask == MANAGE_PROBE_NONE)
+    return;
 
-  /* All startup probes resolved, phase 1 can advance */
-  if (hot->pending_replies == 0 && hot->manage_phase == MANAGE_PHASE1) {
-    hot->state = STATE_READY;
-  }
+  hot->probe_received_mask |= manage_probe_mask_for_slot(slot);
+  if ((hot->probe_received_mask & hot->probe_required_mask) != hot->probe_required_mask)
+    return;
+
+  hot->state = STATE_READY;
 }

@@ -18,18 +18,42 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 77
 fi
 
-pick_display() {
+start_xvfb() {
+  local start=98
+  local end=140
   if [ -n "${XVFB_DISPLAY:-}" ]; then
-    echo "$XVFB_DISPLAY"
-    return 0
+    start=${XVFB_DISPLAY#:}
+    end=$start
   fi
-  for i in $(seq 98 110); do
-    if [ ! -e "/tmp/.X${i}-lock" ]; then
-      echo ":$i"
+
+  for i in $(seq "$start" "$end"); do
+    local disp=":$i"
+    Xvfb "$disp" -screen 0 1280x720x24 +extension RANDR >/dev/null 2>&1 &
+    XVFB_PID=$!
+
+    local alive=1
+    for _ in $(seq 1 40); do
+      if ! kill -0 "$XVFB_PID" 2>/dev/null; then
+        alive=0
+        break
+      fi
+      sleep 0.05
+    done
+
+    if [ "$alive" -eq 1 ]; then
+      export DISPLAY="$disp"
       return 0
     fi
+
+    wait "$XVFB_PID" 2>/dev/null || true
+    unset XVFB_PID
+
+    if [ -n "${XVFB_DISPLAY:-}" ]; then
+      break
+    fi
   done
-  echo ":99"
+
+  return 1
 }
 
 hxm_bin=${HXM_BIN:-}
@@ -56,9 +80,6 @@ if [ -z "$dummy_client" ]; then
   fi
 fi
 
-display_num=$(pick_display)
-export DISPLAY=$display_num
-
 cleanup() {
   if [ -n "${HXM_PID:-}" ] && kill -0 "$HXM_PID" 2>/dev/null; then
     kill "$HXM_PID"
@@ -72,15 +93,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "Starting Xvfb on $DISPLAY..."
-Xvfb "$DISPLAY" -screen 0 1280x720x24 +extension RANDR >/dev/null 2>&1 &
-XVFB_PID=$!
-
-sleep 2
-if ! kill -0 "$XVFB_PID" 2>/dev/null; then
-  echo "Xvfb failed to start on $DISPLAY" >&2
-  exit 1
+if ! start_xvfb; then
+  echo "SKIP: unable to start Xvfb (check xkeyboard-config setup)" >&2
+  exit 77
 fi
+echo "Starting Xvfb on $DISPLAY..."
 
 echo "Starting hxm..."
 "$hxm_bin" >/dev/null 2>&1 &

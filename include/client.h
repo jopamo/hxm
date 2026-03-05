@@ -92,6 +92,15 @@ typedef enum client_state {
 
 typedef enum manage_phase { MANAGE_PHASE1 = 1, MANAGE_PHASE2 = 2, MANAGE_DONE = 3 } manage_phase_t;
 
+typedef enum manage_probe {
+  MANAGE_PROBE_NONE = 0,
+  MANAGE_PROBE_ATTR = 1u << 0,
+  MANAGE_PROBE_GEOMETRY = 1u << 1,
+  MANAGE_PROBE_WINDOW_TYPE = 1u << 2,
+  MANAGE_PROBE_TRANSIENT_FOR = 1u << 3,
+  MANAGE_PROBE_WM_HINTS = 1u << 4,
+} manage_probe_t;
+
 /* Pending EWMH state message used while client is still initializing */
 typedef struct pending_state_msg {
   uint32_t action;
@@ -185,12 +194,11 @@ typedef struct client_hot {
 
   uint8_t state;         /* client_state_t */
   uint8_t initial_state; /* from WM_HINTS */
-  uint8_t pending_replies;
   uint8_t ignore_unmap;
+  uint8_t _pad0;
 
-  uint8_t late_probe_ticks;
-  uint8_t late_probe_attempts;
-  uint64_t late_probe_deadline_ns;
+  uint32_t probe_required_mask; /* manage_probe_t bitset */
+  uint32_t probe_received_mask; /* manage_probe_t bitset */
 
   uint8_t layer;
   uint8_t base_layer;

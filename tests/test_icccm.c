@@ -63,7 +63,6 @@ void test_icccm_protocols(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->xid = 123;
   hot->state = STATE_NEW;
-  hot->pending_replies = 10;
   arena_init(&cold->string_arena, 512);
 
   // Mock reply for WM_PROTOCOLS with both DELETE and TAKE_FOCUS
@@ -328,7 +327,6 @@ void test_name_fallback(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->xid = 123;
   hot->state = STATE_NEW;
-  hot->pending_replies = 10;
   arena_init(&cold->string_arena, 512);
 
   // 1. WM_NAME reply

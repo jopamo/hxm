@@ -55,7 +55,6 @@ void test_rapid_lifecycle(void) {
     // Simulate all replies arriving
     for (int j = 0; j < WINDOWS_PER_ITER; j++) {
       client_hot_t* hot = server_chot(&s, handles[j]);
-      hot->pending_replies = 0;
       hot->state = STATE_READY;
     }
 
