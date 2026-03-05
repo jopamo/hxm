@@ -640,9 +640,9 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
     case COOKIE_GET_WINDOW_ATTRIBUTES: {
       xcb_get_window_attributes_reply_t* r = (xcb_get_window_attributes_reply_t*)reply;
       hot->override_redirect = r->override_redirect ? true : false;
-      hot->visual_id = r->visual;
-      hot->visual_type = xcb_get_visualtype(s->conn, r->visual);
-      hot->colormap = r->colormap;
+      cold->visual_id = r->visual;
+      cold->visual_type = xcb_get_visualtype(s->conn, r->visual);
+      cold->colormap = r->colormap;
 
       if (r->map_state == XCB_MAP_STATE_UNMAPPED) {
         if (hot->ignore_unmap > 0)
@@ -671,7 +671,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
       hot->server.y = r->y;
       hot->server.w = r->width;
       hot->server.h = r->height;
-      hot->depth = r->depth;
+      cold->depth = r->depth;
       hot->original_border_width = r->border_width;
 
       // Treat 0x0 or tiny as uninitialized/invalid

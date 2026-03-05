@@ -32,26 +32,28 @@ void wm_install_client_colormap(server_t* s, client_hot_t* hot) {
     return;
 
   client_cold_t* cold = server_ccold(s, hot->self);
+  if (!cold)
+    return;
   bool use_list = cold && cold->colormap_windows && cold->colormap_windows_len > 0;
 
   if (use_list) {
     for (uint32_t i = 0; i < cold->colormap_windows_len; i++) {
       xcb_window_t win = cold->colormap_windows[i];
-      if (win == hot->xid && hot->colormap != XCB_NONE) {
-        xcb_install_colormap(s->conn, hot->colormap);
+      if (win == hot->xid && cold->colormap != XCB_NONE) {
+        xcb_install_colormap(s->conn, cold->colormap);
       }
-      else if (win == hot->frame && hot->frame_colormap_owned && hot->frame_colormap != XCB_NONE) {
-        xcb_install_colormap(s->conn, hot->frame_colormap);
+      else if (win == hot->frame && cold->frame_colormap_owned && cold->frame_colormap != XCB_NONE) {
+        xcb_install_colormap(s->conn, cold->frame_colormap);
       }
     }
     return;
   }
 
-  if (hot->colormap != XCB_NONE) {
-    xcb_install_colormap(s->conn, hot->colormap);
+  if (cold->colormap != XCB_NONE) {
+    xcb_install_colormap(s->conn, cold->colormap);
   }
-  if (hot->frame_colormap_owned && hot->frame_colormap != XCB_NONE) {
-    xcb_install_colormap(s->conn, hot->frame_colormap);
+  if (cold->frame_colormap_owned && cold->frame_colormap != XCB_NONE) {
+    xcb_install_colormap(s->conn, cold->frame_colormap);
   }
 }
 

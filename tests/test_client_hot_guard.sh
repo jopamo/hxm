@@ -14,7 +14,7 @@ require_line() {
 }
 
 require_line '^ \* Hot storage contract for client_hot_t:$'
-require_line '^#define CLIENT_HOT_SIZE_GUARD_BYTES 512u$'
+require_line '^#define CLIENT_HOT_SIZE_GUARD_BYTES 480u$'
 require_line '^HXM_STATIC_ASSERT\(sizeof\(client_hot_t\) <= CLIENT_HOT_SIZE_GUARD_BYTES,$'
 
 echo "test_client_hot_guard passed"

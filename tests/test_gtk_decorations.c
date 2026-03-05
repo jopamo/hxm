@@ -57,12 +57,13 @@ void test_gtk_extents_toggle_decorations(void) {
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->frame = 456;
   hot->state = STATE_MAPPED;
   hot->manage_phase = MANAGE_DONE;
-  hot->depth = s.root_depth;
+  cold->depth = s.root_depth;
   hot->desired.x = 50;
   hot->desired.y = 60;
   hot->desired.w = 400;

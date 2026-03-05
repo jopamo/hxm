@@ -244,6 +244,7 @@ void client_abort_manage(server_t* s, handle_t h) {
     cold->colormap_windows = NULL;
     cold->colormap_windows_len = 0;
   }
+  client_visual_payload_destroy(s->conn, cold);
   client_render_payload_destroy(cold);
 
   small_vec_remove(&s->active_clients, handle_to_ptr(h));
@@ -334,13 +335,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   hot->last_cursor_dir = -1;
 
   client_render_payload_init(cold);
-
-  hot->visual_type = NULL;
-  hot->visual_id = s->root_visual;
-  hot->depth = 0;
-  hot->colormap = XCB_NONE;
-  hot->frame_colormap = XCB_NONE;
-  hot->frame_colormap_owned = false;
+  client_visual_payload_init(cold, s->root_visual);
 
   hot->damage = XCB_NONE;
   dirty_region_reset(&hot->damage_region);
@@ -1069,12 +1064,6 @@ void client_unmanage(server_t* s, handle_t h) {
     xcb_destroy_window(s->conn, hot->frame);
   }
 
-  if (hot->frame_colormap_owned && hot->frame_colormap != XCB_NONE) {
-    xcb_free_colormap(s->conn, hot->frame_colormap);
-    hot->frame_colormap = XCB_NONE;
-    hot->frame_colormap_owned = false;
-  }
-
   // Cleanup properties.
   if (hot->xid != XCB_NONE) {
     xcb_delete_property(s->conn, hot->xid, atoms.WM_STATE);
@@ -1091,6 +1080,7 @@ void client_unmanage(server_t* s, handle_t h) {
     cold->colormap_windows = NULL;
     cold->colormap_windows_len = 0;
   }
+  client_visual_payload_destroy(s->conn, cold);
   client_render_payload_destroy(cold);
 
   // Free slot

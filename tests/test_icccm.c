@@ -273,8 +273,8 @@ void test_wm_state_manage_unmanage(void) {
   hot->desktop = 0;
   hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
   hot->desired = (rect_t){0, 0, 100, 80};
-  hot->visual_id = s.root_visual;
-  hot->depth = s.root_depth;
+  cold->visual_id = s.root_visual;
+  cold->depth = s.root_depth;
   hot->layer = LAYER_NORMAL;
   hot->base_layer = LAYER_NORMAL;
   list_init(&hot->focus_node);

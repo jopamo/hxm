@@ -67,7 +67,7 @@ void test_frame_extents(void) {
   list_init(&hot->transient_sibling);
   list_init(&hot->transients_head);
   list_init(&hot->focus_node);
-  hot->visual_id = 0;
+  cold->visual_id = 0;
 
   // We want to capture the property change for _NET_FRAME_EXTENTS
   // Reset stub variables

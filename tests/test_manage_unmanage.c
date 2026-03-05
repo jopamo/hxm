@@ -270,8 +270,8 @@ static void test_finish_manage_maps_client_then_frame(void) {
   hot->transient_for = HANDLE_INVALID;
   hot->desktop = 0;
   hot->desired = (rect_t){0, 0, 100, 80};
-  hot->visual_id = s.root_visual;
-  hot->depth = s.root_depth;
+  cold->visual_id = s.root_visual;
+  cold->depth = s.root_depth;
   hot->layer = LAYER_NORMAL;
   hot->base_layer = LAYER_NORMAL;
   list_init(&hot->focus_node);
@@ -313,8 +313,8 @@ static void test_desktop_background_below_conky(void) {
   conky_hot->transient_for = HANDLE_INVALID;
   conky_hot->desktop = 0;
   conky_hot->desired = (rect_t){0, 0, 100, 80};
-  conky_hot->visual_id = s.root_visual;
-  conky_hot->depth = s.root_depth;
+  conky_cold->visual_id = s.root_visual;
+  conky_cold->depth = s.root_depth;
   list_init(&conky_hot->focus_node);
   list_init(&conky_hot->transients_head);
   list_init(&conky_hot->transient_sibling);
@@ -339,8 +339,8 @@ static void test_desktop_background_below_conky(void) {
   bg_hot->transient_for = HANDLE_INVALID;
   bg_hot->desktop = 0;
   bg_hot->desired = (rect_t){0, 0, 100, 80};
-  bg_hot->visual_id = s.root_visual;
-  bg_hot->depth = s.root_depth;
+  bg_cold->visual_id = s.root_visual;
+  bg_cold->depth = s.root_depth;
   list_init(&bg_hot->focus_node);
   list_init(&bg_hot->transients_head);
   list_init(&bg_hot->transient_sibling);
@@ -380,8 +380,8 @@ static void test_finish_manage_ignores_reparent_unmap(void) {
   hot->transient_for = HANDLE_INVALID;
   hot->desktop = 0;
   hot->desired = (rect_t){0, 0, 100, 80};
-  hot->visual_id = s.root_visual;
-  hot->depth = s.root_depth;
+  cold->visual_id = s.root_visual;
+  cold->depth = s.root_depth;
   hot->layer = LAYER_NORMAL;
   hot->base_layer = LAYER_NORMAL;
   list_init(&hot->focus_node);
@@ -440,8 +440,8 @@ static void test_rules_preserve_sticky_for_panel(void) {
   hot->sticky = true;
   hot->desktop = 0;
   hot->desired = (rect_t){0, 0, 100, 80};
-  hot->visual_id = s.root_visual;
-  hot->depth = s.root_depth;
+  cold->visual_id = s.root_visual;
+  cold->depth = s.root_depth;
   list_init(&hot->focus_node);
   list_init(&hot->transients_head);
   list_init(&hot->transient_sibling);
@@ -493,11 +493,13 @@ static void test_map_request_maps_and_stays_mapped(void) {
   assert(h != HANDLE_INVALID);
 
   client_hot_t* hot = server_chot(&s, h);
+  client_cold_t* cold = server_ccold(&s, h);
   assert(hot != NULL);
+  assert(cold != NULL);
 
   hot->desired = (rect_t){0, 0, 120, 90};
-  hot->visual_id = s.root_visual;
-  hot->depth = s.root_depth;
+  cold->visual_id = s.root_visual;
+  cold->depth = s.root_depth;
   hot->state = STATE_READY;
 
   stub_map_window_count = 0;

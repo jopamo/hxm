@@ -250,14 +250,6 @@ typedef struct client_hot {
 
   int last_cursor_dir;
 
-  xcb_visualid_t visual_id;
-  xcb_visualtype_t* visual_type;
-  uint8_t depth;
-
-  xcb_colormap_t colormap;
-  xcb_colormap_t frame_colormap;
-  bool frame_colormap_owned;
-
   xcb_damage_damage_t damage;
   dirty_region_t damage_region;
   dirty_region_t frame_damage;
@@ -286,7 +278,7 @@ typedef struct client_hot {
   uint32_t fullscreen_monitors[4];
 } client_hot_t;
 
-#define CLIENT_HOT_SIZE_GUARD_BYTES 512u
+#define CLIENT_HOT_SIZE_GUARD_BYTES 480u
 HXM_STATIC_ASSERT(sizeof(client_hot_t) <= CLIENT_HOT_SIZE_GUARD_BYTES,
                   "client_hot_t exceeded guard; move non-hot fields to cold storage");
 
@@ -321,6 +313,14 @@ typedef struct client_cold {
 
   xcb_window_t* colormap_windows;
   uint32_t colormap_windows_len;
+
+  xcb_visualid_t visual_id;
+  xcb_visualtype_t* visual_type;
+  uint8_t depth;
+
+  xcb_colormap_t colormap;
+  xcb_colormap_t frame_colormap;
+  bool frame_colormap_owned;
 
   render_context_t render_ctx;
   cairo_surface_t* icon_surface;
@@ -358,6 +358,27 @@ static inline void client_render_payload_destroy(client_cold_t* cold) {
     cairo_surface_destroy(cold->icon_surface);
     cold->icon_surface = NULL;
   }
+}
+
+static inline void client_visual_payload_init(client_cold_t* cold, xcb_visualid_t root_visual) {
+  if (!cold)
+    return;
+  cold->visual_type = NULL;
+  cold->visual_id = root_visual;
+  cold->depth = 0;
+  cold->colormap = XCB_NONE;
+  cold->frame_colormap = XCB_NONE;
+  cold->frame_colormap_owned = false;
+}
+
+static inline void client_visual_payload_destroy(xcb_connection_t* conn, client_cold_t* cold) {
+  if (!cold)
+    return;
+  if (conn && cold->frame_colormap_owned && cold->frame_colormap != XCB_NONE) {
+    xcb_free_colormap(conn, cold->frame_colormap);
+  }
+  cold->frame_colormap = XCB_NONE;
+  cold->frame_colormap_owned = false;
 }
 
 typedef struct server server_t;

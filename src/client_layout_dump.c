@@ -25,12 +25,15 @@ int main(void) {
   PRINT_OFFSET(client_hot_t, dirty);
   PRINT_OFFSET(client_hot_t, state);
   PRINT_OFFSET(client_hot_t, flags);
-  PRINT_OFFSET(client_hot_t, visual_id);
   PRINT_OFFSET(client_hot_t, damage_region);
   PRINT_OFFSET(client_hot_t, sync_value);
   PRINT_OFFSET(client_hot_t, fullscreen_monitors);
 
   PRINT_OFFSET(client_cold_t, title);
+  PRINT_OFFSET(client_cold_t, visual_id);
+  PRINT_OFFSET(client_cold_t, depth);
+  PRINT_OFFSET(client_cold_t, colormap);
+  PRINT_OFFSET(client_cold_t, frame_colormap);
   PRINT_OFFSET(client_cold_t, render_ctx);
   PRINT_OFFSET(client_cold_t, icon_surface);
   PRINT_OFFSET(client_cold_t, protocols);

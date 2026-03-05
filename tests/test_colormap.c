@@ -87,10 +87,10 @@ static void test_colormap_fallback_install(void) {
   setup_server(&s);
 
   handle_t h = add_client(&s, 100, 110);
-  client_hot_t* hot = server_chot(&s, h);
-  hot->colormap = 10;
-  hot->frame_colormap_owned = true;
-  hot->frame_colormap = 11;
+  client_cold_t* cold = server_ccold(&s, h);
+  cold->colormap = 10;
+  cold->frame_colormap_owned = true;
+  cold->frame_colormap = 11;
 
   stub_install_colormap_count = 0;
   wm_set_focus(&s, h);
@@ -109,9 +109,9 @@ static void test_colormap_windows_list_install(void) {
   handle_t h = add_client(&s, 200, 210);
   client_hot_t* hot = server_chot(&s, h);
   client_cold_t* cold = server_ccold(&s, h);
-  hot->colormap = 20;
-  hot->frame_colormap_owned = true;
-  hot->frame_colormap = 21;
+  cold->colormap = 20;
+  cold->frame_colormap_owned = true;
+  cold->frame_colormap = 21;
 
   cold->colormap_windows_len = 2;
   cold->colormap_windows = malloc(sizeof(xcb_window_t) * 2);
@@ -135,7 +135,8 @@ static void test_colormap_windows_update_on_focus(void) {
   atoms.WM_COLORMAP_WINDOWS = 500;
   handle_t h = add_client(&s, 300, 310);
   client_hot_t* hot = server_chot(&s, h);
-  hot->colormap = 30;
+  client_cold_t* cold = server_ccold(&s, h);
+  cold->colormap = 30;
 
   wm_set_focus(&s, h);
   stub_install_colormap_count = 0;
@@ -157,7 +158,7 @@ static void test_colormap_windows_update_on_focus(void) {
 
   wm_handle_reply(&s, &slot, &reply.r, NULL);
   assert(stub_install_colormap_count == 1);
-  assert(stub_last_installed_colormap == hot->colormap);
+  assert(stub_last_installed_colormap == cold->colormap);
 
   printf("test_colormap_windows_update_on_focus passed\n");
   cleanup_server(&s);
@@ -170,7 +171,7 @@ static void test_colormap_notify_triggers_install(void) {
   handle_t h = add_client(&s, 400, 410);
   client_hot_t* hot = server_chot(&s, h);
   client_cold_t* cold = server_ccold(&s, h);
-  hot->colormap = 40;
+  cold->colormap = 40;
   cold->colormap_windows_len = 1;
   cold->colormap_windows = malloc(sizeof(xcb_window_t));
   cold->colormap_windows[0] = hot->xid;
@@ -184,7 +185,7 @@ static void test_colormap_notify_triggers_install(void) {
   wm_handle_colormap_notify(&s, &ev);
 
   assert(stub_install_colormap_count == 1);
-  assert(stub_last_installed_colormap == hot->colormap);
+  assert(stub_last_installed_colormap == cold->colormap);
 
   printf("test_colormap_notify_triggers_install passed\n");
   cleanup_server(&s);

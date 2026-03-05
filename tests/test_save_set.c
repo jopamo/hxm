@@ -75,8 +75,8 @@ static handle_t add_client(server_t* s, xcb_window_t xid, xcb_window_t frame) {
   hot->layer = LAYER_NORMAL;
   hot->base_layer = LAYER_NORMAL;
   hot->desired = (rect_t){0, 0, 100, 80};
-  hot->visual_id = s->root_visual;
-  hot->depth = s->root_depth;
+  cold->visual_id = s->root_visual;
+  cold->depth = s->root_depth;
   hot->stacking_index = -1;
   hot->stacking_layer = -1;
   list_init(&hot->focus_node);
