@@ -234,6 +234,37 @@ static bool wm_restack_sibling_eligible(server_t* s, handle_t h, const client_ho
   return true;
 }
 
+static void wm_stash_unmanaged_state_message(server_t* s, xcb_window_t win, uint32_t action, xcb_atom_t p1, xcb_atom_t p2) {
+  if (!s || win == XCB_NONE || win == s->root)
+    return;
+  if (action > 2)
+    return;
+
+  small_vec_t* v = (small_vec_t*)hash_map_get(&s->pending_unmanaged_states, win);
+  if (!v) {
+    v = (small_vec_t*)malloc(sizeof(*v));
+    if (!v)
+      return;
+    small_vec_init(v);
+    hash_map_insert(&s->pending_unmanaged_states, win, v);
+  }
+
+  if (v->length >= 16) {
+    pending_state_msg_t* old = (pending_state_msg_t*)v->items[0];
+    if (old)
+      free(old);
+    small_vec_remove(v, v->items[0]);
+  }
+
+  pending_state_msg_t* msg = (pending_state_msg_t*)malloc(sizeof(*msg));
+  if (!msg)
+    return;
+  msg->action = action;
+  msg->p1 = p1;
+  msg->p2 = p2;
+  small_vec_push(v, msg);
+}
+
 void wm_set_frame_extents_for_window(server_t* s, xcb_window_t win, bool undecorated) {
   uint32_t bw = undecorated ? 0 : s->config.theme.border_width;
   uint32_t th = undecorated ? 0 : s->config.theme.title_height;
@@ -2115,7 +2146,8 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
       }
     }
     else {
-      LOG_DEBUG("Ignoring _NET_WM_STATE for unmanaged window %u", ev->window);
+      wm_stash_unmanaged_state_message(s, ev->window, action, p1, p2);
+      LOG_DEBUG("Stashed _NET_WM_STATE for unmanaged window %u action=%u", ev->window, action);
     }
     return;
   }

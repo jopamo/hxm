@@ -72,6 +72,7 @@ static void setup_server(server_t* s) {
   slotmap_init(&s->clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
   hash_map_init(&s->window_to_client);
   hash_map_init(&s->frame_to_client);
+  hash_map_init(&s->pending_unmanaged_states);
   list_init(&s->focus_history);
   for (int i = 0; i < LAYER_COUNT; i++)
     small_vec_init(&s->layers[i]);
@@ -96,6 +97,18 @@ static void cleanup_server(server_t* s) {
   slotmap_destroy(&s->clients);
   hash_map_destroy(&s->window_to_client);
   hash_map_destroy(&s->frame_to_client);
+  for (size_t i = 0; i < s->pending_unmanaged_states.capacity; i++) {
+    hash_map_entry_t* entry = &s->pending_unmanaged_states.entries[i];
+    if (!entry->key || !entry->value)
+      continue;
+    small_vec_t* v = (small_vec_t*)entry->value;
+    for (size_t j = 0; j < v->length; j++) {
+      free(v->items[j]);
+    }
+    small_vec_destroy(v);
+    free(v);
+  }
+  hash_map_destroy(&s->pending_unmanaged_states);
   for (int i = 0; i < LAYER_COUNT; i++)
     small_vec_destroy(&s->layers[i]);
   arena_destroy(&s->tick_arena);
@@ -230,6 +243,49 @@ static void test_unknown_window_type_ignored(void) {
   assert(!hot->type_from_net);
 
   printf("test_unknown_window_type_ignored passed\n");
+  cleanup_server(&s);
+}
+
+static void test_unmanaged_wm_state_is_stashed(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  atoms._NET_WM_STATE = 205;
+  atoms._NET_WM_STATE_FULLSCREEN = 206;
+
+  xcb_window_t win = 0x424242;
+  xcb_client_message_event_t ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.response_type = XCB_CLIENT_MESSAGE;
+  ev.format = 32;
+  ev.window = win;
+  ev.type = atoms._NET_WM_STATE;
+  ev.data.data32[0] = 1;
+  ev.data.data32[1] = atoms._NET_WM_STATE_FULLSCREEN;
+  ev.data.data32[2] = XCB_ATOM_NONE;
+
+  wm_handle_client_message(&s, &ev);
+
+  small_vec_t* v = (small_vec_t*)hash_map_get(&s.pending_unmanaged_states, win);
+  assert(v != NULL);
+  assert(v->length == 1);
+  pending_state_msg_t* msg = (pending_state_msg_t*)v->items[0];
+  assert(msg != NULL);
+  assert(msg->action == 1);
+  assert(msg->p1 == atoms._NET_WM_STATE_FULLSCREEN);
+  assert(msg->p2 == XCB_ATOM_NONE);
+
+  xcb_destroy_notify_event_t de;
+  memset(&de, 0, sizeof(de));
+  de.response_type = XCB_DESTROY_NOTIFY;
+  de.window = win;
+  de.event = s.root;
+  wm_handle_destroy_notify(&s, &de);
+
+  assert(hash_map_get(&s.pending_unmanaged_states, win) == NULL);
+
+  printf("test_unmanaged_wm_state_is_stashed passed\n");
   cleanup_server(&s);
 }
 
@@ -537,6 +593,7 @@ static void test_restack_iconified_sibling_is_ignored(void) {
 int main(void) {
   test_malformed_wm_state_format_ignored();
   test_unknown_window_type_ignored();
+  test_unmanaged_wm_state_is_stashed();
   test_strut_partial_invalid_ranges_ignored();
   test_property_spam_no_crash();
   test_active_window_rejects_stale_application_timestamp();
