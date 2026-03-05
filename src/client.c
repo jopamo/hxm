@@ -134,7 +134,7 @@ static void client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t
  */
 static void client_queue_get_property(server_t* s, client_hot_t* hot, handle_t h, xcb_window_t win, xcb_atom_t prop, xcb_atom_t type, uint32_t long_len) {
   uint32_t seq = xcb_get_property(s->conn, 0, win, prop, type, 0, long_len).sequence;
-  client_enqueue_manage_reply(s, hot, h, seq, COOKIE_GET_PROPERTY, ((uint64_t)win << 32) | prop, "get_property");
+  client_enqueue_manage_reply(s, hot, h, seq, COOKIE_GET_PROPERTY, ((uint64_t)win << 32) | (uint32_t)prop, "get_property");
 }
 
 static bool str_contains_case(const char* haystack, const char* needle) {
@@ -174,13 +174,25 @@ static bool client_is_conky(const client_cold_t* cold) {
 }
 
 bool should_focus_on_map(const client_hot_t* hot) {
+  assert(hot);
+
   if (hot->focus_override != -1)
     return (bool)hot->focus_override;
 
   // Some window types should never get focus on map
-  if (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_NOTIFICATION || hot->type == WINDOW_TYPE_DESKTOP || hot->type == WINDOW_TYPE_MENU || hot->type == WINDOW_TYPE_DROPDOWN_MENU ||
-      hot->type == WINDOW_TYPE_POPUP_MENU || hot->type == WINDOW_TYPE_TOOLTIP || hot->type == WINDOW_TYPE_COMBO || hot->type == WINDOW_TYPE_DND) {
-    return false;
+  switch (hot->type) {
+    case WINDOW_TYPE_DOCK:
+    case WINDOW_TYPE_NOTIFICATION:
+    case WINDOW_TYPE_DESKTOP:
+    case WINDOW_TYPE_MENU:
+    case WINDOW_TYPE_DROPDOWN_MENU:
+    case WINDOW_TYPE_POPUP_MENU:
+    case WINDOW_TYPE_TOOLTIP:
+    case WINDOW_TYPE_COMBO:
+    case WINDOW_TYPE_DND:
+      return false;
+    default:
+      break;
   }
 
   // Dialogs and transients may steal focus
@@ -192,7 +204,8 @@ bool should_focus_on_map(const client_hot_t* hot) {
 }
 
 static bool should_hide_for_show_desktop(const client_hot_t* hot) {
-  return hot && hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
+  assert(hot);
+  return hot->type != WINDOW_TYPE_DOCK && hot->type != WINDOW_TYPE_DESKTOP;
 }
 
 bool client_has_fixed_size(const client_hot_t* hot) {
@@ -242,8 +255,8 @@ void client_abort_manage(server_t* s, handle_t h) {
   if (hot->icon_surface)
     cairo_surface_destroy(hot->icon_surface);
 
-  slotmap_free(&s->clients, h);
   small_vec_remove(&s->active_clients, handle_to_ptr(h));
+  slotmap_free(&s->clients, h);
 
   s->root_dirty |= ROOT_DIRTY_CLIENT_LIST;
   s->workarea_dirty = true;
@@ -365,9 +378,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   hot->gtk_extents.bottom = 0;
   hot->original_border_width = 0;
 
-  // Phase 1 probes. pending_replies tracks only successfully enqueued cookies.
-  // If any enqueue fails, management is aborted once remaining queued replies
-  // drain.
+  // Phase 1 probes. pending_replies tracks all enqueued cookies.
   const struct {
     xcb_atom_t prop;
     xcb_atom_t type;
@@ -420,7 +431,8 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   TRACE_LOG("manage_start init nodes h=%lx focus_node=%p", h, (void*)&hot->focus_node);
 
   // Register mapping so we can find it
-  hash_map_insert(&s->window_to_client, win, handle_to_ptr(h));
+  bool replaced = hash_map_insert(&s->window_to_client, win, handle_to_ptr(h));
+  assert(!replaced);
   small_vec_push(&s->active_clients, handle_to_ptr(h));
   TRACE_LOG("manage_start window_to_client[%u]=%lx", win, h);
 
@@ -631,7 +643,8 @@ void client_finish_manage(server_t* s, handle_t h) {
   xcb_create_window(s->conn, s->root_depth, hot->frame, s->root, geom.x, geom.y, create_frame_w, create_frame_h, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, s->root_visual, mask, values);
 
   // Register frame mapping
-  hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));
+  bool frame_replaced = hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));
+  assert(!frame_replaced);
 
   // Add to SaveSet for crash safety
   xcb_change_save_set(s->conn, XCB_SET_MODE_INSERT, hot->xid);
@@ -986,7 +999,8 @@ void client_unmanage(server_t* s, handle_t h) {
     // Prefer parent if still mapped
     if (hot->transient_for != HANDLE_INVALID) {
       client_hot_t* parent = server_chot(s, hot->transient_for);
-      if (parent && parent->state == STATE_MAPPED) {
+      assert(parent);
+      if (parent->state == STATE_MAPPED) {
         next_h = hot->transient_for;
       }
     }
@@ -1104,8 +1118,8 @@ void client_unmanage(server_t* s, handle_t h) {
     cairo_surface_destroy(hot->icon_surface);
 
   // Free slot
-  slotmap_free(&s->clients, h);
   small_vec_remove(&s->active_clients, handle_to_ptr(h));
+  slotmap_free(&s->clients, h);
 
   s->root_dirty |= ROOT_DIRTY_CLIENT_LIST;
   s->workarea_dirty = true;
@@ -1268,6 +1282,8 @@ bool client_can_move(const client_hot_t* hot) {
 }
 
 bool client_can_resize(const client_hot_t* hot) {
+  assert(hot);
+
   if (!client_can_move(hot))
     return false;
 
