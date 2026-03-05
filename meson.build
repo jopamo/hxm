@@ -128,6 +128,13 @@ hxm = executable('hxm', src,
   install: true,
 )
 
+client_layout_dump = executable('client_layout_dump',
+  'src/client_layout_dump.c',
+  include_directories: incdir,
+  dependencies: deps,
+  install: false,
+)
+
 if get_option('debug')
 # Tests
 test_src = [
@@ -689,6 +696,7 @@ integration_script_fallback_test_script = find_program('tests/test_integration_s
 integration_real_x11_script_test_script = find_program('tests/test_integration_real_x11_script.sh', required: true)
 sync_reply_allowlist_test_script = find_program('tests/test_sync_reply_allowlist.sh', required: true)
 cookie_handler_ownership_test_script = find_program('tests/test_cookie_handler_ownership.sh', required: true)
+client_layout_dump_test_script = find_program('tests/test_client_layout_dump.sh', required: true)
 
 script_env = environment()
 script_env.set('HXM_BIN', hxm.full_path())
@@ -731,6 +739,16 @@ test('cookie_handler_ownership', cookie_handler_ownership_test_script,
   workdir: source_root,
   is_parallel: true,
   timeout: 30,
+)
+
+script_env.set('CLIENT_LAYOUT_DUMP_BIN', client_layout_dump.full_path())
+
+test('client_layout_dump', client_layout_dump_test_script,
+  env: script_env,
+  workdir: source_root,
+  is_parallel: true,
+  timeout: 30,
+  depends: [client_layout_dump],
 )
 
 test('integration_script', integration_script,
