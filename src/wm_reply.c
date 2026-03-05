@@ -971,24 +971,10 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               hot->transient_for = HANDLE_INVALID;
             }
           }
-
-          if (hot->transient_for != HANDLE_INVALID) {
-            client_hot_t* parent = server_chot(s, hot->transient_for);
-            if (parent) {
-              if (hot->transient_sibling.next && hot->transient_sibling.next != &hot->transient_sibling) {
-                list_remove(&hot->transient_sibling);
-              }
-              list_insert(&hot->transient_sibling, parent->transients_head.prev, &parent->transients_head);
-            }
-          }
         }
         else {
           cold->transient_for_xid = XCB_NONE;
           if (hot->transient_for != HANDLE_INVALID) {
-            if (hot->transient_sibling.next && hot->transient_sibling.next != &hot->transient_sibling) {
-              list_remove(&hot->transient_sibling);
-              list_init(&hot->transient_sibling);
-            }
             hot->transient_for = HANDLE_INVALID;
           }
         }

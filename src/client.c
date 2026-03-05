@@ -623,54 +623,8 @@ void client_finish_manage(server_t* s, handle_t h) {
   if (geom.h > max_client_h)
     geom.h = max_client_h;
 
-  uint16_t create_frame_w = geom.w;
-  uint16_t create_frame_h = geom.h;
-  if (!hot->gtk_frame_extents_set) {
-    uint32_t calc_w = (uint32_t)geom.w + (uint32_t)(2u * bw);
-    uint32_t calc_h = (uint32_t)geom.h + (uint32_t)th + (uint32_t)bottom_h;
-    if (calc_w > MAX_FRAME_SIZE)
-      calc_w = MAX_FRAME_SIZE;
-    if (calc_h > MAX_FRAME_SIZE)
-      calc_h = MAX_FRAME_SIZE;
-    create_frame_w = (uint16_t)calc_w;
-    create_frame_h = (uint16_t)calc_h;
-  }
-
-  // Use root visual/depth for frames to avoid client-visual artifacts (ex:
-  // video overlays)
-
-  hot->frame = xcb_generate_id(s->conn);
-  xcb_create_window(s->conn, s->root_depth, hot->frame, s->root, geom.x, geom.y, create_frame_w, create_frame_h, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, s->root_visual, mask, values);
-
-  // Register frame mapping
-  bool frame_replaced = hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));
-  assert(!frame_replaced);
-
-  // Add to SaveSet for crash safety
-  xcb_change_save_set(s->conn, XCB_SET_MODE_INSERT, hot->xid);
-
-  // ---------------------------------------------------------
-  // Reparenting
-  // ---------------------------------------------------------
-  int16_t rx = bw;
-  int16_t ry = th;
-
-  if (hot->gtk_frame_extents_set) {
-    rx = 0;
-    ry = 0;
-  }
-
-  // Reparent triggers an UnmapNotify on the client window
-  // Mark it as internal so we don't treat it as a client-initiated withdraw
-  if (hot->ignore_unmap < UINT8_MAX)
-    hot->ignore_unmap++;
-  xcb_reparent_window(s->conn, hot->xid, hot->frame, rx, ry);
-  if (hot->original_border_width != 0) {
-    uint32_t bw_values[] = {0};
-    xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_BORDER_WIDTH, bw_values);
-  }
-
-  // Apply initial sizes/positions after reparenting
+  // Compute final geometry before creating the frame so we avoid an extra frame
+  // configure pass and associated ConfigureNotify churn.
   int32_t frame_x = geom.x;
   int32_t frame_y = geom.y;
   uint32_t frame_w = geom.w;
@@ -700,13 +654,42 @@ void client_finish_manage(server_t* s, handle_t h) {
   if (frame_h > MAX_FRAME_SIZE)
     frame_h = MAX_FRAME_SIZE;
 
-  uint32_t frame_values[4];
-  frame_values[0] = (uint32_t)frame_x;
-  frame_values[1] = (uint32_t)frame_y;
-  frame_values[2] = frame_w;
-  frame_values[3] = frame_h;
-  xcb_configure_window(s->conn, hot->frame, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, frame_values);
+  // Use root visual/depth for frames to avoid client-visual artifacts (ex:
+  // video overlays)
 
+  hot->frame = xcb_generate_id(s->conn);
+  xcb_create_window(s->conn, s->root_depth, hot->frame, s->root, (int16_t)frame_x, (int16_t)frame_y, (uint16_t)frame_w, (uint16_t)frame_h, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, s->root_visual,
+                    mask, values);
+
+  // Register frame mapping
+  bool frame_replaced = hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));
+  assert(!frame_replaced);
+
+  // Add to SaveSet for crash safety
+  xcb_change_save_set(s->conn, XCB_SET_MODE_INSERT, hot->xid);
+
+  // ---------------------------------------------------------
+  // Reparenting
+  // ---------------------------------------------------------
+  int16_t rx = bw;
+  int16_t ry = th;
+
+  if (hot->gtk_frame_extents_set) {
+    rx = 0;
+    ry = 0;
+  }
+
+  // Reparent triggers an UnmapNotify on the client window
+  // Mark it as internal so we don't treat it as a client-initiated withdraw
+  if (hot->ignore_unmap < UINT8_MAX)
+    hot->ignore_unmap++;
+  xcb_reparent_window(s->conn, hot->xid, hot->frame, rx, ry);
+  if (hot->original_border_width != 0) {
+    uint32_t bw_values[] = {0};
+    xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_BORDER_WIDTH, bw_values);
+  }
+
+  // Apply initial client position/size inside the final frame.
   uint32_t client_values[4];
   client_values[0] = (uint32_t)client_x;
   client_values[1] = (uint32_t)client_y;
@@ -918,14 +901,9 @@ void client_finish_manage(server_t* s, handle_t h) {
  *
  * Called for destroy, withdraw, and restart paths.
  *
- * Cleanup order matters:
- *   1) unlink stacking/focus/transient relations
- *   2) repair focus target if needed
- *   3) remove SaveSet entry (if client still exists)
- *   4) reparent client back to root (if client still exists)
- *   5) destroy frame and damage objects
- *   6) remove lookup mappings and WM properties
- *   7) free hot/cold slot storage
+ * Cleanup uses two phases:
+ *   1) logical detach from WM state/tables (no X requests)
+ *   2) X teardown and memory release
  *
  * Reparent edge case:
  *   Frame must not be the final parent for surviving clients; otherwise frame
@@ -935,6 +913,71 @@ void client_finish_manage(server_t* s, handle_t h) {
  *   If the focused client is removed, focus prefers its transient parent, then
  *   falls back to the MRU mapped client.
  */
+static void client_detach_transient_children(server_t* s, handle_t parent_h) {
+  for (size_t i = 0; i < s->active_clients.length; i++) {
+    handle_t child_h = ptr_to_handle(s->active_clients.items[i]);
+    if (child_h == parent_h)
+      continue;
+
+    client_hot_t* child = server_chot(s, child_h);
+    assert(child);
+    if (child->transient_for == parent_h) {
+      TRACE_LOG("unmanage unlink child parent=%lx child=%lx", parent_h, child_h);
+      child->transient_for = HANDLE_INVALID;
+    }
+  }
+}
+
+static handle_t client_pick_focus_fallback(server_t* s, handle_t preferred_parent) {
+  if (preferred_parent != HANDLE_INVALID) {
+    client_hot_t* parent = server_chot(s, preferred_parent);
+    assert(parent);
+    if (parent->state == STATE_MAPPED)
+      return preferred_parent;
+  }
+
+  list_node_t* node = s->focus_history.next;
+#ifdef HXM_DEBUG_TRACE
+  int guard = 0;
+#endif
+  while (node != &s->focus_history) {
+    client_hot_t* cand = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
+#ifdef HXM_DEBUG_TRACE
+    if (guard < 64) {
+      TRACE_LOG("unmanage focus scan[%d] node=%p h=%lx xid=%u state=%d", guard, (void*)node, cand->self, cand->xid, cand->state);
+    }
+    else if (guard == 64) {
+      TRACE_WARN("unmanage focus scan exceeded 64 entries");
+    }
+    guard++;
+#endif
+    if (cand->state == STATE_MAPPED)
+      return cand->self;
+    node = node->next;
+  }
+
+  return HANDLE_INVALID;
+}
+
+static void client_detach_logical(server_t* s, handle_t h, client_hot_t* hot) {
+  TRACE_LOG("unmanage stack_remove h=%lx layer=%d", h, hot->layer);
+  stack_remove(s, h);
+
+  client_detach_transient_children(s, h);
+  hot->transient_for = HANDLE_INVALID;
+
+  if (hot->focus_node.next && hot->focus_node.next != &hot->focus_node) {
+    TRACE_LOG("unmanage focus_history remove h=%lx node=%p prev=%p next=%p", h, (void*)&hot->focus_node, (void*)hot->focus_node.prev, (void*)hot->focus_node.next);
+    list_remove(&hot->focus_node);
+    list_init(&hot->focus_node);
+  }
+
+  if (hot->xid != XCB_NONE)
+    hash_map_remove(&s->window_to_client, hot->xid);
+  if (hot->frame != XCB_NONE)
+    hash_map_remove(&s->frame_to_client, hot->frame);
+}
+
 void client_unmanage(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
   client_cold_t* cold = server_ccold(s, h);
@@ -944,12 +987,12 @@ void client_unmanage(server_t* s, handle_t h) {
     return;
 
   bool destroyed = (hot->state == STATE_DESTROYED);
+  handle_t transient_parent = hot->transient_for;
   hot->state = STATE_UNMANAGING;
 
   LOG_INFO("Unmanaging client %lx (window %u, destroyed=%d)", h, hot->xid, destroyed);
   TRACE_LOG("unmanage h=%lx frame=%u state=%d ignore_unmap=%u", h, hot->frame, hot->state, hot->ignore_unmap);
   TRACE_ONLY(diag_dump_focus_history(s, "before unmanage"));
-  TRACE_ONLY(diag_dump_transients(hot, "before unmanage"));
 
   if (s->interaction_mode != INTERACTION_NONE && s->interaction_handle == h) {
     LOG_INFO(
@@ -962,75 +1005,12 @@ void client_unmanage(server_t* s, handle_t h) {
     xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
   }
 
-  // Remove from stacking
-  TRACE_LOG("unmanage stack_remove h=%lx layer=%d", h, hot->layer);
-  stack_remove(s, h);
-
-  // Unlink from parent
-  if (hot->transient_sibling.next && hot->transient_sibling.next != &hot->transient_sibling) {
-    TRACE_LOG("unmanage unlink from parent h=%lx", h);
-    list_remove(&hot->transient_sibling);
-    list_init(&hot->transient_sibling);
-  }
-
-  // Unlink children
-  while (!list_empty(&hot->transients_head)) {
-    list_node_t* node = hot->transients_head.next;
-    assert(node);
-    client_hot_t* child = (client_hot_t*)((char*)node - offsetof(client_hot_t, transient_sibling));
-    TRACE_LOG("unmanage unlink child parent=%lx child=%lx", h, child->self);
-    child->transient_for = HANDLE_INVALID;
-    list_remove(node);
-    list_init(node);
-  }
-
-  // Remove from focus history
-  if (hot->focus_node.next && hot->focus_node.next != &hot->focus_node) {
-    TRACE_LOG("unmanage focus_history remove h=%lx node=%p prev=%p next=%p", h, (void*)&hot->focus_node, (void*)hot->focus_node.prev, (void*)hot->focus_node.next);
-    list_remove(&hot->focus_node);
-    list_init(&hot->focus_node);
-  }
+  client_detach_logical(s, h, hot);
   TRACE_ONLY(diag_dump_focus_history(s, "after focus removal"));
 
   // If focused, pick next
   if (s->focused_client == h) {
-    handle_t next_h = HANDLE_INVALID;
-
-    // Prefer parent if still mapped
-    if (hot->transient_for != HANDLE_INVALID) {
-      client_hot_t* parent = server_chot(s, hot->transient_for);
-      assert(parent);
-      if (parent->state == STATE_MAPPED) {
-        next_h = hot->transient_for;
-      }
-    }
-
-    // Fallback to MRU
-    if (next_h == HANDLE_INVALID) {
-      list_node_t* node = s->focus_history.next;
-#ifdef HXM_DEBUG_TRACE
-      int guard = 0;
-#endif
-      while (node != &s->focus_history) {
-        client_hot_t* cand = (client_hot_t*)((char*)node - offsetof(client_hot_t, focus_node));
-#ifdef HXM_DEBUG_TRACE
-        if (guard < 64) {
-          TRACE_LOG("unmanage focus scan[%d] node=%p h=%lx xid=%u state=%d", guard, (void*)node, cand->self, cand->xid, cand->state);
-        }
-        else if (guard == 64) {
-          TRACE_WARN("unmanage focus scan exceeded 64 entries for h=%lx", h);
-        }
-        guard++;
-#endif
-        if (cand->state == STATE_MAPPED) {
-          next_h = cand->self;
-          break;
-        }
-        node = node->next;
-      }
-    }
-
-    wm_set_focus(s, next_h);
+    wm_set_focus(s, client_pick_focus_fallback(s, transient_parent));
   }
 
   // Remove from SaveSet only if the client window still exists.
@@ -1094,17 +1074,14 @@ void client_unmanage(server_t* s, handle_t h) {
     hot->frame_colormap_owned = false;
   }
 
-  // Cleanup maps and properties
+  // Cleanup properties.
   if (hot->xid != XCB_NONE) {
     xcb_delete_property(s->conn, hot->xid, atoms.WM_STATE);
     if (!destroyed && !s->restarting) {
       xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_DESKTOP);
       xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_STATE);
     }
-    hash_map_remove(&s->window_to_client, hot->xid);
   }
-  if (hot->frame != XCB_NONE)
-    hash_map_remove(&s->frame_to_client, hot->frame);
 
   // Free cold data
   arena_destroy(&cold->string_arena);

@@ -207,6 +207,32 @@ static void stack_insert_bottom(server_t* s, client_hot_t* c, int layer) {
   mark_stacking_dirty(s);
 }
 
+static void stack_raise_transient_children(server_t* s, handle_t parent_h) {
+  for (size_t i = 0; i < s->active_clients.length; i++) {
+    handle_t child_h = ptr_to_handle(s->active_clients.items[i]);
+    if (child_h == parent_h)
+      continue;
+
+    client_hot_t* child = server_chot(s, child_h);
+    assert(child);
+    if (child->transient_for == parent_h)
+      stack_raise(s, child_h);
+  }
+}
+
+static void stack_lower_transient_children(server_t* s, handle_t parent_h) {
+  for (size_t i = 0; i < s->active_clients.length; i++) {
+    handle_t child_h = ptr_to_handle(s->active_clients.items[i]);
+    if (child_h == parent_h)
+      continue;
+
+    client_hot_t* child = server_chot(s, child_h);
+    assert(child);
+    if (child->transient_for == parent_h)
+      stack_lower(s, child_h);
+  }
+}
+
 void stack_raise(server_t* s, handle_t h) {
   if (!s)
     return;
@@ -224,20 +250,8 @@ void stack_raise(server_t* s, handle_t h) {
 
   stack_restack(s, h);
 
-  /* Raise transients on top of parent
-   * transients list is independent from stacking list, so it's safe to iterate
-   */
-  list_node_t* node = c->transients_head.next;
-  int guard = 0;
-  while (node != &c->transients_head && guard++ < 256) {
-    client_hot_t* child = (client_hot_t*)((char*)node - offsetof(client_hot_t, transient_sibling));
-    node = node->next;
-    stack_raise(s, child->self);
-  }
-
-  if (guard >= 256) {
-    LOG_WARN("stack_raise h=%lx transient guard hit, possible loop", h);
-  }
+  /* Raise transients on top of parent. */
+  stack_raise_transient_children(s, h);
 }
 
 void stack_move_to_layer(server_t* s, handle_t h) {
@@ -267,18 +281,8 @@ void stack_lower(server_t* s, handle_t h) {
   TRACE_LOG("stack_lower h=%lx layer=%d", h, layer);
 
   /* Lower transients first so they remain above the parent after the parent is
-   * lowered */
-  list_node_t* node = c->transients_head.next;
-  int guard = 0;
-  while (node != &c->transients_head && guard++ < 256) {
-    client_hot_t* child = (client_hot_t*)((char*)node - offsetof(client_hot_t, transient_sibling));
-    node = node->next;
-    stack_lower(s, child->self);
-  }
-
-  if (guard >= 256) {
-    LOG_WARN("stack_lower h=%lx transient guard hit, possible loop", h);
-  }
+   * lowered. */
+  stack_lower_transient_children(s, h);
 
   stack_remove(s, h);
   stack_insert_bottom(s, c, layer);

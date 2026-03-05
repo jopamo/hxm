@@ -65,10 +65,6 @@ void test_transient_cycle_prevention(void) {
   wm_handle_reply(&s, &slot, &mock_a, NULL);
 
   assert(hot_a->transient_for == hb);
-  // Check linkage (A should be in B's transients list)
-  assert(hot_b->transients_head.next != &hot_b->transients_head);
-  // Actually finding A in B's list is harder without iterating, but list
-  // shouldn't be empty
 
   // 2. Try to make B transient for A (Cycle!)
   // Mock reply for B
@@ -184,8 +180,6 @@ void test_transient_orphan_handled(void) {
 
   assert(cold->transient_for_xid == 9999);
   assert(hot->transient_for == HANDLE_INVALID);
-  assert(hot->transient_sibling.next == &hot->transient_sibling);
-  assert(hot->transient_sibling.prev == &hot->transient_sibling);
 
   printf("test_transient_orphan_handled passed\n");
 
