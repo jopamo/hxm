@@ -172,24 +172,42 @@ static bool wm_net_active_request_allowed(server_t* s, handle_t target, const cl
 }
 
 static bool wm_is_above_in_layer(const server_t* s, const client_hot_t* a, const client_hot_t* b) {
+  if (!s)
+    return false;
   if (!a || !b)
     return false;
-  if (a->layer != b->layer)
+  int layer_a = stack_current_layer(a);
+  int layer_b = stack_current_layer(b);
+  if (layer_a != layer_b || layer_a < 0 || layer_a >= LAYER_COUNT)
     return false;
 
-  const small_vec_t* v = &s->layers[a->layer];
-  bool seen_b = false;
+  const small_vec_t* v = &s->layers[layer_a];
+  int32_t idx_a = a->stacking_index;
+  int32_t idx_b = b->stacking_index;
+
+  bool a_valid = (idx_a >= 0 && (size_t)idx_a < v->length && ptr_to_handle(v->items[idx_a]) == a->self);
+  bool b_valid = (idx_b >= 0 && (size_t)idx_b < v->length && ptr_to_handle(v->items[idx_b]) == b->self);
+  if (a_valid && b_valid)
+    return idx_a > idx_b;
+
+  idx_a = -1;
+  idx_b = -1;
   for (size_t i = 0; i < v->length; i++) {
-    handle_t h = (handle_t)(uintptr_t)v->items[i];
-    const client_hot_t* cur = server_chot((server_t*)s, h);
-    if (!cur)
-      continue;
-    if (cur == a)
-      return seen_b;
-    if (cur == b)
-      seen_b = true;
+    handle_t h = ptr_to_handle(v->items[i]);
+    if (h == a->self)
+      idx_a = (int32_t)i;
+    if (h == b->self)
+      idx_b = (int32_t)i;
+    if (idx_a >= 0 && idx_b >= 0)
+      break;
   }
-  return false;
+
+  if (idx_a >= 0)
+    ((client_hot_t*)a)->stacking_index = idx_a;
+  if (idx_b >= 0)
+    ((client_hot_t*)b)->stacking_index = idx_b;
+
+  return (idx_a >= 0 && idx_b >= 0 && idx_a > idx_b);
 }
 
 static bool wm_restack_desktop_compatible(const client_hot_t* hot, const client_hot_t* sibling) {

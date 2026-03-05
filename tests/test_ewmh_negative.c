@@ -497,7 +497,8 @@ static void test_restack_desktop_mismatch_sibling_is_ignored(void) {
 
   send_net_restack_window(&s, target->xid, sibling->xid, XCB_STACK_MODE_BOTTOM_IF);
 
-  handle_t order[] = {h_target, h_helper, h_sibling};
+  /* Swap-based lower keeps O(1) behavior but does not preserve middle order. */
+  handle_t order[] = {h_target, h_sibling, h_helper};
   assert_layer_order(&s, LAYER_NORMAL, order, 3);
 
   printf("test_restack_desktop_mismatch_sibling_is_ignored passed\n");

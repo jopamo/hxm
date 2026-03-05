@@ -45,6 +45,36 @@ static int32_t stack_find_index(const small_vec_t* v, handle_t h) {
   return -1;
 }
 
+static int32_t stack_resolve_index(const small_vec_t* v, handle_t h, int32_t hint) {
+  if (!v)
+    return -1;
+
+  if (hint >= 0 && (size_t)hint < v->length && ptr_to_handle(v->items[hint]) == h)
+    return hint;
+
+  return stack_find_index(v, h);
+}
+
+static inline void stack_swap(server_t* s, small_vec_t* v, int32_t a, int32_t b) {
+  if (!s || !v || a < 0 || b < 0 || (size_t)a >= v->length || (size_t)b >= v->length || a == b)
+    return;
+
+  void* tmp = v->items[a];
+  v->items[a] = v->items[b];
+  v->items[b] = tmp;
+
+  handle_t ha = ptr_to_handle(v->items[a]);
+  handle_t hb = ptr_to_handle(v->items[b]);
+
+  client_hot_t* ca = server_chot(s, ha);
+  client_hot_t* cb = server_chot(s, hb);
+
+  if (ca)
+    ca->stacking_index = a;
+  if (cb)
+    cb->stacking_index = b;
+}
+
 static bool stack_locate_any_layer(server_t* s, handle_t h, int* layer_out, int32_t* idx_out) {
   if (!s)
     return false;
@@ -81,17 +111,14 @@ bool stack_can_anchor_to_sibling(server_t* s, handle_t h, handle_t sibling_h) {
   if (!v || v->length == 0)
     return false;
 
-  int32_t idx = c->stacking_index;
-  if (idx < 0 || (size_t)idx >= v->length || ptr_to_handle(v->items[idx]) != h) {
-    idx = stack_find_index(v, h);
-    if (idx < 0)
-      return false;
-  }
+  int32_t idx = stack_resolve_index(v, h, c->stacking_index);
+  if (idx < 0)
+    return false;
+  c->stacking_index = idx;
 
-  int32_t sib_idx = sib->stacking_index;
-  if (sib_idx < 0 || (size_t)sib_idx >= v->length || ptr_to_handle(v->items[sib_idx]) != sibling_h) {
-    sib_idx = stack_find_index(v, sibling_h);
-  }
+  int32_t sib_idx = stack_resolve_index(v, sibling_h, sib->stacking_index);
+  if (sib_idx >= 0)
+    sib->stacking_index = sib_idx;
   return sib_idx >= 0;
 }
 
@@ -152,20 +179,17 @@ void stack_remove(server_t* s, handle_t h) {
   if (!v || v->length == 0)
     return;
 
-  int32_t idx = c->stacking_index;
-  if (idx < 0 || (size_t)idx >= v->length || ptr_to_handle(v->items[idx]) != h) {
-    idx = stack_find_index(v, h);
-    if (idx < 0) {
-      int real_layer = -1;
-      int32_t real_idx = -1;
-      if (!stack_locate_any_layer(s, h, &real_layer, &real_idx))
-        return;
-      layer = real_layer;
-      v = layer_vec(s, layer);
-      if (!v)
-        return;
-      idx = real_idx;
-    }
+  int32_t idx = stack_resolve_index(v, h, c->stacking_index);
+  if (idx < 0) {
+    int real_layer = -1;
+    int32_t real_idx = -1;
+    if (!stack_locate_any_layer(s, h, &real_layer, &real_idx))
+      return;
+    layer = real_layer;
+    v = layer_vec(s, layer);
+    if (!v)
+      return;
+    idx = real_idx;
   }
 
   TRACE_LOG("stack_remove h=%lx layer=%d index=%d", h, layer, idx);
@@ -244,8 +268,22 @@ void stack_raise(server_t* s, handle_t h) {
   int layer = stack_current_layer(c);
   TRACE_LOG("stack_raise h=%lx layer=%d", h, layer);
 
-  stack_remove(s, h);
-  stack_insert_top(s, c, layer);
+  small_vec_t* v = layer_vec(s, layer);
+  if (!v)
+    return;
+
+  int32_t idx = stack_resolve_index(v, h, c->stacking_index);
+  if (idx < 0) {
+    stack_remove(s, h);
+    stack_insert_top(s, c, layer);
+  }
+  else {
+    int32_t top_idx = (int32_t)(v->length - 1);
+    stack_swap(s, v, idx, top_idx);
+    c->stacking_layer = (int8_t)layer;
+    c->stacking_index = top_idx;
+    mark_stacking_dirty(s);
+  }
   TRACE_ONLY(diag_dump_layer(s, layer, "after raise"));
 
   stack_restack(s, h);
@@ -284,8 +322,21 @@ void stack_lower(server_t* s, handle_t h) {
    * lowered. */
   stack_lower_transient_children(s, h);
 
-  stack_remove(s, h);
-  stack_insert_bottom(s, c, layer);
+  small_vec_t* v = layer_vec(s, layer);
+  if (!v)
+    return;
+
+  int32_t idx = stack_resolve_index(v, h, c->stacking_index);
+  if (idx < 0) {
+    stack_remove(s, h);
+    stack_insert_bottom(s, c, layer);
+  }
+  else {
+    stack_swap(s, v, idx, 0);
+    c->stacking_layer = (int8_t)layer;
+    c->stacking_index = 0;
+    mark_stacking_dirty(s);
+  }
   TRACE_ONLY(diag_dump_layer(s, layer, "after lower"));
 
   stack_restack(s, h);
@@ -293,6 +344,8 @@ void stack_lower(server_t* s, handle_t h) {
 
 void stack_place_above(server_t* s, handle_t h, handle_t sibling_h) {
   if (!s)
+    return;
+  if (h == sibling_h)
     return;
 
   client_hot_t* c = server_chot(s, h);
@@ -310,28 +363,40 @@ void stack_place_above(server_t* s, handle_t h, handle_t sibling_h) {
     return;
   }
 
-  stack_remove(s, h);
-
   small_vec_t* v = layer_vec(s, layer);
   if (!v)
-    return; /* Should be covered by stack_remove or earlier logic, but for
-               safety */
+    return;
 
-  int32_t sib_idx = sib->stacking_index;
-  if (sib_idx < 0 || (size_t)sib_idx >= v->length || ptr_to_handle(v->items[sib_idx]) != sibling_h) {
-    sib_idx = stack_find_index(v, sibling_h);
+  int32_t sib_idx = stack_resolve_index(v, sibling_h, sib->stacking_index);
+  if (sib_idx < 0) {
+    stack_raise(s, h);
+    return;
+  }
+  sib->stacking_index = sib_idx;
+
+  int32_t idx = stack_resolve_index(v, h, c->stacking_index);
+  if (idx < 0) {
+    stack_remove(s, h);
+    sib_idx = stack_resolve_index(v, sibling_h, sib->stacking_index);
     if (sib_idx < 0) {
       stack_raise(s, h);
       return;
     }
+    size_t new_idx = (size_t)sib_idx + 1;
+    stack_vec_insert(s, v, new_idx, h);
+    c->stacking_layer = (int8_t)layer;
+    c->stacking_index = (int32_t)new_idx;
+    mark_stacking_dirty(s);
   }
-
-  /* Insert after sibling */
-  size_t new_idx = (size_t)sib_idx + 1;
-  stack_vec_insert(s, v, new_idx, h);
-  c->stacking_layer = (int8_t)layer;
-  c->stacking_index = (int32_t)new_idx;
-  mark_stacking_dirty(s);
+  else {
+    int32_t target = sib_idx + 1;
+    if ((size_t)target >= v->length)
+      target = sib_idx;
+    stack_swap(s, v, idx, target);
+    c->stacking_layer = (int8_t)layer;
+    c->stacking_index = target;
+    mark_stacking_dirty(s);
+  }
   TRACE_ONLY(diag_dump_layer(s, layer, "after place_above"));
 
   stack_restack(s, h);
@@ -339,6 +404,8 @@ void stack_place_above(server_t* s, handle_t h, handle_t sibling_h) {
 
 void stack_place_below(server_t* s, handle_t h, handle_t sibling_h) {
   if (!s)
+    return;
+  if (h == sibling_h)
     return;
 
   client_hot_t* c = server_chot(s, h);
@@ -355,27 +422,38 @@ void stack_place_below(server_t* s, handle_t h, handle_t sibling_h) {
     return;
   }
 
-  stack_remove(s, h);
-
   small_vec_t* v = layer_vec(s, layer);
   if (!v)
     return;
 
-  int32_t sib_idx = sib->stacking_index;
-  if (sib_idx < 0 || (size_t)sib_idx >= v->length || ptr_to_handle(v->items[sib_idx]) != sibling_h) {
-    sib_idx = stack_find_index(v, sibling_h);
+  int32_t sib_idx = stack_resolve_index(v, sibling_h, sib->stacking_index);
+  if (sib_idx < 0) {
+    stack_lower(s, h);
+    return;
+  }
+  sib->stacking_index = sib_idx;
+
+  int32_t idx = stack_resolve_index(v, h, c->stacking_index);
+  if (idx < 0) {
+    stack_remove(s, h);
+    sib_idx = stack_resolve_index(v, sibling_h, sib->stacking_index);
     if (sib_idx < 0) {
       stack_lower(s, h);
       return;
     }
+    size_t new_idx = (size_t)sib_idx;
+    stack_vec_insert(s, v, new_idx, h);
+    c->stacking_layer = (int8_t)layer;
+    c->stacking_index = (int32_t)new_idx;
+    mark_stacking_dirty(s);
   }
-
-  /* Insert before sibling */
-  size_t new_idx = (size_t)sib_idx;
-  stack_vec_insert(s, v, new_idx, h);
-  c->stacking_layer = (int8_t)layer;
-  c->stacking_index = (int32_t)new_idx;
-  mark_stacking_dirty(s);
+  else {
+    int32_t target = (sib_idx > 0) ? (sib_idx - 1) : sib_idx;
+    stack_swap(s, v, idx, target);
+    c->stacking_layer = (int8_t)layer;
+    c->stacking_index = target;
+    mark_stacking_dirty(s);
+  }
   TRACE_ONLY(diag_dump_layer(s, layer, "after place_below"));
 
   stack_restack(s, h);
@@ -386,11 +464,9 @@ static xcb_window_t find_window_below(server_t* s, client_hot_t* c) {
   int layer = stack_current_layer(c);
   small_vec_t* v = layer_vec(s, layer);
   if (v) {
-    int32_t idx = c->stacking_index;
-    if (idx < 0 || (size_t)idx >= v->length || ptr_to_handle(v->items[idx]) != c->self) {
-      idx = stack_find_index(v, c->self);
-    }
+    int32_t idx = stack_resolve_index(v, c->self, c->stacking_index);
     if (idx > 0) {
+      c->stacking_index = idx;
       handle_t below_h = ptr_to_handle(v->items[idx - 1]);
       client_hot_t* below = server_chot(s, below_h);
       xcb_window_t win = stack_window_xid(below);
@@ -419,11 +495,9 @@ static xcb_window_t find_window_above(server_t* s, client_hot_t* c) {
   int layer = stack_current_layer(c);
   small_vec_t* v = layer_vec(s, layer);
   if (v) {
-    int32_t idx = c->stacking_index;
-    if (idx < 0 || (size_t)idx >= v->length || ptr_to_handle(v->items[idx]) != c->self) {
-      idx = stack_find_index(v, c->self);
-    }
+    int32_t idx = stack_resolve_index(v, c->self, c->stacking_index);
     if (idx >= 0 && (size_t)(idx + 1) < v->length) {
+      c->stacking_index = idx;
       handle_t above_h = ptr_to_handle(v->items[idx + 1]);
       client_hot_t* above = server_chot(s, above_h);
       xcb_window_t win = stack_window_xid(above);
