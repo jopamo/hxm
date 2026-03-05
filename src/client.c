@@ -84,6 +84,7 @@
 
 #include "client.h"
 
+#include <assert.h>
 #include <ctype.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -110,17 +111,15 @@
  *   sequence -> (client handle, cookie type, data) -> wm_handle_reply()
  *
  * pending_replies counts successfully enqueued probes for this manage pass.
- * If enqueue fails, management is aborted so probe accounting stays
- * consistent.
+ * Probe cookies are expected to always be valid while connected.
  */
-static bool client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t h, uint32_t seq, cookie_type_t type, uintptr_t data, const char* request_name) {
-  if (seq == 0) {
-    LOG_ERROR("Manage probe request returned zero sequence for window %u (%s)", hot->xid, request_name);
-    return false;
-  }
+static void client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t h, uint32_t seq, cookie_type_t type, uintptr_t data, const char* request_name) {
+  assert(s);
+  assert(hot);
+  assert(request_name);
+  assert(seq != 0);
   cookie_jar_push(&s->cookie_jar, seq, type, h, data, s->txn_id, wm_handle_reply);
   hot->pending_replies++;
-  return true;
 }
 
 /*
@@ -133,14 +132,15 @@ static bool client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t
  * This avoids extra allocations while still allowing the reply handler to
  * identify the exact probe.
  */
-static bool client_queue_get_property(server_t* s, client_hot_t* hot, handle_t h, xcb_window_t win, xcb_atom_t prop, xcb_atom_t type, uint32_t long_len) {
+static void client_queue_get_property(server_t* s, client_hot_t* hot, handle_t h, xcb_window_t win, xcb_atom_t prop, xcb_atom_t type, uint32_t long_len) {
   uint32_t seq = xcb_get_property(s->conn, 0, win, prop, type, 0, long_len).sequence;
-  return client_enqueue_manage_reply(s, hot, h, seq, COOKIE_GET_PROPERTY, ((uint64_t)win << 32) | prop, "get_property");
+  client_enqueue_manage_reply(s, hot, h, seq, COOKIE_GET_PROPERTY, ((uint64_t)win << 32) | prop, "get_property");
 }
 
 static bool str_contains_case(const char* haystack, const char* needle) {
-  if (!haystack || !needle || !*needle)
-    return false;
+  assert(haystack);
+  assert(needle);
+  assert(*needle);
   size_t nlen = strlen(needle);
   for (const char* p = haystack; *p; p++) {
     size_t i = 0;
@@ -165,11 +165,10 @@ static bool str_contains_case(const char* haystack, const char* needle) {
  * We detect via WM_CLASS/instance matching.
  */
 static bool client_is_conky(const client_cold_t* cold) {
-  if (!cold)
-    return false;
-  if (str_contains_case(cold->wm_class, "conky"))
+  assert(cold);
+  if (cold->wm_class && str_contains_case(cold->wm_class, "conky"))
     return true;
-  if (str_contains_case(cold->wm_instance, "conky"))
+  if (cold->wm_instance && str_contains_case(cold->wm_instance, "conky"))
     return true;
   return false;
 }
@@ -197,8 +196,7 @@ static bool should_hide_for_show_desktop(const client_hot_t* hot) {
 }
 
 bool client_has_fixed_size(const client_hot_t* hot) {
-  if (!hot)
-    return false;
+  assert(hot);
 
   bool has_min_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) != 0;
   bool has_max_size = (hot->hints_flags & XCB_ICCCM_SIZE_HINT_P_MAX_SIZE) != 0;
@@ -217,8 +215,8 @@ static uint16_t clamp_u16_from_i64(int64_t v) {
 void client_abort_manage(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
   client_cold_t* cold = server_ccold(s, h);
-  if (!hot || !cold)
-    return;
+  assert(hot);
+  assert(cold);
 
   size_t purged = cookie_jar_remove_client(&s->cookie_jar, h);
   if (purged > 0) {
@@ -272,8 +270,8 @@ void client_abort_manage(server_t* s, handle_t h) {
  *   aborted out of normal management and left to the X server/compositor.
  *
  * Failure policy:
- *   If probe cookie registration fails at any point, management is aborted and
- *   the client is mapped unframed so the window remains visible.
+ *   Probe cookie sequences must be non-zero while connected. Violations are
+ *   treated as invariant breaks.
  *
  * Finalization:
  *   wm_handle_reply() decrements hot->pending_replies as probes resolve. Once
@@ -290,10 +288,9 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   void* hot_ptr;
   void* cold_ptr;
   handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
-  if (h == HANDLE_INVALID) {
-    LOG_ERROR("Failed to allocate client slot for window %u", win);
-    return;
-  }
+  assert(h != HANDLE_INVALID);
+  assert(hot_ptr != NULL);
+  assert(cold_ptr != NULL);
   TRACE_LOG("manage_start allocated handle=%lx for win=%u", h, win);
 
   client_hot_t* hot = (client_hot_t*)hot_ptr;
@@ -371,7 +368,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   // Phase 1 probes. pending_replies tracks only successfully enqueued cookies.
   // If any enqueue fails, management is aborted once remaining queued replies
   // drain.
-  struct {
+  const struct {
     xcb_atom_t prop;
     xcb_atom_t type;
     uint32_t long_len;
@@ -430,30 +427,16 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   uint32_t early_events = XCB_EVENT_MASK_PROPERTY_CHANGE;
   xcb_change_window_attributes(s->conn, win, XCB_CW_EVENT_MASK, &early_events);
 
-  bool enqueue_failed = false;
-
   // Query window attributes (override_redirect, visual, etc)
   uint32_t c1 = xcb_get_window_attributes(s->conn, win).sequence;
-  if (!client_enqueue_manage_reply(s, hot, h, c1, COOKIE_GET_WINDOW_ATTRIBUTES, win, "get_window_attributes")) {
-    enqueue_failed = true;
-  }
+  client_enqueue_manage_reply(s, hot, h, c1, COOKIE_GET_WINDOW_ATTRIBUTES, win, "get_window_attributes");
 
   // Query initial geometry
   uint32_t c2 = xcb_get_geometry(s->conn, win).sequence;
-  if (!client_enqueue_manage_reply(s, hot, h, c2, COOKIE_GET_GEOMETRY, win, "get_geometry")) {
-    enqueue_failed = true;
-  }
+  client_enqueue_manage_reply(s, hot, h, c2, COOKIE_GET_GEOMETRY, win, "get_geometry");
 
   for (size_t i = 0; i < ARRAY_LEN(props); i++) {
-    if (!client_queue_get_property(s, hot, h, win, props[i].prop, props[i].type, props[i].long_len)) {
-      enqueue_failed = true;
-    }
-  }
-
-  if (enqueue_failed) {
-    LOG_ERROR("Aborting manage for window %u: failed to enqueue initial probes (queued=%u)", win, hot->pending_replies);
-    client_abort_manage(s, h);
-    return;
+    client_queue_get_property(s, hot, h, win, props[i].prop, props[i].type, props[i].long_len);
   }
 
   LOG_DEBUG("Started management for window %u (handle %lx)", win, h);
@@ -463,8 +446,8 @@ void client_manage_start(server_t* s, xcb_window_t win) {
 static void client_apply_rules(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
   client_cold_t* cold = server_ccold(s, h);
-  if (!hot || !cold)
-    return;
+  assert(hot);
+  assert(cold);
 
   bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
   bool keep_sticky = is_panel && hot->sticky;
@@ -574,9 +557,9 @@ static void client_apply_rules(server_t* s, handle_t h) {
  */
 void client_finish_manage(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
-    return;
+  assert(hot);
   client_cold_t* cold = server_ccold(s, h);
+  assert(cold);
   bool is_conky = client_is_conky(cold);
   TRACE_LOG("finish_manage h=%lx xid=%u desktop=%d sticky=%d initial_state=%u", h, hot->xid, hot->desktop, hot->sticky, hot->initial_state);
 
@@ -942,7 +925,9 @@ void client_finish_manage(server_t* s, handle_t h) {
 void client_unmanage(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
   client_cold_t* cold = server_ccold(s, h);
-  if (!hot || hot->state == STATE_UNMANAGING || hot->state == STATE_UNMANAGED)
+  assert(hot);
+  assert(cold);
+  if (hot->state == STATE_UNMANAGING || hot->state == STATE_UNMANAGED)
     return;
 
   bool destroyed = (hot->state == STATE_DESTROYED);
@@ -978,6 +963,7 @@ void client_unmanage(server_t* s, handle_t h) {
   // Unlink children
   while (!list_empty(&hot->transients_head)) {
     list_node_t* node = hot->transients_head.next;
+    assert(node);
     client_hot_t* child = (client_hot_t*)((char*)node - offsetof(client_hot_t, transient_sibling));
     TRACE_LOG("unmanage unlink child parent=%lx child=%lx", h, child->self);
     child->transient_for = HANDLE_INVALID;
@@ -1129,7 +1115,9 @@ void client_unmanage(server_t* s, handle_t h) {
 void client_close(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
   client_cold_t* cold = server_ccold(s, h);
-  if (!hot || !cold || hot->state == STATE_DESTROYED || hot->state == STATE_UNMANAGED)
+  assert(hot);
+  assert(cold);
+  if (hot->state == STATE_DESTROYED || hot->state == STATE_UNMANAGED)
     return;
 
   if (cold->protocols & PROTOCOL_DELETE_WINDOW) {
@@ -1165,6 +1153,10 @@ void client_close(server_t* s, handle_t h) {
  * fallback when BASE_SIZE is absent).
  */
 void client_constrain_size(const size_hints_t* s, uint32_t flags, uint16_t* w, uint16_t* h) {
+  assert(s);
+  assert(w);
+  assert(h);
+
   // Min/Max size
   if (flags & XCB_ICCCM_SIZE_HINT_P_MIN_SIZE) {
     if (s->min_w > 0) {
@@ -1248,8 +1240,7 @@ void client_constrain_size(const size_hints_t* s, uint32_t flags, uint16_t* w, u
  */
 void client_setup_grabs(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
-    return;
+  assert(hot);
 
   // Grab buttons 1, 2, 3 for click-to-focus and Alt-move/resize
   // Use SYNC mode for the pointer so we can intercept clicks
@@ -1260,8 +1251,7 @@ void client_setup_grabs(server_t* s, handle_t h) {
 }
 
 bool client_can_move(const client_hot_t* hot) {
-  if (!hot)
-    return false;
+  assert(hot);
   if (hot->layer == LAYER_FULLSCREEN)
     return false;
 

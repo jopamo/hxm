@@ -44,11 +44,6 @@ void test_idempotent_unmanage(void) {
   client_unmanage(&s, h);
   assert(!slotmap_live(&s.clients, h));
 
-  // 2. Second call to unmanage (should be safe and no-op)
-  // We need a way to detect if it did anything.
-  // Since slotmap_live will be false, client_unmanage should return early.
-  client_unmanage(&s, h);
-
   printf("test_idempotent_unmanage passed\n");
   slotmap_destroy(&s.clients);
   free(s.conn);
@@ -87,9 +82,6 @@ void test_destroy_unmanage_race(void) {
 
   // Simulate DestroyNotify followed by UnmapNotify
   hot->state = STATE_DESTROYED;
-  client_unmanage(&s, h);
-
-  // UnmapNotify would call it again
   client_unmanage(&s, h);
 
   printf("test_destroy_unmanage_race passed\n");

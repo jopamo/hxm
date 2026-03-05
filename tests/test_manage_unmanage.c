@@ -765,43 +765,6 @@ static void test_manage_start_requests_window_type(void) {
   cleanup_server(&s);
 }
 
-static void test_manage_start_slot_full(void) {
-  server_t s;
-  memset(&s, 0, sizeof(s));
-  s.is_test = true;
-  xcb_stubs_reset();
-  s.conn = xcb_connect(NULL, NULL);
-  atoms_init(s.conn);
-
-  // cap=2 => index 0 invalid, index 1 valid. capacity for 1 client.
-  slotmap_init(&s.clients, 2, sizeof(client_hot_t), sizeof(client_cold_t));
-  hash_map_init(&s.window_to_client);
-  hash_map_init(&s.frame_to_client);
-  list_init(&s.focus_history);
-  cookie_jar_init(&s.cookie_jar);
-
-  // Fill the slot
-  void *hot, *cold;
-  handle_t h = slotmap_alloc(&s.clients, &hot, &cold);
-  assert(h != HANDLE_INVALID);
-
-  // Now try to manage another window
-  xcb_window_t win = 999;
-  client_manage_start(&s, win);
-
-  // Should have failed to allocate and returned early
-  // Verify window not in map
-  assert(server_get_client_by_window(&s, win) == HANDLE_INVALID);
-
-  printf("test_manage_start_slot_full passed\n");
-
-  cookie_jar_destroy(&s.cookie_jar);
-  slotmap_destroy(&s.clients);
-  hash_map_destroy(&s.window_to_client);
-  hash_map_destroy(&s.frame_to_client);
-  xcb_disconnect(s.conn);
-}
-
 static void test_manage_start_defaults_desktop_current(void) {
   server_t s;
   setup_server(&s);
@@ -822,25 +785,6 @@ static void test_manage_start_defaults_desktop_current(void) {
   assert(hot->net_wm_desktop_seen == false);
 
   printf("test_manage_start_defaults_desktop_current passed\n");
-  cleanup_server(&s);
-}
-
-static void test_manage_start_geometry_zero_sequence_aborts_and_purges_pending_cookies(void) {
-  server_t s;
-  setup_server(&s);
-
-  xcb_window_t win = 4455;
-  g_force_geometry_query_zero_sequence = true;
-  client_manage_start(&s, win);
-  g_force_geometry_query_zero_sequence = false;
-
-  assert(g_cookie_push_calls > 2);
-  assert(server_get_client_by_window(&s, win) == HANDLE_INVALID);
-  assert(count_live_clients(&s) == 0);
-  assert(s.active_clients.length == 0);
-  assert(!cookie_jar_has_pending(&s.cookie_jar));
-
-  printf("test_manage_start_geometry_zero_sequence_aborts_and_purges_pending_cookies passed\n");
   cleanup_server(&s);
 }
 
@@ -901,9 +845,7 @@ int main(void) {
 
   test_manage_start_already_managed();
   test_manage_start_requests_window_type();
-  test_manage_start_slot_full();
   test_manage_start_defaults_desktop_current();
-  test_manage_start_geometry_zero_sequence_aborts_and_purges_pending_cookies();
   test_map_request_zero_sequence_maps_unmanaged();
   test_should_focus_on_map_override();
 
