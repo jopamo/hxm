@@ -18,6 +18,22 @@ get_nth() {
   echo "$json" | sed 's/[^0-9]/ /g' | awk -v n="$n" '{print $n}'
 }
 
+wait_for_root_value() {
+  local atom=$1
+  local expected=$2
+  for _ in $(seq 1 200); do
+    local json
+    json=$("$client" get-root-cardinals "$atom")
+    local got
+    got=$(get_nth "$json" 1)
+    if [ "$got" = "$expected" ]; then
+      return 0
+    fi
+    sleep 0.02
+  done
+  fail "timeout waiting for $atom to be $expected"
+}
+
 read_window_cardinals() {
   local win=$1
   local atom=$2
@@ -64,6 +80,10 @@ out=$(mktemp)
 "$client" create-window-and-sleep 10 >"$out" &
 client_pid=$!
 trap 'kill "$client_pid" 2>/dev/null || true; rm -f "$out"' EXIT
+
+# Ensure this test always validates desktop 0's workarea entry.
+"$client" send-client-message 0 _NET_CURRENT_DESKTOP 0 0 0 0 0
+wait_for_root_value _NET_CURRENT_DESKTOP 0
 
 sleep 0.1
 win=$(cat "$out")

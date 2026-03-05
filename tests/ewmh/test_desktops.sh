@@ -87,4 +87,8 @@ wait_for_client_in_list "$win"
 "$client" send-client-message "$win" _NET_WM_DESKTOP 2 1 0 0 0
 wait_for_window_value "$win" _NET_WM_DESKTOP 2
 
+# Restore baseline desktop for subsequent tests in the same Xvfb session.
+"$client" send-client-message 0 _NET_CURRENT_DESKTOP 0 0 0 0 0
+wait_for_root_value _NET_CURRENT_DESKTOP 0
+
 echo "PASS: desktops"

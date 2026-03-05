@@ -39,7 +39,8 @@ chmod +x "$fake_bin/hxm" "$fake_bin/integration_client"
 
 missing_display_stderr="$tmpdir/missing_display.stderr"
 set +e
-PATH="$fake_bin:/usr/bin:/bin" \
+env -u DISPLAY \
+  PATH="$fake_bin:/usr/bin:/bin" \
   HXM_BIN="$fake_bin/hxm" \
   INTEGRATION_CLIENT="$fake_bin/integration_client" \
   bash "$script" >/dev/null 2>"$missing_display_stderr"

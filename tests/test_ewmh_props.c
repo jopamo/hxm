@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fontconfig/fontconfig.h>
+#include <pango/pangocairo.h>
 #include <xcb/xcb_icccm.h>
 #include <xcb/xproto.h>
 
@@ -116,6 +118,8 @@ static void cleanup_server(server_t* s) {
   arena_destroy(&s->tick_arena);
   config_destroy(&s->config);
   xcb_disconnect(s->conn);
+  pango_cairo_font_map_set_default(NULL);
+  FcFini();
 }
 
 static handle_t add_mapped_client(server_t* s, xcb_window_t win, xcb_window_t frame) {

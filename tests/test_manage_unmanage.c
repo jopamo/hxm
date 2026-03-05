@@ -194,6 +194,7 @@ static void test_adopt_children_skips_override_and_unmapped(void) {
   stub_poll_for_reply_hook = adopt_poll_for_reply;
 
   wm_adopt_children(&s);
+  cookie_jar_mark_replies_may_exist(&s.cookie_jar);
   cookie_jar_drain(&s.cookie_jar, s.conn, &s, 32);
 
   assert(server_get_client_by_window(&s, w1) != HANDLE_INVALID);
@@ -241,6 +242,7 @@ static void test_map_request_starts_manage_once(void) {
   wm_handle_map_request(&s, &ev);
   g_map_request_window = ev.window;
   stub_poll_for_reply_hook = map_request_poll_for_reply;
+  cookie_jar_mark_replies_may_exist(&s.cookie_jar);
   cookie_jar_drain(&s.cookie_jar, s.conn, &s, 8);
   handle_t h = server_get_client_by_window(&s, ev.window);
   assert(h != HANDLE_INVALID);
@@ -494,6 +496,7 @@ static void test_map_request_maps_and_stays_mapped(void) {
   stub_poll_for_reply_hook = map_request_poll_for_reply;
 
   wm_handle_map_request(&s, &ev);
+  cookie_jar_mark_replies_may_exist(&s.cookie_jar);
   cookie_jar_drain(&s.cookie_jar, s.conn, &s, 8);
 
   handle_t h = server_get_client_by_window(&s, ev.window);

@@ -105,6 +105,7 @@ static void test_randr_crtc_enqueue_failure_clears_pending_accounting(void) {
   assert(g_resources_sequence != 0);
   assert(cookie_jar_has_pending(&s.cookie_jar));
 
+  cookie_jar_mark_replies_may_exist(&s.cookie_jar);
   cookie_jar_drain(&s.cookie_jar, s.conn, &s, 8);
 
   assert(g_resources_reply_delivered);
@@ -131,6 +132,7 @@ static void test_randr_crtc_zero_sequence_clears_pending_accounting(void) {
   assert(g_resources_sequence != 0);
   assert(cookie_jar_has_pending(&s.cookie_jar));
 
+  cookie_jar_mark_replies_may_exist(&s.cookie_jar);
   cookie_jar_drain(&s.cookie_jar, s.conn, &s, 8);
   g_force_zero_crtc_sequence = false;
 

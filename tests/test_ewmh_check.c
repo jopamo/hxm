@@ -52,6 +52,7 @@ static void test_supporting_wm_check_mapped(void) {
   // Keep server state sane for future logic
   slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
   s.desktop_count = 4;
+  arena_init(&s.tick_arena, 4096);
 
   xcb_stubs_reset();
 
@@ -76,6 +77,7 @@ static void test_supporting_wm_check_mapped(void) {
 
   printf("PASS: supporting_wm_check %u was mapped\n", s.supporting_wm_check);
 
+  arena_destroy(&s.tick_arena);
   slotmap_destroy(&s.clients);
   xcb_disconnect(s.conn);
 }
@@ -127,6 +129,7 @@ static void test_net_client_list_published(void) {
   slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
   small_vec_init(&s.active_clients);
   s.desktop_count = 1;
+  arena_init(&s.tick_arena, 4096);
   xcb_stubs_reset();
 
   // Add a client
@@ -172,6 +175,7 @@ static void test_refuse_when_substructure_redirect_fails(void) {
   atoms_init(s.conn);
   slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
   s.desktop_count = 1;
+  arena_init(&s.tick_arena, 4096);
 
   xcb_stubs_reset();
   g_force_badaccess_once = true;
@@ -187,6 +191,7 @@ static void test_refuse_when_substructure_redirect_fails(void) {
   stub_poll_for_reply_hook = NULL;
   printf("PASS: WM refuses when SubstructureRedirect is unavailable\n");
 
+  arena_destroy(&s.tick_arena);
   slotmap_destroy(&s.clients);
   xcb_disconnect(s.conn);
 }
@@ -200,6 +205,7 @@ static void test_existing_wm_keeps_selection_owner(void) {
   atoms_init(s1.conn);
   slotmap_init(&s1.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
   s1.desktop_count = 1;
+  arena_init(&s1.tick_arena, 4096);
 
   xcb_stubs_reset();
   wm_become(&s1);
@@ -220,6 +226,7 @@ static void test_existing_wm_keeps_selection_owner(void) {
   s2.root = s1.root;
   slotmap_init(&s2.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
   s2.desktop_count = 1;
+  arena_init(&s2.tick_arena, 4096);
 
   wm_become(&s2);
   wm_flush_dirty(&s2, monotonic_time_ns());
@@ -230,8 +237,10 @@ static void test_existing_wm_keeps_selection_owner(void) {
 
   printf("PASS: existing WM keeps WM_S0 ownership after second start\n");
 
+  arena_destroy(&s2.tick_arena);
   slotmap_destroy(&s2.clients);
   xcb_disconnect(s2.conn);
+  arena_destroy(&s1.tick_arena);
   slotmap_destroy(&s1.clients);
   xcb_disconnect(s1.conn);
 }
@@ -245,6 +254,7 @@ static void test_wm_s0_selection_and_supporting_check(void) {
   atoms_init(s.conn);
   slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
   s.desktop_count = 1;
+  arena_init(&s.tick_arena, 4096);
   xcb_stubs_reset();
 
   wm_become(&s);
@@ -268,6 +278,7 @@ static void test_wm_s0_selection_and_supporting_check(void) {
 
   printf("PASS: WM_S0 and _NET_SUPPORTING_WM_CHECK round-trip\n");
 
+  arena_destroy(&s.tick_arena);
   slotmap_destroy(&s.clients);
   xcb_disconnect(s.conn);
 }
@@ -281,6 +292,7 @@ static void test_refuse_when_selection_owned(void) {
   atoms_init(s.conn);
   slotmap_init(&s.clients, 32, sizeof(client_hot_t), sizeof(client_cold_t));
   s.desktop_count = 1;
+  arena_init(&s.tick_arena, 4096);
 
   xcb_stubs_reset();
   xcb_stubs_set_selection_owner(999);
@@ -294,6 +306,7 @@ static void test_refuse_when_selection_owned(void) {
 
   printf("PASS: WM refuses when WM_S0 owned\n");
 
+  arena_destroy(&s.tick_arena);
   slotmap_destroy(&s.clients);
   xcb_disconnect(s.conn);
 }

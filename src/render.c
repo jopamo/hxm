@@ -245,8 +245,6 @@ void render_frame(xcb_connection_t* conn,
   if (w <= 0 || h <= 0)
     return;
 
-  ensure_layout(ctx);
-
   cairo_surface_t* target_surface = NULL;
   xcb_pixmap_t pixmap = XCB_NONE;
 
@@ -367,6 +365,7 @@ void render_frame(xcb_connection_t* conn,
 
   // 3. Draw Title Text
   if (title && title[0] != '\0') {
+    ensure_layout(ctx);
     cairo_set_source_rgba(cr, text.r, text.g, text.b, text.a);
 
     // Update layout text only if changed

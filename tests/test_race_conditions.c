@@ -105,6 +105,7 @@ static void test_destroy_during_manage_no_crash(void) {
   g_attr_entries_len = 0;
   g_attr_entries[g_attr_entries_len++] = (attr_reply_entry_t){win, false, XCB_MAP_STATE_VIEWABLE};
 
+  cookie_jar_mark_replies_may_exist(&s.cookie_jar);
   cookie_jar_drain(&s.cookie_jar, s.conn, &s, 8);
 
   client_hot_t* hot = server_chot(&s, h);
@@ -113,6 +114,7 @@ static void test_destroy_during_manage_no_crash(void) {
   hot->state = STATE_DESTROYED;
   client_unmanage(&s, h);
 
+  cookie_jar_mark_replies_may_exist(&s.cookie_jar);
   cookie_jar_drain(&s.cookie_jar, s.conn, &s, 8);
 
   assert(server_get_client_by_window(&s, win) == HANDLE_INVALID);
