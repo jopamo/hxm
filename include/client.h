@@ -157,6 +157,12 @@ typedef enum window_type {
  * - Keep rarely accessed metadata and optional protocol payloads in client_cold_t.
  * - New hot fields require clear hot-path justification and size impact review.
  */
+#if HXM_DIAG
+#define CLIENT_HOT_CACHELINE_PAD_BYTES 16u
+#else
+#define CLIENT_HOT_CACHELINE_PAD_BYTES 24u
+#endif
+
 /* client_hot_t: frequently accessed client state */
 typedef struct client_hot {
   handle_t self;
@@ -246,7 +252,7 @@ typedef struct client_hot {
    * Keep hot stride at one 256-byte block for predictable cacheline stepping in
    * slot arrays. Update if hot fields are added/removed.
    */
-  uint8_t hot_cacheline_pad[16];
+  uint8_t hot_cacheline_pad[CLIENT_HOT_CACHELINE_PAD_BYTES];
 } client_hot_t;
 
 #define CLIENT_HOT_SIZE_GUARD_BYTES 256u
