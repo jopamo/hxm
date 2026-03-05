@@ -38,7 +38,6 @@ require_line '^OFFSET client_hot_t.dirty [0-9]+$'
 require_line '^OFFSET client_hot_t.state [0-9]+$'
 require_line '^OFFSET client_hot_t.flags [0-9]+$'
 require_line '^OFFSET client_hot_t.damage_region [0-9]+$'
-require_line '^OFFSET client_hot_t.fullscreen_monitors [0-9]+$'
 
 require_line '^OFFSET client_cold_t.title [0-9]+$'
 require_line '^OFFSET client_cold_t.visual_id [0-9]+$'
@@ -49,6 +48,10 @@ require_line '^OFFSET client_cold_t.render_ctx [0-9]+$'
 require_line '^OFFSET client_cold_t.icon_surface [0-9]+$'
 require_line '^OFFSET client_cold_t.protocols [0-9]+$'
 require_line '^OFFSET client_cold_t.sync_value [0-9]+$'
+require_line '^OFFSET client_cold_t.icon_geometry [0-9]+$'
+require_line '^OFFSET client_cold_t.window_opacity [0-9]+$'
+require_line '^OFFSET client_cold_t.bypass_compositor [0-9]+$'
+require_line '^OFFSET client_cold_t.fullscreen_monitors [0-9]+$'
 require_line '^OFFSET client_cold_t.strut [0-9]+$'
 require_line '^OFFSET client_cold_t.pid [0-9]+$'
 
@@ -59,6 +62,26 @@ fi
 
 if grep -Eq '^OFFSET client_hot_t.sync_value [0-9]+$' <<<"$output"; then
   echo "unexpected hot sync_value offset found in layout dump output" >&2
+  exit 1
+fi
+
+if grep -Eq '^OFFSET client_hot_t.icon_geometry [0-9]+$' <<<"$output"; then
+  echo "unexpected hot icon_geometry offset found in layout dump output" >&2
+  exit 1
+fi
+
+if grep -Eq '^OFFSET client_hot_t.window_opacity [0-9]+$' <<<"$output"; then
+  echo "unexpected hot window_opacity offset found in layout dump output" >&2
+  exit 1
+fi
+
+if grep -Eq '^OFFSET client_hot_t.bypass_compositor [0-9]+$' <<<"$output"; then
+  echo "unexpected hot bypass_compositor offset found in layout dump output" >&2
+  exit 1
+fi
+
+if grep -Eq '^OFFSET client_hot_t.fullscreen_monitors [0-9]+$' <<<"$output"; then
+  echo "unexpected hot fullscreen_monitors offset found in layout dump output" >&2
   exit 1
 fi
 

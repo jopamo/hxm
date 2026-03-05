@@ -1761,7 +1761,8 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
 
 void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t prop) {
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return;
 
   if (prop == atoms._NET_WM_STATE_FOCUSED)
@@ -1841,8 +1842,8 @@ void wm_client_update_state(server_t* s, handle_t h, uint32_t action, xcb_atom_t
       hot->layer = LAYER_FULLSCREEN;
       hot->flags |= CLIENT_FLAG_UNDECORATED;
 
-      if (hot->fullscreen_monitors_valid) {
-        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS, XCB_ATOM_CARDINAL, 32, 4, hot->fullscreen_monitors);
+      if (cold->fullscreen_monitors_valid) {
+        xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS, XCB_ATOM_CARDINAL, 32, 4, cold->fullscreen_monitors);
       }
       else {
         xcb_delete_property(s->conn, hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS);
@@ -2164,18 +2165,19 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     if (h == HANDLE_INVALID)
       return;
     client_hot_t* hot = server_chot(s, h);
-    if (!hot)
+    client_cold_t* cold = server_ccold(s, h);
+    if (!hot || !cold)
       return;
     TRACE_LOG("_NET_WM_FULLSCREEN_MONITORS h=%lx [%u,%u,%u,%u]", h, ev->data.data32[0], ev->data.data32[1], ev->data.data32[2], ev->data.data32[3]);
 
-    hot->fullscreen_monitors[0] = ev->data.data32[0];
-    hot->fullscreen_monitors[1] = ev->data.data32[1];
-    hot->fullscreen_monitors[2] = ev->data.data32[2];
-    hot->fullscreen_monitors[3] = ev->data.data32[3];
-    hot->fullscreen_monitors_valid = true;
+    cold->fullscreen_monitors[0] = ev->data.data32[0];
+    cold->fullscreen_monitors[1] = ev->data.data32[1];
+    cold->fullscreen_monitors[2] = ev->data.data32[2];
+    cold->fullscreen_monitors[3] = ev->data.data32[3];
+    cold->fullscreen_monitors_valid = true;
 
     if (hot->layer == LAYER_FULLSCREEN) {
-      xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS, XCB_ATOM_CARDINAL, 32, 4, hot->fullscreen_monitors);
+      xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS, XCB_ATOM_CARDINAL, 32, 4, cold->fullscreen_monitors);
     }
     return;
   }

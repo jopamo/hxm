@@ -1274,6 +1274,117 @@ static void test_urgency_hint_maps_to_ewmh_state(void) {
   cleanup_server(&s);
 }
 
+static void test_optional_state_properties_stored_in_cold(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  atoms._NET_WM_WINDOW_OPACITY = 1200;
+  atoms._NET_WM_BYPASS_COMPOSITOR = 1201;
+  atoms._NET_WM_ICON_GEOMETRY = 1202;
+  atoms._NET_WM_FULLSCREEN_MONITORS = 1203;
+  atoms._NET_WM_STATE_FULLSCREEN = 1204;
+
+  handle_t h = add_mapped_client(&s, 7001, 7101);
+  client_hot_t* hot = server_chot(&s, h);
+  client_cold_t* cold = server_ccold(&s, h);
+  assert(hot && cold);
+
+  cookie_slot_t slot = {0};
+  slot.client = h;
+  slot.type = COOKIE_GET_PROPERTY;
+
+  struct {
+    xcb_get_property_reply_t r;
+    uint32_t data[4];
+  } reply;
+  memset(&reply, 0, sizeof(reply));
+  reply.r.format = 32;
+  reply.r.type = XCB_ATOM_CARDINAL;
+
+  slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_WINDOW_OPACITY;
+  reply.r.value_len = 1;
+  reply.data[0] = 0x7f010203u;
+  wm_handle_reply(&s, &slot, &reply.r, NULL);
+  assert(cold->window_opacity_valid);
+  assert(cold->window_opacity == 0x7f010203u);
+  const struct stub_prop_call* opacity_set = find_prop_call(hot->frame, atoms._NET_WM_WINDOW_OPACITY, false);
+  assert(opacity_set != NULL);
+  assert(opacity_set->len == 1);
+  assert(((const uint32_t*)opacity_set->data)[0] == 0x7f010203u);
+
+  reply.r.value_len = 0;
+  wm_handle_reply(&s, &slot, &reply.r, NULL);
+  assert(!cold->window_opacity_valid);
+  const struct stub_prop_call* opacity_del = find_prop_call(hot->frame, atoms._NET_WM_WINDOW_OPACITY, true);
+  assert(opacity_del != NULL);
+
+  slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_BYPASS_COMPOSITOR;
+  reply.r.value_len = 1;
+  reply.data[0] = 2;
+  wm_handle_reply(&s, &slot, &reply.r, NULL);
+  assert(cold->bypass_compositor_valid);
+  assert(cold->bypass_compositor == 2u);
+  const struct stub_prop_call* bypass_set = find_prop_call(hot->frame, atoms._NET_WM_BYPASS_COMPOSITOR, false);
+  assert(bypass_set != NULL);
+  assert(bypass_set->len == 1);
+  assert(((const uint32_t*)bypass_set->data)[0] == 2u);
+
+  reply.data[0] = 0;
+  wm_handle_reply(&s, &slot, &reply.r, NULL);
+  assert(!cold->bypass_compositor_valid);
+  assert(cold->bypass_compositor == 0u);
+  const struct stub_prop_call* bypass_del = find_prop_call(hot->frame, atoms._NET_WM_BYPASS_COMPOSITOR, true);
+  assert(bypass_del != NULL);
+
+  slot.data = ((uint64_t)hot->xid << 32) | atoms._NET_WM_ICON_GEOMETRY;
+  reply.r.value_len = 4;
+  reply.data[0] = 10;
+  reply.data[1] = 20;
+  reply.data[2] = 30;
+  reply.data[3] = 40;
+  wm_handle_reply(&s, &slot, &reply.r, NULL);
+  assert(cold->icon_geometry_valid);
+  assert(cold->icon_geometry.x == 10);
+  assert(cold->icon_geometry.y == 20);
+  assert(cold->icon_geometry.w == 30);
+  assert(cold->icon_geometry.h == 40);
+
+  reply.r.value_len = 0;
+  wm_handle_reply(&s, &slot, &reply.r, NULL);
+  assert(!cold->icon_geometry_valid);
+
+  xcb_client_message_event_t ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.response_type = XCB_CLIENT_MESSAGE;
+  ev.format = 32;
+  ev.window = hot->xid;
+  ev.type = atoms._NET_WM_FULLSCREEN_MONITORS;
+  ev.data.data32[0] = 1;
+  ev.data.data32[1] = 2;
+  ev.data.data32[2] = 3;
+  ev.data.data32[3] = 4;
+  wm_handle_client_message(&s, &ev);
+  assert(cold->fullscreen_monitors_valid);
+  assert(cold->fullscreen_monitors[0] == 1u);
+  assert(cold->fullscreen_monitors[1] == 2u);
+  assert(cold->fullscreen_monitors[2] == 3u);
+  assert(cold->fullscreen_monitors[3] == 4u);
+
+  wm_client_update_state(&s, h, 1, atoms._NET_WM_STATE_FULLSCREEN);
+  const struct stub_prop_call* fullscreen_monitors = find_prop_call(hot->xid, atoms._NET_WM_FULLSCREEN_MONITORS, false);
+  assert(fullscreen_monitors != NULL);
+  assert(fullscreen_monitors->len == 4);
+  const uint32_t* monitors = (const uint32_t*)fullscreen_monitors->data;
+  assert(monitors[0] == 1u);
+  assert(monitors[1] == 2u);
+  assert(monitors[2] == 3u);
+  assert(monitors[3] == 4u);
+
+  printf("test_optional_state_properties_stored_in_cold passed\n");
+  cleanup_server(&s);
+}
+
 int main(void) {
   test_active_window_updates();
   test_active_window_exits_show_desktop_mode();
@@ -1299,5 +1410,6 @@ int main(void) {
   test_show_desktop_round_trip_clears_hidden_state();
   test_state_idempotent_and_unknown();
   test_urgency_hint_maps_to_ewmh_state();
+  test_optional_state_properties_stored_in_cold();
   return 0;
 }

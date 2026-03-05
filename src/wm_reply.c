@@ -1462,17 +1462,17 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
       else if (atom == atoms._NET_WM_WINDOW_OPACITY) {
         if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
           uint32_t val = *(uint32_t*)xcb_get_property_value(r);
-          if (!hot->window_opacity_valid || hot->window_opacity != val) {
-            hot->window_opacity = val;
-            hot->window_opacity_valid = true;
+          if (!cold->window_opacity_valid || cold->window_opacity != val) {
+            cold->window_opacity = val;
+            cold->window_opacity_valid = true;
             if (hot->frame != XCB_NONE) {
               xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame, atoms._NET_WM_WINDOW_OPACITY, XCB_ATOM_CARDINAL, 32, 1, &val);
             }
           }
         }
         else {
-          if (hot->window_opacity_valid) {
-            hot->window_opacity_valid = false;
+          if (cold->window_opacity_valid) {
+            cold->window_opacity_valid = false;
             if (hot->frame != XCB_NONE) {
               xcb_delete_property(s->conn, hot->frame, atoms._NET_WM_WINDOW_OPACITY);
             }
@@ -1483,27 +1483,27 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
         if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 4) {
           uint32_t val = *(uint32_t*)xcb_get_property_value(r);
           if (val == 0) {
-            if (hot->bypass_compositor_valid) {
-              hot->bypass_compositor_valid = false;
-              hot->bypass_compositor = 0;
+            if (cold->bypass_compositor_valid) {
+              cold->bypass_compositor_valid = false;
+              cold->bypass_compositor = 0;
               if (hot->frame != XCB_NONE) {
                 xcb_delete_property(s->conn, hot->frame, atoms._NET_WM_BYPASS_COMPOSITOR);
               }
             }
           }
           else {
-            if (!hot->bypass_compositor_valid || hot->bypass_compositor != val) {
-              hot->bypass_compositor = val;
-              hot->bypass_compositor_valid = true;
+            if (!cold->bypass_compositor_valid || cold->bypass_compositor != val) {
+              cold->bypass_compositor = val;
+              cold->bypass_compositor_valid = true;
               if (hot->frame != XCB_NONE) {
                 xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, hot->frame, atoms._NET_WM_BYPASS_COMPOSITOR, XCB_ATOM_CARDINAL, 32, 1, &val);
               }
             }
           }
         }
-        else if (hot->bypass_compositor_valid) {
-          hot->bypass_compositor_valid = false;
-          hot->bypass_compositor = 0;
+        else if (cold->bypass_compositor_valid) {
+          cold->bypass_compositor_valid = false;
+          cold->bypass_compositor = 0;
           if (hot->frame != XCB_NONE) {
             xcb_delete_property(s->conn, hot->frame, atoms._NET_WM_BYPASS_COMPOSITOR);
           }
@@ -1513,13 +1513,13 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
         if (prop_is_cardinal(r) && xcb_get_property_value_length(r) >= 16) {
           uint32_t* val = (uint32_t*)xcb_get_property_value(r);
           rect_t next_geom = {(int16_t)val[0], (int16_t)val[1], (uint16_t)val[2], (uint16_t)val[3]};
-          if (!hot->icon_geometry_valid || memcmp(&hot->icon_geometry, &next_geom, sizeof(rect_t)) != 0) {
-            hot->icon_geometry = next_geom;
-            hot->icon_geometry_valid = true;
+          if (!cold->icon_geometry_valid || memcmp(&cold->icon_geometry, &next_geom, sizeof(rect_t)) != 0) {
+            cold->icon_geometry = next_geom;
+            cold->icon_geometry_valid = true;
           }
         }
         else {
-          hot->icon_geometry_valid = false;
+          cold->icon_geometry_valid = false;
         }
       }
 

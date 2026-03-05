@@ -26,7 +26,6 @@ int main(void) {
   PRINT_OFFSET(client_hot_t, state);
   PRINT_OFFSET(client_hot_t, flags);
   PRINT_OFFSET(client_hot_t, damage_region);
-  PRINT_OFFSET(client_hot_t, fullscreen_monitors);
 
   PRINT_OFFSET(client_cold_t, title);
   PRINT_OFFSET(client_cold_t, visual_id);
@@ -37,6 +36,10 @@ int main(void) {
   PRINT_OFFSET(client_cold_t, icon_surface);
   PRINT_OFFSET(client_cold_t, protocols);
   PRINT_OFFSET(client_cold_t, sync_value);
+  PRINT_OFFSET(client_cold_t, icon_geometry);
+  PRINT_OFFSET(client_cold_t, window_opacity);
+  PRINT_OFFSET(client_cold_t, bypass_compositor);
+  PRINT_OFFSET(client_cold_t, fullscreen_monitors);
   PRINT_OFFSET(client_cold_t, strut);
   PRINT_OFFSET(client_cold_t, pid);
 

@@ -260,21 +260,9 @@ typedef struct client_hot {
 
   uint32_t user_time;
   xcb_window_t user_time_window;
-
-  bool icon_geometry_valid;
-  rect_t icon_geometry;
-
-  bool window_opacity_valid;
-  uint32_t window_opacity;
-
-  bool bypass_compositor_valid;
-  uint32_t bypass_compositor;
-
-  bool fullscreen_monitors_valid;
-  uint32_t fullscreen_monitors[4];
 } client_hot_t;
 
-#define CLIENT_HOT_SIZE_GUARD_BYTES 448u
+#define CLIENT_HOT_SIZE_GUARD_BYTES 400u
 HXM_STATIC_ASSERT(sizeof(client_hot_t) <= CLIENT_HOT_SIZE_GUARD_BYTES,
                   "client_hot_t exceeded guard; move non-hot fields to cold storage");
 
@@ -330,6 +318,18 @@ typedef struct client_cold {
   bool sync_enabled;
   uint32_t sync_counter;
   uint64_t sync_value;
+
+  bool icon_geometry_valid;
+  rect_t icon_geometry;
+
+  bool window_opacity_valid;
+  uint32_t window_opacity;
+
+  bool bypass_compositor_valid;
+  uint32_t bypass_compositor;
+
+  bool fullscreen_monitors_valid;
+  uint32_t fullscreen_monitors[4];
 
   xcb_window_t transient_for_xid;
   bool can_focus;
@@ -387,6 +387,28 @@ static inline void client_sync_payload_init(client_cold_t* cold) {
   cold->sync_enabled = false;
   cold->sync_counter = 0;
   cold->sync_value = 0;
+}
+
+static inline void client_optional_state_init(client_cold_t* cold) {
+  if (!cold)
+    return;
+  cold->icon_geometry_valid = false;
+  cold->icon_geometry.x = 0;
+  cold->icon_geometry.y = 0;
+  cold->icon_geometry.w = 0;
+  cold->icon_geometry.h = 0;
+
+  cold->window_opacity_valid = false;
+  cold->window_opacity = 0;
+
+  cold->bypass_compositor_valid = false;
+  cold->bypass_compositor = 0;
+
+  cold->fullscreen_monitors_valid = false;
+  cold->fullscreen_monitors[0] = 0;
+  cold->fullscreen_monitors[1] = 0;
+  cold->fullscreen_monitors[2] = 0;
+  cold->fullscreen_monitors[3] = 0;
 }
 
 typedef struct server server_t;
