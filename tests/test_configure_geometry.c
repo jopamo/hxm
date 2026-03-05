@@ -732,6 +732,37 @@ static void test_configure_request_ignored_during_interactive_resize(void) {
   cleanup_server(&s);
 }
 
+static void test_configure_request_not_ignored_before_pointer_grab_ack(void) {
+  server_t s;
+  setup_server(&s);
+  xcb_stubs_reset();
+
+  handle_t h = add_client(&s, 7011, 7111);
+  client_hot_t* hot = server_chot(&s, h);
+  hot->desired = (rect_t){10, 20, 220, 140};
+  hot->dirty = DIRTY_NONE;
+
+  s.interaction_mode = INTERACTION_RESIZE;
+  s.interaction_window = hot->frame;
+  s.interaction_handle = h;
+  s.interaction_requires_buttons = true;
+  s.interaction_pointer_grabbed = false;
+
+  pending_config_t pc = {0};
+  pc.window = hot->xid;
+  pc.mask = XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT;
+  pc.width = 111;
+  pc.height = 99;
+  wm_handle_configure_request(&s, h, &pc);
+
+  assert(hot->desired.w == 111u);
+  assert(hot->desired.h == 99u);
+  assert((hot->dirty & DIRTY_GEOM) != 0);
+
+  printf("test_configure_request_not_ignored_before_pointer_grab_ack passed\n");
+  cleanup_server(&s);
+}
+
 static void test_configure_request_ignored_during_interactive_move(void) {
   server_t s;
   setup_server(&s);
@@ -822,6 +853,7 @@ int main(void) {
   test_interactive_resize_configures_client_even_when_notify_matches();
   test_configure_notify_does_not_resync_desired_during_interactive_resize();
   test_configure_request_ignored_during_interactive_resize();
+  test_configure_request_not_ignored_before_pointer_grab_ack();
   test_configure_request_ignored_during_interactive_move();
   test_configure_request_ignores_committed_echo();
   return 0;

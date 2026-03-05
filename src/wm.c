@@ -410,6 +410,7 @@ static void wm_handle_grab_pointer_reply(server_t* s, const cookie_slot_t* slot,
     return;
   }
 
+  s->interaction_pointer_grabbed = true;
   LOG_INFO("grab_pointer success status=%u on root=%u", r->status, s->root);
 }
 
@@ -961,7 +962,8 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
 
   // During WM-driven interactive move/resize, keep desired geometry owned by
   // pointer/keyboard interaction logic to avoid client-vs-WM ping-pong.
-  if ((s->interaction_mode == INTERACTION_MOVE || s->interaction_mode == INTERACTION_RESIZE) && s->interaction_handle == h) {
+  bool wm_owns_interaction = (s->interaction_pointer_grabbed || !s->interaction_requires_buttons);
+  if ((s->interaction_mode == INTERACTION_MOVE || s->interaction_mode == INTERACTION_RESIZE) && s->interaction_handle == h && wm_owns_interaction) {
     TRACE_LOG("configure_request ignored during interaction h=%lx xid=%u mode=%d mask=0x%x", h, hot->xid, s->interaction_mode, ev->mask);
     return;
   }
@@ -1332,6 +1334,7 @@ void wm_cancel_interaction(server_t* s) {
   s->interaction_handle = HANDLE_INVALID;
   s->interaction_resize_dir = RESIZE_NONE;
   s->interaction_time = 0;
+  s->interaction_pointer_grabbed = false;
   xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
   if (frame != XCB_NONE) {
     client_hot_t* hot = server_chot(s, h);
@@ -1356,6 +1359,7 @@ void wm_start_interaction(server_t* s, handle_t h, client_hot_t* hot, bool start
   s->interaction_handle = h;
   s->interaction_time = time;
   s->interaction_requires_buttons = !is_keyboard;
+  s->interaction_pointer_grabbed = false;
 
   s->interaction_start_x = start_move ? hot->desired.x : hot->server.x;
   s->interaction_start_y = start_move ? hot->desired.y : hot->server.y;
@@ -1624,6 +1628,7 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
   if (!hot) {
     LOG_WARN("Interaction client not found h=%lx window=%u", h, s->interaction_window);
     s->interaction_mode = INTERACTION_NONE;
+    s->interaction_pointer_grabbed = false;
     xcb_ungrab_pointer(s->conn, XCB_CURRENT_TIME);
     return;
   }

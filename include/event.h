@@ -229,6 +229,7 @@ typedef struct server {
   xcb_window_t interaction_window;
   handle_t interaction_handle;
   bool interaction_requires_buttons;
+  bool interaction_pointer_grabbed;
 
   uint32_t interaction_time;       /* X server timestamp */
   uint64_t last_interaction_flush; /* monotonic ns */
