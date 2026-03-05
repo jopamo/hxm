@@ -43,6 +43,7 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <assert.h>
 #include <xcb/xcb.h>
 
 #include "handle.h"
@@ -148,13 +149,18 @@ bool cookie_jar_push(cookie_jar_t* cj, uint32_t sequence, cookie_type_t type, ha
  */
 size_t cookie_jar_remove_client(cookie_jar_t* cj, handle_t client);
 
-/* Drain ready replies (non-blocking)
+/* Drain ready replies (non-blocking, conn is required)
  * Polls up to max_replies ready replies and dispatches handlers
  * Also expires timed out cookies (handler called with reply=NULL)
  *
  * If max_replies is 0, COOKIE_JAR_MAX_REPLIES_PER_TICK is used
  */
 void cookie_jar_drain(cookie_jar_t* cj, xcb_connection_t* conn, struct server* s, size_t max_replies);
+
+/* Expire timed-out cookies without polling X replies.
+ * If max_expirations is 0, COOKIE_JAR_MAX_REPLIES_PER_TICK is used.
+ */
+void cookie_jar_expire(cookie_jar_t* cj, struct server* s, size_t max_expirations);
 
 /* Hint that X input was consumed and replies may now be queued internally. */
 void cookie_jar_mark_replies_may_exist(cookie_jar_t* cj);
@@ -166,12 +172,14 @@ void cookie_jar_mark_replies_may_exist(cookie_jar_t* cj);
 int32_t cookie_jar_next_timeout_ms(cookie_jar_t* cj, uint64_t now_ns);
 
 static inline bool cookie_jar_has_pending(const cookie_jar_t* cj) {
-  return cj && cj->live_count > 0;
+  assert(cj);
+  return cj->live_count > 0;
 }
 
 /* Optional helpers for diagnostics */
 static inline size_t cookie_jar_capacity(const cookie_jar_t* cj) {
-  return cj ? cj->cap : 0u;
+  assert(cj);
+  return cj->cap;
 }
 
 #ifdef __cplusplus

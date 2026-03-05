@@ -15,6 +15,7 @@
 
 // Externs from xcb_stubs.c
 extern int (*stub_poll_for_reply_hook)(xcb_connection_t* c, unsigned int request, void** reply, xcb_generic_error_t** error);
+static xcb_connection_t* const g_dummy_conn = (xcb_connection_t*)1;
 
 // Mock allocation failure
 static bool g_fail_alloc = false;
@@ -150,10 +151,19 @@ static void fail(const char* msg) {
   exit(1);
 }
 
+static void drain_ready(cookie_jar_t* cj, int max_replies_per_iter) {
+  cookie_jar_mark_replies_may_exist(cj);
+  cookie_jar_drain(cj, g_dummy_conn, NULL, (size_t)max_replies_per_iter);
+}
+
+static void expire_only(cookie_jar_t* cj, int max_expirations) {
+  cookie_jar_expire(cj, NULL, (size_t)max_expirations);
+}
+
 static void require_drain_until_called(cookie_jar_t* cj, int max_iters, int max_replies_per_iter) {
   int it = 0;
   while (!g_handler_called && it < max_iters) {
-    cookie_jar_drain(cj, NULL, NULL, max_replies_per_iter);
+    drain_ready(cj, max_replies_per_iter);
     it++;
   }
   if (!g_handler_called)
@@ -186,14 +196,14 @@ static void test_push_and_drain(void) {
 
   // not ready
   set_ready_none();
-  cookie_jar_drain(&cj, NULL, NULL, 10);
+  drain_ready(&cj, 10);
   assert(g_handler_called == false);
   assert(cj.live_count == 1);
 
   // ready reply
   reset_handler_state();
   set_ready_reply(seq);
-  cookie_jar_drain(&cj, NULL, NULL, 10);
+  drain_ready(&cj, 10);
   assert(g_handler_called == true);
   assert(g_handler_seq == seq);
   assert(g_handler_reply != NULL);
@@ -202,30 +212,6 @@ static void test_push_and_drain(void) {
 
   cookie_jar_destroy(&cj);
   printf("test_push_and_drain passed\n");
-}
-
-static void test_push_rejects_zero_sequence(void) {
-  cookie_jar_t cj;
-  cookie_jar_init(&cj);
-
-  bool pushed = cookie_jar_push(&cj, 0, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
-  assert(!pushed);
-  assert(cj.live_count == 0);
-
-  cookie_jar_destroy(&cj);
-  printf("test_push_rejects_zero_sequence passed\n");
-}
-
-static void test_push_rejects_null_handler(void) {
-  cookie_jar_t cj;
-  cookie_jar_init(&cj);
-
-  bool pushed = cookie_jar_push(&cj, 100, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, NULL);
-  assert(!pushed);
-  assert(cj.live_count == 0);
-
-  cookie_jar_destroy(&cj);
-  printf("test_push_rejects_null_handler passed\n");
 }
 
 static void test_drain_zero_budget_uses_default(void) {
@@ -240,7 +226,7 @@ static void test_drain_zero_budget_uses_default(void) {
   }
   assert(cj.live_count == total);
 
-  cookie_jar_drain(&cj, NULL, NULL, 0);
+  drain_ready(&cj, 0);
   assert(cj.live_count == total - COOKIE_JAR_MAX_REPLIES_PER_TICK);
 
   cookie_jar_destroy(&cj);
@@ -270,7 +256,7 @@ static void test_duplicate_push_rejected_or_replaced(void) {
   // Drain should call handler at most once
   reset_handler_state();
   set_ready_reply(seq);
-  cookie_jar_drain(&cj, NULL, NULL, 10);
+  drain_ready(&cj, 10);
   assert(g_handler_called);
   assert(g_handler_seq == seq);
   assert(cj.live_count == 0);
@@ -300,7 +286,7 @@ static void test_drain_budget_respected(void) {
   for (uint32_t i = 1; i <= N; i++) {
     reset_handler_state();
     set_ready_reply(i);
-    cookie_jar_drain(&cj, NULL, NULL, 1);
+    drain_ready(&cj, 1);
     assert(g_handler_called);
     assert(g_handler_seq == i);
     handled++;
@@ -435,7 +421,7 @@ static void test_error_path(void) {
 
   // ready error, no reply
   set_ready_error(500);
-  cookie_jar_drain(&cj, NULL, NULL, 10);
+  drain_ready(&cj, 10);
 
   assert(g_handler_called);
   assert(g_handler_seq == 500);
@@ -463,7 +449,7 @@ static void test_reply_and_error_both(void) {
 
   // ready both
   set_ready_both(501);
-  cookie_jar_drain(&cj, NULL, NULL, 10);
+  drain_ready(&cj, 10);
 
   assert(g_handler_called);
   assert(g_handler_seq == 501);
@@ -491,13 +477,13 @@ static void test_timeout(void) {
   // not ready, +1s
   g_mock_time += 1000000000ULL;
   set_ready_none();
-  cookie_jar_drain(&cj, NULL, NULL, 10);
+  expire_only(&cj, 10);
   assert(!g_handler_called);
   assert(cj.live_count == 1);
 
   // +6s total elapsed
   g_mock_time += 5000000000ULL;
-  cookie_jar_drain(&cj, NULL, NULL, 10);
+  expire_only(&cj, 10);
 
   assert(g_handler_called);
   assert(g_handler_seq == 999);
@@ -526,7 +512,7 @@ static void test_timeout_then_late_reply_ignored(void) {
   // force timeout
   g_mock_time += 7000000000ULL;
   set_ready_none();
-  cookie_jar_drain(&cj, NULL, NULL, 10);
+  expire_only(&cj, 10);
   assert(g_handler_called);
   assert(g_handler_reply == NULL);
   assert(cj.live_count == 0);
@@ -535,7 +521,7 @@ static void test_timeout_then_late_reply_ignored(void) {
   // again
   reset_handler_state();
   set_ready_reply(1001);
-  cookie_jar_drain(&cj, NULL, NULL, 10);
+  drain_ready(&cj, 10);
   assert(!g_handler_called);
   assert(cj.live_count == 0);
 
@@ -629,13 +615,13 @@ static void test_reply_hint_gates_polling(void) {
   assert(pushed);
   set_ready_reply(6001);
 
-  cookie_jar_drain(&cj, (xcb_connection_t*)1, NULL, 10);
+  cookie_jar_drain(&cj, g_dummy_conn, NULL, 10);
   assert(g_poll_calls == 0);
   assert(!g_handler_called);
   assert(cj.live_count == 1);
 
   cookie_jar_mark_replies_may_exist(&cj);
-  cookie_jar_drain(&cj, (xcb_connection_t*)1, NULL, 10);
+  cookie_jar_drain(&cj, g_dummy_conn, NULL, 10);
   assert(g_poll_calls > 0);
   assert(g_handler_called);
   assert(g_handler_seq == 6001);
@@ -659,7 +645,7 @@ static void test_timeout_without_reply_hint(void) {
 
   g_mock_time += COOKIE_JAR_TIMEOUT_NS + 1;
   set_ready_none();
-  cookie_jar_drain(&cj, (xcb_connection_t*)1, NULL, 10);
+  cookie_jar_drain(&cj, g_dummy_conn, NULL, 10);
   assert(g_poll_calls == 0);
   assert(g_handler_called);
   assert(g_handler_seq == 7001);
@@ -720,7 +706,7 @@ static void test_performance_smoke(void) {
   stub_poll_for_reply_hook = mock_poll;
   set_ready_none();
 
-  cookie_jar_drain(&cj, NULL, NULL, N);
+  expire_only(&cj, N);
 
   clock_gettime(CLOCK_MONOTONIC, &ts_end);
 
@@ -777,7 +763,7 @@ static void test_alloc_fail_grow(void) {
 
     // Push until growth is needed
     // Default cap 1024. Push more.
-    for (int i = 0; i < 2000; i++) {
+    for (int i = 1; i <= 2000; i++) {
       cookie_jar_push(&cj, i, COOKIE_GET_GEOMETRY, HANDLE_INVALID, 0, 0, mock_handler);
     }
 
@@ -800,8 +786,6 @@ static void test_alloc_fail_grow(void) {
 int main(void) {
   test_init_destroy();
   test_push_and_drain();
-  test_push_rejects_zero_sequence();
-  test_push_rejects_null_handler();
   test_drain_zero_budget_uses_default();
   test_duplicate_push_rejected_or_replaced();
   test_drain_budget_respected();

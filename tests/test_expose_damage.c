@@ -17,6 +17,7 @@ static void setup_server(server_t* s) {
   s->is_test = true;
   s->conn = xcb_connect(NULL, NULL);
   atoms_init(s->conn);
+  cookie_jar_init(&s->cookie_jar);
   arena_init(&s->tick_arena, 1024);
 
   small_vec_init(&s->buckets.map_requests);
@@ -57,6 +58,7 @@ static void cleanup_server(server_t* s) {
   small_vec_destroy(&s->buckets.motion_notify_keys);
   hash_map_destroy(&s->buckets.damage_regions);
   small_vec_destroy(&s->buckets.damage_region_keys);
+  cookie_jar_destroy(&s->cookie_jar);
   xcb_disconnect(s->conn);
 }
 
