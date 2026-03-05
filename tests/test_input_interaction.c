@@ -428,6 +428,11 @@ static void test_button_release_flushes_pending_resize(void) {
   wm_handle_button_release(&s, &ev);
 
   assert(s.interaction_mode == INTERACTION_NONE);
+  assert((hot->dirty & DIRTY_GEOM) != 0);
+  assert(stub_config_calls_len == 0);
+
+  wm_flush_dirty(&s, monotonic_time_ns());
+
   assert((hot->dirty & DIRTY_GEOM) == 0);
   assert(hot->server.w == hot->desired.w);
   assert(hot->server.h == hot->desired.h);

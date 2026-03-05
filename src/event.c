@@ -1427,30 +1427,7 @@ void event_process(server_t* s) {
     pending_config_t* ev = (pending_config_t*)value;
     handle_t h = server_get_client_by_window(s, ev->window);
 
-    if (h == HANDLE_INVALID) {
-      uint32_t mask = ev->mask;
-      uint32_t values[7];
-      int j = 0;
-      int32_t x = ev->x;
-      int32_t y = ev->y;
-      if (mask & XCB_CONFIG_WINDOW_X)
-        values[j++] = (uint32_t)x;
-      if (mask & XCB_CONFIG_WINDOW_Y)
-        values[j++] = (uint32_t)y;
-      if (mask & XCB_CONFIG_WINDOW_WIDTH)
-        values[j++] = (uint32_t)ev->width;
-      if (mask & XCB_CONFIG_WINDOW_HEIGHT)
-        values[j++] = (uint32_t)ev->height;
-      if (mask & XCB_CONFIG_WINDOW_BORDER_WIDTH)
-        values[j++] = (uint32_t)ev->border_width;
-      if (mask & XCB_CONFIG_WINDOW_SIBLING)
-        values[j++] = (uint32_t)ev->sibling;
-      if (mask & XCB_CONFIG_WINDOW_STACK_MODE)
-        values[j++] = (uint32_t)ev->stack_mode;
-
-      xcb_configure_window(s->conn, ev->window, mask, values);
-    }
-    else {
+    if (h != HANDLE_INVALID) {
       wm_handle_configure_request(s, h, ev);
     }
   }
@@ -1500,19 +1477,11 @@ void event_process(server_t* s) {
       continue;
 
     dirty_region_union(&hot->damage_region, region);
-    if (hot->damage != XCB_NONE) {
-      xcb_damage_subtract(s->conn, hot->damage, XCB_NONE, XCB_NONE);
-    }
   }
 
   // 11. RandR (coalesced)
   if (s->buckets.randr_dirty) {
-    TRACE_LOG("process randr dirty width=%u height=%u", s->buckets.randr_width, s->buckets.randr_height);
-    wm_update_monitors(s);
-    uint32_t geometry[] = {s->buckets.randr_width, s->buckets.randr_height};
-    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32, 2, geometry);
-    // Workarea/fullscreen updates are monitor-dependent and now happen when the
-    // async RandR snapshot is applied in wm_apply_monitor_snapshot().
+    TRACE_LOG("queue randr commit width=%u height=%u", s->buckets.randr_width, s->buckets.randr_height);
   }
 
   // 12. maintenance

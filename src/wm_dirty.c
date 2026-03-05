@@ -22,6 +22,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xcb/damage.h>
 #include <xcb/xcb.h>
 #include <xcb/xcb_icccm.h>
 
@@ -131,6 +132,86 @@ static void wm_clamp_rect_to_bounds(rect_t* r, const rect_t* bounds) {
 
   r->x = (int16_t)x;
   r->y = (int16_t)y;
+}
+
+static bool wm_flush_unmanaged_configure_requests(server_t* s) {
+  bool sent = false;
+  size_t key_count = s->buckets.configure_request_keys.length;
+
+  if (key_count > 0) {
+    for (size_t i = 0; i < key_count; i++) {
+      uint64_t* key_ptr = (uint64_t*)s->buckets.configure_request_keys.items[i];
+      if (!key_ptr)
+        continue;
+
+      pending_config_t* ev = (pending_config_t*)hash_map_get(&s->buckets.configure_requests, *key_ptr);
+      if (!ev || ev->mask == 0)
+        continue;
+      if (server_get_client_by_window(s, ev->window) != HANDLE_INVALID)
+        continue;
+
+      uint16_t mask = ev->mask;
+      uint32_t values[7];
+      int j = 0;
+
+      if (mask & XCB_CONFIG_WINDOW_X)
+        values[j++] = (uint32_t)(int32_t)ev->x;
+      if (mask & XCB_CONFIG_WINDOW_Y)
+        values[j++] = (uint32_t)(int32_t)ev->y;
+      if (mask & XCB_CONFIG_WINDOW_WIDTH)
+        values[j++] = (uint32_t)ev->width;
+      if (mask & XCB_CONFIG_WINDOW_HEIGHT)
+        values[j++] = (uint32_t)ev->height;
+      if (mask & XCB_CONFIG_WINDOW_BORDER_WIDTH)
+        values[j++] = (uint32_t)ev->border_width;
+      if (mask & XCB_CONFIG_WINDOW_SIBLING)
+        values[j++] = (uint32_t)ev->sibling;
+      if (mask & XCB_CONFIG_WINDOW_STACK_MODE)
+        values[j++] = (uint32_t)ev->stack_mode;
+
+      xcb_configure_window(s->conn, ev->window, mask, values);
+      ev->mask = 0;
+      sent = true;
+    }
+    return sent;
+  }
+
+  for (size_t i = 0; i < s->buckets.configure_requests.capacity; i++) {
+    hash_map_entry_t* entry = &s->buckets.configure_requests.entries[i];
+    if (!entry->key || !entry->value)
+      continue;
+
+    pending_config_t* ev = (pending_config_t*)entry->value;
+    if (!ev || ev->mask == 0)
+      continue;
+    if (server_get_client_by_window(s, ev->window) != HANDLE_INVALID)
+      continue;
+
+    uint16_t mask = ev->mask;
+    uint32_t values[7];
+    int j = 0;
+
+    if (mask & XCB_CONFIG_WINDOW_X)
+      values[j++] = (uint32_t)(int32_t)ev->x;
+    if (mask & XCB_CONFIG_WINDOW_Y)
+      values[j++] = (uint32_t)(int32_t)ev->y;
+    if (mask & XCB_CONFIG_WINDOW_WIDTH)
+      values[j++] = (uint32_t)ev->width;
+    if (mask & XCB_CONFIG_WINDOW_HEIGHT)
+      values[j++] = (uint32_t)ev->height;
+    if (mask & XCB_CONFIG_WINDOW_BORDER_WIDTH)
+      values[j++] = (uint32_t)ev->border_width;
+    if (mask & XCB_CONFIG_WINDOW_SIBLING)
+      values[j++] = (uint32_t)ev->sibling;
+    if (mask & XCB_CONFIG_WINDOW_STACK_MODE)
+      values[j++] = (uint32_t)ev->stack_mode;
+
+    xcb_configure_window(s->conn, ev->window, mask, values);
+    ev->mask = 0;
+    sent = true;
+  }
+
+  return sent;
 }
 
 bool wm_send_synthetic_configure(server_t* s, handle_t h) {
@@ -372,6 +453,54 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       }
     }
     s->root_dirty &= ~ROOT_DIRTY_VISIBILITY;
+  }
+
+  // 2. Pass through ConfigureRequest for unmanaged windows.
+  if (wm_flush_unmanaged_configure_requests(s))
+    flushed = true;
+
+  // 3. Ack coalesced Damage events once per tick.
+  if (s->buckets.damage_region_keys.length > 0) {
+    for (size_t i = 0; i < s->buckets.damage_region_keys.length; i++) {
+      uint64_t* key_ptr = (uint64_t*)s->buckets.damage_region_keys.items[i];
+      if (!key_ptr)
+        continue;
+      xcb_window_t win = (xcb_window_t)(*key_ptr);
+      handle_t h = server_get_client_by_window(s, win);
+      if (h == HANDLE_INVALID)
+        continue;
+      client_hot_t* hot = server_chot(s, h);
+      if (!hot || hot->damage == XCB_NONE)
+        continue;
+      xcb_damage_subtract(s->conn, hot->damage, XCB_NONE, XCB_NONE);
+      flushed = true;
+    }
+  }
+  else {
+    for (size_t i = 0; i < s->buckets.damage_regions.capacity; i++) {
+      hash_map_entry_t* entry = &s->buckets.damage_regions.entries[i];
+      if (!entry->key || !entry->value)
+        continue;
+      xcb_window_t win = (xcb_window_t)entry->key;
+      handle_t h = server_get_client_by_window(s, win);
+      if (h == HANDLE_INVALID)
+        continue;
+      client_hot_t* hot = server_chot(s, h);
+      if (!hot || hot->damage == XCB_NONE)
+        continue;
+      xcb_damage_subtract(s->conn, hot->damage, XCB_NONE, XCB_NONE);
+      flushed = true;
+    }
+  }
+
+  // 4. Commit RandR-driven desktop geometry updates.
+  if (s->buckets.randr_dirty) {
+    flushed = true;
+    TRACE_LOG("flush_dirty randr width=%u height=%u", s->buckets.randr_width, s->buckets.randr_height);
+    wm_update_monitors(s);
+    uint32_t geometry[] = {s->buckets.randr_width, s->buckets.randr_height};
+    xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, atoms._NET_DESKTOP_GEOMETRY, XCB_ATOM_CARDINAL, 32, 2, geometry);
+    s->buckets.randr_dirty = false;
   }
 
   // Workarea first so maximized/fullscreen clients marked DIRTY_GEOM during

@@ -307,6 +307,7 @@ static void test_6_5_configure_request_unknown_window(void) {
   // No client registered for 0x999, so it is unknown.
 
   event_process(&s);
+  wm_flush_dirty(&s, monotonic_time_ns());
 
   assert(stub_configure_window_count == 1);
   assert(stub_last_config_window == win);
@@ -330,13 +331,14 @@ static void test_6_6_randr_dirty_processing(void) {
   s.buckets.randr_height = 1080;
 
   event_process(&s);
+  wm_flush_dirty(&s, monotonic_time_ns());
 
   assert(call_wm_update_monitors == 1);
   assert(call_wm_compute_workarea == 0);
   assert(call_wm_publish_workarea == 0);
 
-  // event_process updates _NET_DESKTOP_GEOMETRY immediately while monitor-
-  // dependent workarea publication is deferred until async RandR replies.
+  // Commit updates _NET_DESKTOP_GEOMETRY while monitor-dependent workarea
+  // publication is deferred until async RandR replies.
   assert(stub_prop_calls_len > 0);
 
   printf("test_6_6_randr_dirty_processing passed\n");

@@ -1531,12 +1531,8 @@ void wm_handle_button_release(server_t* s, xcb_button_release_event_t* ev) {
     return;
 
   client_hot_t* hot = server_chot(s, interaction_h);
-  if (!hot || (hot->dirty & DIRTY_GEOM) == 0)
+  if (!hot)
     return;
-
-  uint64_t now = monotonic_time_ns();
-  if (wm_flush_dirty(s, now))
-    s->pending_flush = true;
 }
 
 void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
