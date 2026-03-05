@@ -49,8 +49,10 @@ typedef struct render_context {
   PangoLayout* layout;
 
   /* Cached target parameters */
+  xcb_window_t target;
   xcb_visualid_t visual_id;
   int depth;
+  bool surface_is_test;
 
   int width;
   int height;

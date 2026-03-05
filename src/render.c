@@ -2,18 +2,14 @@
  * Rendering primitives and color management
  *
  * This module uses Cairo/Pango to draw window decorations.
- * It implements a double-buffered pipeline:
- * 1. Draw to an offscreen XCB Pixmap (via cairo_xcb_surface).
- * 2. Copy the Pixmap to the Window (xcb_copy_area).
- *
- * This prevents flicker during redraws.
+ * It keeps a persistent cairo surface/context per frame to avoid
+ * per-paint allocation churn.
  */
 
 #include "render.h"
 
 #include <assert.h>
 #include <math.h>
-#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -137,10 +133,85 @@ static void draw_appearance(cairo_t* cr, int w, int h, appearance_t* app) {
   }
 }
 
+static void render_reset_surface(render_context_t* ctx) {
+  if (ctx->cr) {
+    cairo_destroy(ctx->cr);
+    ctx->cr = NULL;
+  }
+  if (ctx->surface) {
+    cairo_surface_destroy(ctx->surface);
+    ctx->surface = NULL;
+  }
+  ctx->target = XCB_WINDOW_NONE;
+  ctx->visual_id = 0;
+  ctx->depth = 0;
+  ctx->surface_is_test = false;
+  ctx->width = 0;
+  ctx->height = 0;
+}
+
+static bool render_prepare_surface(xcb_connection_t* conn, xcb_window_t win, xcb_visualtype_t* visual, render_context_t* ctx, int depth, int w, int h, bool is_test) {
+  bool recreate = false;
+
+  if (!ctx->surface || !ctx->cr)
+    recreate = true;
+
+  if (ctx->surface_is_test != is_test || ctx->target != win || ctx->width != w || ctx->height != h || ctx->depth != depth) {
+    recreate = true;
+  }
+
+  if (!is_test) {
+    if (!visual)
+      return false;
+    if (ctx->visual_id != visual->visual_id)
+      recreate = true;
+  }
+
+  if (!recreate)
+    return true;
+
+  render_reset_surface(ctx);
+
+  cairo_surface_t* surface = NULL;
+  if (is_test) {
+    surface = cairo_image_surface_create((depth == 32) ? CAIRO_FORMAT_ARGB32 : CAIRO_FORMAT_RGB24, w, h);
+  }
+  else {
+    surface = cairo_xcb_surface_create(conn, win, visual, w, h);
+  }
+
+  if (!cairo_surface_ok(surface)) {
+    if (surface)
+      cairo_surface_destroy(surface);
+    return false;
+  }
+
+  cairo_t* cr = cairo_create(surface);
+  if (!cairo_ctx_ok(cr)) {
+    cairo_destroy(cr);
+    cairo_surface_destroy(surface);
+    return false;
+  }
+
+  ctx->surface = surface;
+  ctx->cr = cr;
+  ctx->target = win;
+  ctx->visual_id = (!is_test && visual) ? visual->visual_id : 0;
+  ctx->depth = depth;
+  ctx->surface_is_test = is_test;
+  ctx->width = w;
+  ctx->height = h;
+  return true;
+}
+
 void render_init(render_context_t* ctx) {
   ctx->surface = NULL;
   ctx->cr = NULL;
   ctx->layout = NULL;
+  ctx->target = XCB_WINDOW_NONE;
+  ctx->visual_id = 0;
+  ctx->depth = 0;
+  ctx->surface_is_test = false;
   ctx->width = 0;
   ctx->height = 0;
   ctx->last_title = NULL;
@@ -152,20 +223,12 @@ void render_free(render_context_t* ctx) {
     g_object_unref(ctx->layout);
     ctx->layout = NULL;
   }
-  if (ctx->cr) {
-    cairo_destroy(ctx->cr);
-    ctx->cr = NULL;
-  }
-  if (ctx->surface) {
-    cairo_surface_destroy(ctx->surface);
-    ctx->surface = NULL;
-  }
+  render_reset_surface(ctx);
   if (ctx->last_title) {
     free(ctx->last_title);
     ctx->last_title = NULL;
   }
-  ctx->width = 0;
-  ctx->height = 0;
+  ctx->last_title_width = -1;
 }
 
 static void ensure_layout(render_context_t* ctx) {
@@ -220,12 +283,11 @@ static void draw_button(cairo_t* cr, int x, int y, int w, int h, const char* typ
  * Paint the window frame.
  *
  * Pipeline:
- * 1. Create XCB Pixmap (double buffer).
- * 2. Wrap it in a Cairo surface.
- * 3. Apply clip region (if partial redraw).
- * 4. Draw background, title, buttons.
- * 5. Blit Pixmap -> Window.
- * 6. Destroy temporary resources.
+ * 1. Reuse or (re)create a persistent Cairo surface/context.
+ * 2. Apply clip region (if partial redraw).
+ * 3. Draw background, title, buttons.
+ * 4. Flush Cairo surface.
+ * 5. In tests, upload image data via xcb_put_image for assertions.
  *
  * Note: PangoLayout is reused from `ctx` to save font lookup time.
  */
@@ -244,41 +306,18 @@ void render_frame(xcb_connection_t* conn,
                   const dirty_region_t* dirty) {
   if (w <= 0 || h <= 0)
     return;
-
-  cairo_surface_t* target_surface = NULL;
-  xcb_pixmap_t pixmap = XCB_NONE;
-
-  if (is_test) {
-    // Use image surface for tests to avoid XCB-Cairo dependency on dummy
-    // connection
-    target_surface = cairo_image_surface_create((depth == 32) ? CAIRO_FORMAT_ARGB32 : CAIRO_FORMAT_RGB24, w, h);
-  }
-  else {
-    if (!visual)
-      return;  // Safety check
-
-    // Use XCB surface for production
-    pixmap = xcb_generate_id(conn);
-    xcb_create_pixmap(conn, (uint8_t)depth, pixmap, win, (uint16_t)w, (uint16_t)h);
-    target_surface = cairo_xcb_surface_create(conn, pixmap, visual, w, h);
-  }
-
-  if (!cairo_surface_ok(target_surface)) {
-    if (!is_test && pixmap != XCB_NONE)
-      xcb_free_pixmap(conn, pixmap);
-    if (target_surface)
-      cairo_surface_destroy(target_surface);
+  if (!ctx)
     return;
-  }
-
-  cairo_t* cr = cairo_create(target_surface);
-  if (!cairo_ctx_ok(cr)) {
-    cairo_destroy(cr);
-    cairo_surface_destroy(target_surface);
-    if (!is_test && pixmap != XCB_NONE)
-      xcb_free_pixmap(conn, pixmap);
+  if (!is_test && !visual)
     return;
-  }
+  if (!render_prepare_surface(conn, win, visual, ctx, depth, w, h, is_test))
+    return;
+
+  cairo_surface_t* target_surface = ctx->surface;
+  cairo_t* cr = ctx->cr;
+  cairo_save(cr);
+  cairo_identity_matrix(cr);
+  cairo_reset_clip(cr);
 
   bool use_clip = false;
   dirty_region_t clip = {0};
@@ -288,11 +327,7 @@ void render_frame(xcb_connection_t* conn,
     if (clip.w > 0 && clip.h > 0) {
       dirty_region_clamp(&clip, 0, 0, (uint16_t)w, (uint16_t)h);
       if (!clip.valid) {
-        cairo_destroy(cr);
-        cairo_surface_destroy(target_surface);
-        if (!is_test) {
-          xcb_free_pixmap(conn, pixmap);
-        }
+        cairo_restore(cr);
         return;
       }
       cairo_rectangle(cr, (double)clip.x, (double)clip.y, (double)clip.w, (double)clip.h);
@@ -311,6 +346,12 @@ void render_frame(xcb_connection_t* conn,
 
   int title_h = (int)theme->title_height;
   int border_w = (int)theme->border_width;
+  bool clip_hits_title = true;
+  if (use_clip) {
+    int32_t cy0 = (int32_t)clip.y;
+    int32_t cy1 = cy0 + (int32_t)clip.h;
+    clip_hits_title = (cy0 < title_h && cy1 > 0);
+  }
 
   // 1. Draw Background (Solid for the whole frame, title_bg for titlebar)
   cairo_set_source_rgba(cr, border.r, border.g, border.b, border.a);
@@ -364,7 +405,7 @@ void render_frame(xcb_connection_t* conn,
     title_text_width = 0;
 
   // 3. Draw Title Text
-  if (title && title[0] != '\0') {
+  if (clip_hits_title && title && title[0] != '\0') {
     ensure_layout(ctx);
     cairo_set_source_rgba(cr, text.r, text.g, text.b, text.a);
 
@@ -426,9 +467,9 @@ void render_frame(xcb_connection_t* conn,
   btn_x -= (btn_size + btn_pad);
   draw_button(cr, btn_x, btn_y, btn_size, btn_size, "min", text);
 
-  // 6. Blit to Window
-  cairo_destroy(cr);
+  // 6. Present
   cairo_surface_flush(target_surface);
+  cairo_restore(cr);
 
   if (is_test) {
     xcb_gcontext_t gc = xcb_generate_id(conn);
@@ -438,24 +479,5 @@ void render_frame(xcb_connection_t* conn,
     xcb_put_image(conn, XCB_IMAGE_FORMAT_Z_PIXMAP, win, gc, (uint16_t)w, (uint16_t)h, 0, 0, 0, (uint8_t)depth, (uint32_t)(cairo_image_surface_get_stride(target_surface) * h),
                   cairo_image_surface_get_data(target_surface));
     xcb_free_gc(conn, gc);
-  }
-  else {
-    cairo_surface_destroy(target_surface);
-    xcb_gcontext_t gc = xcb_generate_id(conn);
-    uint32_t mask = XCB_GC_GRAPHICS_EXPOSURES;
-    uint32_t values[] = {0};
-    xcb_create_gc(conn, gc, win, mask, values);
-    if (use_clip) {
-      xcb_copy_area(conn, pixmap, win, gc, clip.x, clip.y, clip.x, clip.y, clip.w, clip.h);
-    }
-    else {
-      xcb_copy_area(conn, pixmap, win, gc, 0, 0, 0, 0, (uint16_t)w, (uint16_t)h);
-    }
-    xcb_free_gc(conn, gc);
-    xcb_free_pixmap(conn, pixmap);
-  }
-
-  if (is_test) {
-    cairo_surface_destroy(target_surface);
   }
 }

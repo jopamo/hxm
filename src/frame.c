@@ -86,6 +86,21 @@ void frame_cleanup_resources(server_t* s) {
 #define BUTTON_HEIGHT 16
 #define BUTTON_PADDING 4
 
+static bool frame_render_disabled(void) {
+  static int cached = -1;
+  if (cached >= 0)
+    return cached != 0;
+
+  const char* v = getenv("HXM_DISABLE_FRAME_RENDER");
+  if (!v || v[0] == '\0' || (v[0] == '0' && v[1] == '\0')) {
+    cached = 0;
+  }
+  else {
+    cached = 1;
+  }
+  return cached != 0;
+}
+
 static xcb_rectangle_t get_button_rect(server_t* s, client_hot_t* hot, frame_button_t btn) {
   uint32_t frame_w_calc = (uint32_t)hot->server.w + (uint32_t)(2u * (uint32_t)s->config.theme.border_width);
   if (frame_w_calc > MAX_FRAME_SIZE)
@@ -162,6 +177,12 @@ void frame_flush(server_t* s, handle_t h) {
 
   if (!f_dirty && !hot->frame_damage.valid)
     return;
+
+  if (frame_render_disabled()) {
+    hot->dirty &= ~frame_dirty_mask;
+    dirty_region_reset(&hot->frame_damage);
+    return;
+  }
 
   if (hot->flags & CLIENT_FLAG_UNDECORATED) {
     hot->dirty &= ~frame_dirty_mask;
