@@ -59,11 +59,11 @@ void test_wm_icon(void) {
 
   wm_handle_reply(&s, &slot, &mock_r, NULL);
 
-  assert(hot->icon_surface != NULL);
-  assert(cairo_image_surface_get_width(hot->icon_surface) == 2);
-  assert(cairo_image_surface_get_height(hot->icon_surface) == 2);
+  assert(cold->icon_surface != NULL);
+  assert(cairo_image_surface_get_width(cold->icon_surface) == 2);
+  assert(cairo_image_surface_get_height(cold->icon_surface) == 2);
 
-  unsigned char* data = cairo_image_surface_get_data(hot->icon_surface);
+  unsigned char* data = cairo_image_surface_get_data(cold->icon_surface);
   // Cairo uses native endian ARGB32.
   // If little endian, 0xFF0000FF -> B=FF, G=00, R=00, A=FF.
   // Wait, Cairo CAIRO_FORMAT_ARGB32 is pre-multiplied alpha, usually in host
@@ -84,10 +84,9 @@ void test_wm_icon(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }

@@ -43,9 +43,7 @@ static void cleanup_server(server_t* s) {
       if (cold)
         arena_destroy(&cold->string_arena);
       if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -137,7 +135,7 @@ static void test_state_toggle_stability(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 128);
   hot->self = h;
   hot->xid = 9101;
@@ -172,7 +170,7 @@ static void test_out_of_order_reply_ignored(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 128);
   hot->self = h;
   hot->xid = 9201;

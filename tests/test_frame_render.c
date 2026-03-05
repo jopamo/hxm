@@ -58,7 +58,7 @@ static void setup(void) {
   hot->dirty = DIRTY_FRAME_ALL;
 
   // Setup render context
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
 
   // Reset stubs
   stub_last_image_w = 0;
@@ -70,7 +70,7 @@ static void setup(void) {
 }
 
 static void teardown(void) {
-  render_free(&hot->render_ctx);
+  client_render_payload_destroy(cold);
   slotmap_destroy(&s.clients);
 }
 
@@ -79,7 +79,7 @@ static void test_frame_render_no_icon(void) {
   setup();
 
   // No icon set
-  hot->icon_surface = NULL;
+  cold->icon_surface = NULL;
   s.default_icon = NULL;
 
   // Simulate flush

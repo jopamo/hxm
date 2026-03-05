@@ -44,8 +44,9 @@ void test_resize_handle_logic(void) {
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   assert(h != HANDLE_INVALID);
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
 
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
 
   // Setup client
   hot->state = STATE_MAPPED;
@@ -127,7 +128,7 @@ void test_resize_handle_logic(void) {
   cookie_jar_destroy(&s.cookie_jar);
 
   // Proper cleanup of client
-  render_free(&hot->render_ctx);
+  client_render_payload_destroy(cold);
   slotmap_destroy(&s.clients);
 
   for (int i = 0; i < LAYER_COUNT; i++)

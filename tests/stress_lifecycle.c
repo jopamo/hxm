@@ -18,7 +18,7 @@ static void stress_cleanup_visitor(void* hot_ptr, void* cold_ptr, handle_t h, vo
   if (cold)
     arena_destroy(&cold->string_arena);
   if (hot)
-    render_free(&hot->render_ctx);
+    client_render_payload_destroy(cold);
 }
 
 void test_rapid_lifecycle(void) {

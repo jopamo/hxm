@@ -19,11 +19,10 @@ static void cleanup_server(server_t* s) {
       continue;
     handle_t h = handle_make(i, s->clients.hdr[i].gen);
     client_hot_t* hot = server_chot(s, h);
-    if (!hot)
+    client_cold_t* cold = server_ccold(s, h);
+    if (!hot || !cold)
       continue;
-    render_free(&hot->render_ctx);
-    if (hot->icon_surface)
-      cairo_surface_destroy(hot->icon_surface);
+    client_render_payload_destroy(cold);
   }
   small_vec_destroy(&s->active_clients);
   slotmap_destroy(&s->clients);

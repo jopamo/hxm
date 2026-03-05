@@ -84,9 +84,7 @@ static void cleanup_server(server_t* s) {
         cold->colormap_windows_len = 0;
       }
       if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+        client_render_payload_destroy(cold);
       }
     }
   }

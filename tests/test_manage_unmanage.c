@@ -98,9 +98,7 @@ static void cleanup_server(server_t* s) {
         arena_destroy(&cold->string_arena);
       }
       if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -261,7 +259,7 @@ static void test_finish_manage_maps_client_then_frame(void) {
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
 
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
 
   hot->self = h;
@@ -303,7 +301,7 @@ static void test_desktop_background_below_conky(void) {
   client_cold_t* conky_cold = (client_cold_t*)cold_ptr1;
   memset(conky_hot, 0, sizeof(*conky_hot));
   memset(conky_cold, 0, sizeof(*conky_cold));
-  render_init(&conky_hot->render_ctx);
+  render_init(&conky_cold->render_ctx);
   arena_init(&conky_cold->string_arena, 128);
   conky_hot->self = h_conky;
   conky_hot->xid = 2201;
@@ -329,7 +327,7 @@ static void test_desktop_background_below_conky(void) {
   client_cold_t* bg_cold = (client_cold_t*)cold_ptr2;
   memset(bg_hot, 0, sizeof(*bg_hot));
   memset(bg_cold, 0, sizeof(*bg_cold));
-  render_init(&bg_hot->render_ctx);
+  render_init(&bg_cold->render_ctx);
   arena_init(&bg_cold->string_arena, 128);
   bg_hot->self = h_bg;
   bg_hot->xid = 2202;
@@ -371,7 +369,7 @@ static void test_finish_manage_ignores_reparent_unmap(void) {
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
 
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
 
   hot->self = h;
@@ -430,7 +428,7 @@ static void test_rules_preserve_sticky_for_panel(void) {
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
 
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 128);
 
   hot->self = h;
@@ -538,7 +536,7 @@ static void test_unmap_destroy_unmanages(void) {
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
 
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
 
   hot->self = h;
@@ -573,7 +571,7 @@ static void test_unmap_destroy_unmanages(void) {
   client_cold_t* cold2 = (client_cold_t*)cold_ptr2;
   memset(hot2, 0, sizeof(*hot2));
   memset(cold2, 0, sizeof(*cold2));
-  render_init(&hot2->render_ctx);
+  render_init(&cold2->render_ctx);
   arena_init(&cold2->string_arena, 512);
   hot2->self = h2;
   hot2->xid = 3003;
@@ -611,7 +609,7 @@ static void test_destroy_notify_unmanages_and_destroys_frame(void) {
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
 
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
 
   hot->self = h;
@@ -658,7 +656,7 @@ static void test_iconify_ignores_unmap_notify_send_event(void) {
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
 
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
 
   hot->self = h;

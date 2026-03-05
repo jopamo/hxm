@@ -98,10 +98,10 @@ static void test_server_destroy(test_server_t* ts) {
     if (!hot)
       continue;
 
-    render_free(&hot->render_ctx);
-    if (hot->icon_surface)
-      cairo_surface_destroy(hot->icon_surface);
-    hot->icon_surface = NULL;
+    client_cold_t* cold = server_ccold(&ts->s, hot->self);
+    if (!cold)
+      continue;
+    client_render_payload_destroy(cold);
   }
 
   small_vec_destroy(&ts->s.active_clients);

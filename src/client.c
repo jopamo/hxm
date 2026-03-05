@@ -244,9 +244,7 @@ void client_abort_manage(server_t* s, handle_t h) {
     cold->colormap_windows = NULL;
     cold->colormap_windows_len = 0;
   }
-  render_free(&hot->render_ctx);
-  if (hot->icon_surface)
-    cairo_surface_destroy(hot->icon_surface);
+  client_render_payload_destroy(cold);
 
   small_vec_remove(&s->active_clients, handle_to_ptr(h));
   slotmap_free(&s->clients, h);
@@ -335,9 +333,8 @@ void client_manage_start(server_t* s, xcb_window_t win) {
 
   hot->last_cursor_dir = -1;
 
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
 
-  hot->icon_surface = NULL;
   hot->visual_type = NULL;
   hot->visual_id = s->root_visual;
   hot->depth = 0;
@@ -1094,9 +1091,7 @@ void client_unmanage(server_t* s, handle_t h) {
     cold->colormap_windows = NULL;
     cold->colormap_windows_len = 0;
   }
-  render_free(&hot->render_ctx);
-  if (hot->icon_surface)
-    cairo_surface_destroy(hot->icon_surface);
+  client_render_payload_destroy(cold);
 
   // Free slot
   small_vec_remove(&s->active_clients, handle_to_ptr(h));

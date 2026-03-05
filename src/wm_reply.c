@@ -1374,13 +1374,13 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
           }
 
           if (best_data) {
-            if (hot->icon_surface)
-              cairo_surface_destroy(hot->icon_surface);
-            hot->icon_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)best_w, (int)best_h);
+            if (cold->icon_surface)
+              cairo_surface_destroy(cold->icon_surface);
+            cold->icon_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)best_w, (int)best_h);
 
-            unsigned char* dest = cairo_image_surface_get_data(hot->icon_surface);
-            int stride = cairo_image_surface_get_stride(hot->icon_surface);
-            cairo_surface_flush(hot->icon_surface);
+            unsigned char* dest = cairo_image_surface_get_data(cold->icon_surface);
+            int stride = cairo_image_surface_get_stride(cold->icon_surface);
+            cairo_surface_flush(cold->icon_surface);
 
             for (int y = 0; y < (int)best_h; y++) {
               uint32_t* row = (uint32_t*)(dest + y * stride);
@@ -1405,18 +1405,18 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               }
             }
 
-            cairo_surface_mark_dirty(hot->icon_surface);
+            cairo_surface_mark_dirty(cold->icon_surface);
             changed = true;
           }
-          else if (hot->icon_surface) {
-            cairo_surface_destroy(hot->icon_surface);
-            hot->icon_surface = NULL;
+          else if (cold->icon_surface) {
+            cairo_surface_destroy(cold->icon_surface);
+            cold->icon_surface = NULL;
             changed = true;
           }
         }
-        else if (hot->icon_surface) {
-          cairo_surface_destroy(hot->icon_surface);
-          hot->icon_surface = NULL;
+        else if (cold->icon_surface) {
+          cairo_surface_destroy(cold->icon_surface);
+          cold->icon_surface = NULL;
           changed = true;
         }
       }

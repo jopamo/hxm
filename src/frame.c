@@ -249,8 +249,8 @@ void frame_flush(server_t* s, handle_t h) {
     }
   }
 
-  render_frame(s->conn, hot->frame, visual, &hot->render_ctx, (int)s->root_depth, s->is_test, cold ? cold->title : "", active, frame_w, frame_h, &s->config.theme,
-               hot->icon_surface ? hot->icon_surface : s->default_icon, clip_ptr);
+  render_frame(s->conn, hot->frame, visual, &cold->render_ctx, (int)s->root_depth, s->is_test, cold->title ? cold->title : "", active, frame_w, frame_h,
+               &s->config.theme, cold->icon_surface ? cold->icon_surface : s->default_icon, clip_ptr);
 
   hot->dirty &= ~frame_dirty_mask;
   dirty_region_reset(&hot->frame_damage);

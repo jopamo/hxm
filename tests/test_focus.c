@@ -32,10 +32,9 @@ static void teardown_server(server_t* s) {
     if (s->clients.hdr[i].live) {
       handle_t h = handle_make(i, s->clients.hdr[i].gen);
       client_hot_t* hot = server_chot(s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -45,8 +44,6 @@ static void teardown_server(server_t* s) {
 
 void test_should_focus_on_map(void) {
   client_hot_t hot = {0};
-  render_init(&hot.render_ctx);
-  hot.icon_surface = NULL;
   hot.focus_override = -1;
 
   // Default window type is NORMAL (0), transient_for HANDLE_INVALID
@@ -84,9 +81,6 @@ void test_should_focus_on_map(void) {
   hot.focus_override = -1;
 
   printf("test_should_focus_on_map passed\n");
-  render_free(&hot.render_ctx);
-  if (hot.icon_surface)
-    cairo_surface_destroy(hot.icon_surface);
 }
 
 void test_debug_dump_focus_history_guard(void) {
@@ -100,7 +94,8 @@ void test_debug_dump_focus_history_guard(void) {
   for (int i = 0; i < CLIENT_COUNT; i++) {
     handles[i] = slotmap_alloc(&s.clients, NULL, NULL);
     client_hot_t* c = server_chot(&s, handles[i]);
-    render_init(&c->render_ctx);
+    client_cold_t* cold = server_ccold(&s, handles[i]);
+    client_render_payload_init(cold);
     c->state = STATE_MAPPED;
     c->desktop = 0;
     c->frame = 1000 + i;

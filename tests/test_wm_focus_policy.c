@@ -54,9 +54,10 @@ static handle_t alloc_test_client(server_t* s, xcb_window_t xid, int32_t desktop
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold_ptr, 0, sizeof(client_cold_t));
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   hot->self = h;
   hot->xid = xid;
   hot->state = STATE_NEW;
@@ -111,9 +112,10 @@ void test_focus_on_finish_manage(void) {
   void *h1_hot_ptr = NULL, *h1_cold_ptr = NULL;
   handle_t h1 = slotmap_alloc(&s.clients, &h1_hot_ptr, &h1_cold_ptr);
   client_hot_t* h1_hot = (client_hot_t*)h1_hot_ptr;
+  client_cold_t* h1_cold = (client_cold_t*)h1_cold_ptr;
   memset(h1_hot, 0, sizeof(client_hot_t));
   memset(h1_cold_ptr, 0, sizeof(client_cold_t));
-  render_init(&h1_hot->render_ctx);
+  client_render_payload_init(h1_cold);
   h1_hot->self = h1;
   h1_hot->xid = 101;
   h1_hot->type = WINDOW_TYPE_NORMAL;
@@ -139,8 +141,9 @@ void test_focus_on_finish_manage(void) {
   void *h2_hot_ptr = NULL, *h2_cold_ptr = NULL;
   handle_t h2 = slotmap_alloc(&s.clients, &h2_hot_ptr, &h2_cold_ptr);
   client_hot_t* h2_hot = (client_hot_t*)h2_hot_ptr;
+  client_cold_t* h2_cold = (client_cold_t*)h2_cold_ptr;
   memset(h2_hot, 0, sizeof(client_hot_t));
-  render_init(&h2_hot->render_ctx);
+  client_render_payload_init(h2_cold);
   h2_hot->self = h2;
   h2_hot->xid = 102;
   h2_hot->type = WINDOW_TYPE_NORMAL;
@@ -161,8 +164,9 @@ void test_focus_on_finish_manage(void) {
   void *h3_hot_ptr = NULL, *h3_cold_ptr = NULL;
   handle_t h3 = slotmap_alloc(&s.clients, &h3_hot_ptr, &h3_cold_ptr);
   client_hot_t* h3_hot = (client_hot_t*)h3_hot_ptr;
+  client_cold_t* h3_cold = (client_cold_t*)h3_cold_ptr;
   memset(h3_hot, 0, sizeof(client_hot_t));
-  render_init(&h3_hot->render_ctx);
+  client_render_payload_init(h3_cold);
   h3_hot->self = h3;
   h3_hot->xid = 103;
   h3_hot->type = WINDOW_TYPE_DIALOG;
@@ -184,10 +188,9 @@ void test_focus_on_finish_manage(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -220,8 +223,9 @@ void test_mru_cycling(void) {
     void *hot_ptr = NULL, *cold_ptr = NULL;
     h[i] = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
     client_hot_t* hot = (client_hot_t*)hot_ptr;
+    client_cold_t* cold = (client_cold_t*)cold_ptr;
     memset(hot, 0, sizeof(client_hot_t));
-    render_init(&hot->render_ctx);
+    client_render_payload_init(cold);
     hot->self = h[i];
     hot->xid = 100 + i;
     hot->type = WINDOW_TYPE_NORMAL;
@@ -278,10 +282,9 @@ void test_mru_cycling(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -361,10 +364,9 @@ void test_move_interaction(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -430,10 +432,9 @@ void test_title_update(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -484,10 +485,9 @@ void test_finish_manage_visibility(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -518,10 +518,9 @@ void test_finish_manage_show_desktop_hides(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -559,10 +558,9 @@ void test_finish_manage_focus_override(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -611,10 +609,9 @@ void test_finish_manage_no_focus_for_dock_desktop(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -663,10 +660,9 @@ void test_iconify_updates_focus(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -704,10 +700,9 @@ void test_restore_maps_window(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -739,10 +734,9 @@ void test_set_focus_ignores_unmapped(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -779,10 +773,9 @@ void test_set_focus_revert_policy_and_root_fallback(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -817,10 +810,9 @@ void test_unmanage_focus_prefers_parent(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -859,10 +851,9 @@ void test_unmanage_focus_falls_back_to_mru(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }

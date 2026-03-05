@@ -718,9 +718,9 @@ void menu_handle_expose_region(server_t* s, const dirty_region_t* dirty) {
 
     cairo_surface_t* icon = NULL;
     if (s->menu.is_client_list && item->client != HANDLE_INVALID) {
-      client_hot_t* hot = server_chot(s, item->client);
-      if (hot)
-        icon = hot->icon_surface;
+      client_cold_t* cold = server_ccold(s, item->client);
+      if (cold)
+        icon = cold->icon_surface;
     }
     else {
       icon = item->icon_surface;

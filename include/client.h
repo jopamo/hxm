@@ -4,8 +4,7 @@
  * Defines the client hot/cold data model for managed X11 windows
  *
  * Split design:
- * - client_hot_t : frequently touched state (geometry, flags, dirty bits,
- * rendering)
+ * - client_hot_t : frequently touched state (geometry, flags, dirty bits)
  * - client_cold_t: infrequently touched state (strings, protocol lists, struts)
  *
  * Handles:
@@ -251,9 +250,6 @@ typedef struct client_hot {
 
   int last_cursor_dir;
 
-  render_context_t render_ctx;
-  cairo_surface_t* icon_surface;
-
   xcb_visualid_t visual_id;
   xcb_visualtype_t* visual_type;
   uint8_t depth;
@@ -290,7 +286,7 @@ typedef struct client_hot {
   uint32_t fullscreen_monitors[4];
 } client_hot_t;
 
-#define CLIENT_HOT_SIZE_GUARD_BYTES 584u
+#define CLIENT_HOT_SIZE_GUARD_BYTES 512u
 HXM_STATIC_ASSERT(sizeof(client_hot_t) <= CLIENT_HOT_SIZE_GUARD_BYTES,
                   "client_hot_t exceeded guard; move non-hot fields to cold storage");
 
@@ -326,6 +322,9 @@ typedef struct client_cold {
   xcb_window_t* colormap_windows;
   uint32_t colormap_windows_len;
 
+  render_context_t render_ctx;
+  cairo_surface_t* icon_surface;
+
   arena_t string_arena;
 
   bool has_net_wm_name;
@@ -343,6 +342,23 @@ typedef struct client_cold {
 
   uint32_t pid;
 } client_cold_t;
+
+static inline void client_render_payload_init(client_cold_t* cold) {
+  if (!cold)
+    return;
+  render_init(&cold->render_ctx);
+  cold->icon_surface = NULL;
+}
+
+static inline void client_render_payload_destroy(client_cold_t* cold) {
+  if (!cold)
+    return;
+  render_free(&cold->render_ctx);
+  if (cold->icon_surface) {
+    cairo_surface_destroy(cold->icon_surface);
+    cold->icon_surface = NULL;
+  }
+}
 
 typedef struct server server_t;
 

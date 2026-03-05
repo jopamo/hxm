@@ -54,6 +54,7 @@ void test_frame_extents(void) {
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->state = STATE_NEW;
@@ -124,9 +125,7 @@ void test_frame_extents(void) {
   }
 
   // Cleanup
-  render_free(&hot->render_ctx);
-  if (hot->icon_surface)
-    cairo_surface_destroy(hot->icon_surface);
+  client_render_payload_destroy(cold);
   slotmap_destroy(&s.clients);
   small_vec_destroy(&s.active_clients);
   hash_map_destroy(&s.window_to_client);
@@ -161,6 +160,7 @@ void test_allowed_actions(void) {
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->state = STATE_MAPPED;
@@ -223,9 +223,7 @@ void test_allowed_actions(void) {
 
   printf("test_allowed_actions passed\n");
 
-  render_free(&hot->render_ctx);
-  if (hot->icon_surface)
-    cairo_surface_destroy(hot->icon_surface);
+  client_render_payload_destroy(cold);
   slotmap_destroy(&s.clients);
   small_vec_destroy(&s.active_clients);
   hash_map_destroy(&s.window_to_client);
@@ -257,6 +255,7 @@ void test_desktop_clamp_single(void) {
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->frame = 456;
@@ -306,9 +305,7 @@ void test_desktop_clamp_single(void) {
   hash_map_destroy(&s.frame_to_client);
   for (int i = 0; i < LAYER_COUNT; i++)
     small_vec_destroy(&s.layers[i]);
-  render_free(&hot->render_ctx);
-  if (hot->icon_surface)
-    cairo_surface_destroy(hot->icon_surface);
+  client_render_payload_destroy(cold);
   slotmap_destroy(&s.clients);
   small_vec_destroy(&s.active_clients);
   arena_destroy(&s.tick_arena);
@@ -336,6 +333,7 @@ void test_dirty_stack_relayer(void) {
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->frame = 456;
@@ -359,9 +357,7 @@ void test_dirty_stack_relayer(void) {
 
   printf("test_dirty_stack_relayer passed\n");
 
-  render_free(&hot->render_ctx);
-  if (hot->icon_surface)
-    cairo_surface_destroy(hot->icon_surface);
+  client_render_payload_destroy(cold);
   slotmap_destroy(&s.clients);
   arena_destroy(&s.tick_arena);
   free(s.conn);

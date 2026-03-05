@@ -47,10 +47,9 @@ static void teardown_server(server_t* s) {
     if (s->clients.hdr[i].live) {
       handle_t h = handle_make(i, s->clients.hdr[i].gen);
       client_hot_t* hot = server_chot(s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }

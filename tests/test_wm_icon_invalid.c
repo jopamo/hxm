@@ -56,25 +56,25 @@ void test_wm_icon_invalid(void) {
   xcb_get_property_reply_t* rep = make_icon_reply(huge_dims, 2);
   wm_handle_reply(&s, &slot, rep, NULL);
   free(rep);
-  assert(hot->icon_surface == NULL);
+  assert(cold->icon_surface == NULL);
 
   uint32_t big_dims[] = {4097, 4097};
   rep = make_icon_reply(big_dims, 2);
   wm_handle_reply(&s, &slot, rep, NULL);
   free(rep);
-  assert(hot->icon_surface == NULL);
+  assert(cold->icon_surface == NULL);
 
   uint32_t truncated[] = {64, 64};
   rep = make_icon_reply(truncated, 2);
   wm_handle_reply(&s, &slot, rep, NULL);
   free(rep);
-  assert(hot->icon_surface == NULL);
+  assert(cold->icon_surface == NULL);
 
   printf("test_wm_icon_invalid passed\n");
 
   arena_destroy(&cold->string_arena);
-  if (hot->icon_surface)
-    cairo_surface_destroy(hot->icon_surface);
+  if (cold->icon_surface)
+    cairo_surface_destroy(cold->icon_surface);
   slotmap_destroy(&s.clients);
   free(s.conn);
 }

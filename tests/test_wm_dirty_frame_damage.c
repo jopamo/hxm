@@ -53,7 +53,7 @@ static void cleanup_server(server_t* s) {
     if (cold)
       arena_destroy(&cold->string_arena);
     if (hot)
-      render_free(&hot->render_ctx);
+      client_render_payload_destroy(cold);
   }
   slotmap_destroy(&s->clients);
   cookie_jar_destroy(&s->cookie_jar);
@@ -75,7 +75,7 @@ static handle_t add_client(server_t* s, xcb_window_t win, xcb_window_t frame) {
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
 
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 128);
 
   hot->self = h;

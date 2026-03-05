@@ -84,10 +84,9 @@ void test_transient_stacking(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -154,10 +153,9 @@ void test_transient_focus_return(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -219,10 +217,9 @@ void test_transient_parent_unmanage_unlinks_child(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -293,10 +290,9 @@ void test_transient_unmanage_unlinks_from_parent(void) {
     if (s.clients.hdr[i].live) {
       handle_t h = handle_make(i, s.clients.hdr[i].gen);
       client_hot_t* hot = server_chot(&s, h);
-      if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+      client_cold_t* cold = server_ccold(&s, h);
+      if (hot && cold) {
+        client_render_payload_destroy(cold);
       }
     }
   }

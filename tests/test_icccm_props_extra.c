@@ -59,9 +59,7 @@ static void cleanup_server(server_t* s) {
       if (cold)
         arena_destroy(&cold->string_arena);
       if (hot) {
-        render_free(&hot->render_ctx);
-        if (hot->icon_surface)
-          cairo_surface_destroy(hot->icon_surface);
+        client_render_payload_destroy(cold);
       }
     }
   }
@@ -280,7 +278,7 @@ static void test_wm_hints_input_affects_focus(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
   hot->self = h;
   hot->xid = 654;
@@ -353,7 +351,7 @@ static void test_wm_hints_icon_safe(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
   hot->xid = 777;
   hot->state = STATE_NEW;
@@ -410,7 +408,7 @@ static void test_property_deletions_reset_defaults(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
   hot->xid = 900;
   hot->self = h;
@@ -529,7 +527,7 @@ static void test_focused_client_recommits_on_wm_protocols_take_focus_enable(void
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
   hot->self = h;
   hot->xid = 901;
@@ -588,7 +586,7 @@ static void test_focused_client_recommits_on_wm_hints_input_enable(void) {
   client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
   memset(cold, 0, sizeof(*cold));
-  render_init(&hot->render_ctx);
+  client_render_payload_init(cold);
   arena_init(&cold->string_arena, 512);
   hot->self = h;
   hot->xid = 902;
