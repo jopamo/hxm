@@ -285,10 +285,13 @@ void client_abort_manage(server_t* s, handle_t h) {
  */
 void client_manage_start(server_t* s, xcb_window_t win) {
   TRACE_LOG("manage_start win=%u", win);
+  assert(win != XCB_NONE);
   if (server_get_client_by_window(s, win) != HANDLE_INVALID) {
     LOG_DEBUG("Already managing window %u", win);
     return;
   }
+  /* Single-owner invariant: no managed frame/window may alias this XID. */
+  assert(server_get_client_by_frame(s, win) == HANDLE_INVALID);
 
   // Allocate slot for hot/cold client storage
   void* hot_ptr;
@@ -415,6 +418,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   // Register mapping so we can find it
   bool replaced = hash_map_insert(&s->window_to_client, win, handle_to_ptr(h));
   assert(!replaced);
+  assert(server_get_client_by_window(s, win) == h);
   small_vec_push(&s->active_clients, handle_to_ptr(h));
   TRACE_LOG("manage_start window_to_client[%u]=%lx", win, h);
 
@@ -557,6 +561,12 @@ void client_finish_manage(server_t* s, handle_t h) {
   bool is_conky = client_is_conky(cold);
   TRACE_LOG("finish_manage h=%lx xid=%u desktop=%d sticky=%d initial_state=%u", h, hot->xid, hot->desktop, hot->sticky, hot->initial_state);
 
+  /* Ensure canonical window ownership mapping before frame setup. */
+  handle_t owner = server_get_client_by_window(s, hot->xid);
+  if (owner != h) {
+    hash_map_insert(&s->window_to_client, hot->xid, handle_to_ptr(h));
+  }
+
   client_apply_rules(s, h);
 
   wm_place_window(s, h);
@@ -637,6 +647,12 @@ void client_finish_manage(server_t* s, handle_t h) {
   // Use root visual/depth for frames to avoid client-visual artifacts (ex:
   // video overlays)
 
+  if (hot->frame != XCB_NONE) {
+    handle_t frame_owner = server_get_client_by_frame(s, hot->frame);
+    if (frame_owner == h)
+      hash_map_remove(&s->frame_to_client, hot->frame);
+    hot->frame = XCB_NONE;
+  }
   hot->frame = xcb_generate_id(s->conn);
   xcb_create_window(s->conn, s->root_depth, hot->frame, s->root, (int16_t)frame_x, (int16_t)frame_y, (uint16_t)frame_w, (uint16_t)frame_h, 0, XCB_WINDOW_CLASS_INPUT_OUTPUT, s->root_visual,
                     mask, values);
@@ -644,6 +660,8 @@ void client_finish_manage(server_t* s, handle_t h) {
   // Register frame mapping
   bool frame_replaced = hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));
   assert(!frame_replaced);
+  if (server_get_client_by_window(s, hot->xid) != h)
+    hash_map_insert(&s->window_to_client, hot->xid, handle_to_ptr(h));
 
   // Add to SaveSet for crash safety
   xcb_change_save_set(s->conn, XCB_SET_MODE_INSERT, hot->xid);
@@ -950,10 +968,18 @@ static void client_detach_logical(server_t* s, handle_t h, client_hot_t* hot) {
     list_init(&hot->focus_node);
   }
 
-  if (hot->xid != XCB_NONE)
-    hash_map_remove(&s->window_to_client, hot->xid);
-  if (hot->frame != XCB_NONE)
-    hash_map_remove(&s->frame_to_client, hot->frame);
+  if (hot->xid != XCB_NONE) {
+    handle_t owner = server_get_client_by_window(s, hot->xid);
+    assert(owner == HANDLE_INVALID || owner == h);
+    if (owner == h)
+      hash_map_remove(&s->window_to_client, hot->xid);
+  }
+  if (hot->frame != XCB_NONE) {
+    handle_t owner = server_get_client_by_frame(s, hot->frame);
+    assert(owner == HANDLE_INVALID || owner == h);
+    if (owner == h)
+      hash_map_remove(&s->frame_to_client, hot->frame);
+  }
 }
 
 void client_unmanage(server_t* s, handle_t h) {

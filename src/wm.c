@@ -1011,17 +1011,33 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
   TRACE_LOG("configure_notify h=%lx win=%u x=%d y=%d w=%u h=%u bw=%u above=%u", h, ev->window, ev->x, ev->y, ev->width, ev->height, ev->border_width, ev->above_sibling);
 
   if (ev->window == hot->frame) {
+    /* Frame is authoritative for committed geometry. */
+    uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
+    uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
+    uint16_t bottom_h = bw;
+    uint16_t client_w = ev->width;
+    uint16_t client_h = ev->height;
+
+    if (!hot->gtk_frame_extents_set) {
+      uint32_t frame_w = ev->width;
+      uint32_t frame_h = ev->height;
+      uint32_t deco_w = (uint32_t)(2u * bw);
+      uint32_t deco_h = (uint32_t)th + (uint32_t)bottom_h;
+      client_w = (uint16_t)((frame_w > deco_w) ? (frame_w - deco_w) : 1u);
+      client_h = (uint16_t)((frame_h > deco_h) ? (frame_h - deco_h) : 1u);
+    }
+
     hot->server.x = ev->x;
     hot->server.y = ev->y;
-    LOG_DEBUG("Client %lx frame pos updated: %d,%d", h, ev->x, ev->y);
+    hot->server.w = client_w;
+    hot->server.h = client_h;
+    LOG_DEBUG("Client %lx frame geom updated: %d,%d %ux%u", h, ev->x, ev->y, (unsigned)client_w, (unsigned)client_h);
   }
   else if (ev->window == hot->xid) {
     bool interactive_resize = (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame);
-    hot->server.w = ev->width;
-    hot->server.h = ev->height;
 
     if (interactive_resize) {
-      LOG_DEBUG("Client %lx window size updated (interactive): %dx%d", h, ev->width, ev->height);
+      LOG_DEBUG("Client %lx client notify observed (interactive): %dx%d", h, ev->width, ev->height);
       return;
     }
 
@@ -1032,12 +1048,12 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
       if (!is_panel)
         client_constrain_size(&hot->hints, hot->hints_flags, &target_w, &target_h);
 
-      if (hot->server.w != target_w || hot->server.h != target_h) {
+      if (ev->width != target_w || ev->height != target_h) {
         hot->dirty |= DIRTY_GEOM;
       }
     }
 
-    LOG_DEBUG("Client %lx window size updated: %dx%d", h, ev->width, ev->height);
+    LOG_DEBUG("Client %lx client notify observed: %dx%d", h, ev->width, ev->height);
   }
 }
 
