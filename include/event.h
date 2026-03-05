@@ -98,6 +98,8 @@ typedef struct event_buckets {
 
   /* Destroy tracker for this tick: window -> (void*)1 */
   hash_map_t destroyed_windows;
+  /* Keys touched this tick for destroyed_windows (uint64_t* in tick_arena) */
+  small_vec_t destroyed_window_keys;
 
   /* PropertyNotify coalesced by (window, atom): combined key ->
    * xcb_property_notify_event_t* or small sentinel */

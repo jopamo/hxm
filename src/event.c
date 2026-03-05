@@ -270,6 +270,7 @@ void server_init(server_t* s) {
   hash_map_init(&s->buckets.configure_notifies);
   small_vec_init(&s->buckets.configure_notify_keys);
   hash_map_init(&s->buckets.destroyed_windows);
+  small_vec_init(&s->buckets.destroyed_window_keys);
   hash_map_init(&s->buckets.property_notifies);
   small_vec_init(&s->buckets.property_notify_keys);
   hash_map_init(&s->buckets.motion_notifies);
@@ -415,6 +416,7 @@ void server_cleanup(server_t* s) {
   hash_map_destroy(&s->buckets.configure_notifies);
   small_vec_destroy(&s->buckets.configure_notify_keys);
   hash_map_destroy(&s->buckets.destroyed_windows);
+  small_vec_destroy(&s->buckets.destroyed_window_keys);
   hash_map_destroy(&s->buckets.property_notifies);
   small_vec_destroy(&s->buckets.property_notify_keys);
   hash_map_destroy(&s->buckets.motion_notifies);
@@ -612,7 +614,8 @@ static void buckets_reset(event_buckets_t* b) {
   small_vec_clear(&b->configure_request_keys);
   bucket_clear_map_touched(&b->configure_notifies, &b->configure_notify_keys);
   small_vec_clear(&b->configure_notify_keys);
-  hash_map_clear(&b->destroyed_windows);
+  bucket_clear_map_touched(&b->destroyed_windows, &b->destroyed_window_keys);
+  small_vec_clear(&b->destroyed_window_keys);
   bucket_clear_map_touched(&b->property_notifies, &b->property_notify_keys);
   small_vec_clear(&b->property_notify_keys);
   bucket_clear_map_touched(&b->motion_notifies, &b->motion_notify_keys);
@@ -1054,7 +1057,9 @@ static void event_ingest_one(server_t* s, xcb_generic_event_t* ev) {
       xcb_destroy_notify_event_t* e = (xcb_destroy_notify_event_t*)ev;
       TRACE_LOG("ingest destroy_notify win=%u event=%u", e->window, e->event);
 
-      hash_map_insert(&s->buckets.destroyed_windows, e->window, (void*)1);
+      bool existed = hash_map_insert(&s->buckets.destroyed_windows, e->window, (void*)1);
+      if (!existed)
+        bucket_track_key(s, &s->buckets.destroyed_window_keys, (uint64_t)e->window);
       hash_map_remove(&s->buckets.configure_requests, e->window);
 
       void* copy = arena_alloc(&s->tick_arena, sizeof(*e));
