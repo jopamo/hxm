@@ -65,7 +65,10 @@ static int make_epoll_or_die(void);
 static void epoll_add_fd_or_die(int epfd, int fd);
 static void load_config_from_home(server_t* s);
 static void load_menu_config(server_t* s);
-static void run_autostart(void);
+static void run_autostart(server_t* s);
+static xcb_atom_t autostart_guard_atom(server_t* s);
+static bool autostart_already_ran(server_t* s, xcb_atom_t guard_atom);
+static void autostart_mark_ran(server_t* s, xcb_atom_t guard_atom);
 static void apply_reload(server_t* s);
 static void buckets_reset(event_buckets_t* b);
 static void bucket_clear_map_touched(hash_map_t* map, small_vec_t* keys);
@@ -334,7 +337,7 @@ void server_init(server_t* s) {
   wm_setup_keys(s);
 
   if (!s->is_test) {
-    run_autostart();
+    run_autostart(s);
   }
 
   LOG_INFO("Server initialized");
@@ -475,7 +478,46 @@ static void epoll_add_fd_or_die(int epfd, int fd) {
   }
 }
 
-static void run_autostart(void) {
+static xcb_atom_t autostart_guard_atom(server_t* s) {
+  static const char* const guard_name = "_HXM_AUTOSTART_DONE";
+  xcb_intern_atom_cookie_t ck = xcb_intern_atom(s->conn, 0, (uint16_t)strlen(guard_name), guard_name);
+  xcb_intern_atom_reply_t* reply = xcb_intern_atom_reply(s->conn, ck, NULL);
+  if (!reply)
+    return XCB_ATOM_NONE;
+  xcb_atom_t atom = reply->atom;
+  free(reply);
+  return atom;
+}
+
+static bool autostart_already_ran(server_t* s, xcb_atom_t guard_atom) {
+  if (guard_atom == XCB_ATOM_NONE)
+    return false;
+
+  xcb_get_property_cookie_t ck = xcb_get_property(s->conn, 0, s->root, guard_atom, XCB_ATOM_CARDINAL, 0, 1);
+  xcb_get_property_reply_t* reply = xcb_get_property_reply(s->conn, ck, NULL);
+  if (!reply)
+    return false;
+
+  bool ran = false;
+  if (reply->format == 32 && xcb_get_property_value_length(reply) >= (int)sizeof(uint32_t)) {
+    const uint32_t* value = (const uint32_t*)xcb_get_property_value(reply);
+    ran = (*value != 0u);
+  }
+
+  free(reply);
+  return ran;
+}
+
+static void autostart_mark_ran(server_t* s, xcb_atom_t guard_atom) {
+  if (guard_atom == XCB_ATOM_NONE)
+    return;
+
+  uint32_t one = 1u;
+  xcb_change_property(s->conn, XCB_PROP_MODE_REPLACE, s->root, guard_atom, XCB_ATOM_CARDINAL, 32, 1, &one);
+  xcb_flush(s->conn);
+}
+
+static void run_autostart(server_t* s) {
   char path[1024];
   const char* xdg_config_home = getenv("XDG_CONFIG_HOME");
   const char* home = getenv("HOME");
@@ -504,21 +546,31 @@ static void run_autostart(void) {
     }
   }
 
-  if (exec_path) {
-    LOG_INFO("Executing autostart script: %s", exec_path);
-    pid_t pid = fork();
-    if (pid == 0) {
-      if (setsid() < 0) {
-        LOG_WARN("setsid failed in autostart: %s", strerror(errno));
-      }
-      execl(exec_path, exec_path, NULL);
-      LOG_ERROR("Failed to exec autostart script: %s", strerror(errno));
-      exit(1);
-    }
-    else if (pid < 0) {
-      LOG_ERROR("Failed to fork for autostart: %s", strerror(errno));
-    }
+  if (!exec_path)
+    return;
+
+  xcb_atom_t guard_atom = autostart_guard_atom(s);
+  if (autostart_already_ran(s, guard_atom)) {
+    LOG_INFO("Skipping autostart script (already ran this X session): %s", exec_path);
+    return;
   }
+
+  LOG_INFO("Executing autostart script: %s", exec_path);
+  pid_t pid = fork();
+  if (pid == 0) {
+    if (setsid() < 0) {
+      LOG_WARN("setsid failed in autostart: %s", strerror(errno));
+    }
+    execl(exec_path, exec_path, NULL);
+    LOG_ERROR("Failed to exec autostart script: %s", strerror(errno));
+    exit(1);
+  }
+  if (pid < 0) {
+    LOG_ERROR("Failed to fork for autostart: %s", strerror(errno));
+    return;
+  }
+
+  autostart_mark_ran(s, guard_atom);
 }
 
 static void load_config_from_home(server_t* s) {
