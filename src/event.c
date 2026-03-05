@@ -68,6 +68,7 @@ static void load_menu_config(server_t* s);
 static void run_autostart(void);
 static void apply_reload(server_t* s);
 static void buckets_reset(event_buckets_t* b);
+static void bucket_clear_map_touched(hash_map_t* map, small_vec_t* keys);
 static void bucket_track_key(server_t* s, small_vec_t* keys, uint64_t key);
 static void event_ingest_one(server_t* s, xcb_generic_event_t* ev);
 static bool server_wait_for_events(server_t* s, int timeout_ms);
@@ -605,18 +606,18 @@ static void buckets_reset(event_buckets_t* b) {
   small_vec_clear(&b->client_messages);
 
   // Reuse hash map storage across ticks to avoid allocator churn.
-  hash_map_clear(&b->expose_regions);
+  bucket_clear_map_touched(&b->expose_regions, &b->expose_region_keys);
   small_vec_clear(&b->expose_region_keys);
-  hash_map_clear(&b->configure_requests);
+  bucket_clear_map_touched(&b->configure_requests, &b->configure_request_keys);
   small_vec_clear(&b->configure_request_keys);
-  hash_map_clear(&b->configure_notifies);
+  bucket_clear_map_touched(&b->configure_notifies, &b->configure_notify_keys);
   small_vec_clear(&b->configure_notify_keys);
   hash_map_clear(&b->destroyed_windows);
-  hash_map_clear(&b->property_notifies);
+  bucket_clear_map_touched(&b->property_notifies, &b->property_notify_keys);
   small_vec_clear(&b->property_notify_keys);
-  hash_map_clear(&b->motion_notifies);
+  bucket_clear_map_touched(&b->motion_notifies, &b->motion_notify_keys);
   small_vec_clear(&b->motion_notify_keys);
-  hash_map_clear(&b->damage_regions);
+  bucket_clear_map_touched(&b->damage_regions, &b->damage_region_keys);
   small_vec_clear(&b->damage_region_keys);
 
   b->pointer_notify.enter_valid = false;
@@ -630,6 +631,27 @@ static void buckets_reset(event_buckets_t* b) {
 
   b->ingested = 0;
   b->coalesced = 0;
+}
+
+static void bucket_clear_map_touched(hash_map_t* map, small_vec_t* keys) {
+  if (!map || map->size == 0)
+    return;
+  if (!keys || keys->length == 0) {
+    hash_map_clear(map);
+    return;
+  }
+
+  for (size_t i = 0; i < keys->length && map->size > 0; i++) {
+    const uint64_t* touched = (const uint64_t*)keys->items[i];
+    if (!touched || *touched == 0)
+      continue;
+    hash_map_remove(map, *touched);
+  }
+
+  // Fallback safety for stale/missing key tracking.
+  if (map->size > 0) {
+    hash_map_clear(map);
+  }
 }
 
 static void bucket_track_key(server_t* s, small_vec_t* keys, uint64_t key) {

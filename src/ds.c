@@ -346,6 +346,8 @@ void hash_map_clear(hash_map_t* map) {
       map->size = 0;
     return;
   }
+  if (map->size == 0)
+    return;
 
   memset(map->entries, 0, map->capacity * sizeof(*map->entries));
   map->size = 0;
