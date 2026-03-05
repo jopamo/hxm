@@ -151,8 +151,6 @@ typedef struct client_hot {
   xcb_window_t frame;
 
   rect_t server;
-  uint16_t server_frame_w;
-  uint16_t server_frame_h;
   rect_t last_synthetic_geom;
   rect_t desired;
   rect_t pending;
@@ -257,15 +255,6 @@ typedef struct client_hot {
   manage_phase_t manage_phase;
   uint8_t pending_state_count;
   pending_state_msg_t pending_state_msgs[4];
-
-  bool geometry_from_configure;
-  bool geometry_from_notify;
-  uint16_t geometry_notify_w;
-  uint16_t geometry_notify_h;
-  bool notify_settle_pending;
-  uint16_t notify_settle_w;
-  uint16_t notify_settle_h;
-  uint64_t notify_settle_deadline_ns;
 
   uint32_t user_time;
   xcb_window_t user_time_window;

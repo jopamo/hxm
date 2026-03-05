@@ -279,6 +279,10 @@ static void test_not_dirty_no_configure(void) {
   hot->gtk_extents.top = 11;
   hot->gtk_extents.bottom = 13;
 
+  // Keep model/server in sync so this flush is a true no-op.
+  hot->server = hot->desired;
+  hot->server.x = (int16_t)(hot->desired.x - (int16_t)hot->gtk_extents.left);
+  hot->server.y = (int16_t)(hot->desired.y - (int16_t)hot->gtk_extents.top);
   hot->dirty = 0;
 
   reset_config_captures();

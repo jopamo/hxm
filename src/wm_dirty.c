@@ -54,6 +54,17 @@ static inline void wm_enqueue_property_cookie(server_t* s, handle_t h, uint32_t 
   cookie_jar_push(&s->cookie_jar, sequence, COOKIE_GET_PROPERTY, h, data, s->txn_id, wm_handle_reply);
 }
 
+static inline bool wm_client_geom_mismatch(const client_hot_t* hot) {
+  int32_t frame_x = hot->desired.x;
+  int32_t frame_y = hot->desired.y;
+  if (hot->gtk_frame_extents_set) {
+    frame_x -= (int32_t)hot->gtk_extents.left;
+    frame_y -= (int32_t)hot->gtk_extents.top;
+  }
+
+  return frame_x != hot->server.x || frame_y != hot->server.y || hot->desired.w != hot->server.w || hot->desired.h != hot->server.h;
+}
+
 void wm_send_sync_request(server_t* s, const client_hot_t* hot, uint64_t value, uint32_t time) {
   xcb_client_message_event_t ev;
   memset(&ev, 0, sizeof(ev));
@@ -388,8 +399,9 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         i++;
       continue;
     }
+    bool geom_mismatch = wm_client_geom_mismatch(hot);
 
-    if (hot->dirty == DIRTY_NONE && !hot->frame_damage.valid && !hot->notify_settle_pending) {
+    if (hot->dirty == DIRTY_NONE && !hot->frame_damage.valid && !geom_mismatch) {
       if (i < s->active_clients.length && s->active_clients.items[i] == ptr)
         i++;
       continue;
@@ -397,7 +409,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
 #if HXM_DIAG
     bool dirty_changed = (hot->dirty != hot->last_log_dirty);
-    bool dirty_interesting = (hot->dirty & (DIRTY_GEOM | DIRTY_STACK | DIRTY_STATE));
+    bool dirty_interesting = (hot->dirty & (DIRTY_GEOM | DIRTY_STACK | DIRTY_STATE)) || geom_mismatch;
     if (dirty_changed || dirty_interesting) {
       TRACE_LOG("flush_dirty h=%lx xid=%u dirty=0x%x state=%d", h, hot->xid, hot->dirty, hot->state);
       hot->last_log_dirty = hot->dirty;
@@ -405,42 +417,12 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 #endif
 
     if (hot->state == STATE_UNMANAGING || hot->state == STATE_DESTROYED || hot->state == STATE_NEW) {
-      hot->notify_settle_pending = false;
-      hot->notify_settle_deadline_ns = 0;
       if (i < s->active_clients.length && s->active_clients.items[i] == ptr)
         i++;
       continue;
     }
 
-    if ((hot->dirty & DIRTY_GEOM) == 0 && hot->notify_settle_pending) {
-      if (hot->state == STATE_MAPPED && hot->manage_phase == MANAGE_DONE && now >= hot->notify_settle_deadline_ns) {
-        uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
-        uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
-        int32_t local_x = bw;
-        int32_t local_y = th;
-        if (hot->gtk_frame_extents_set) {
-          local_x = 0;
-          local_y = 0;
-        }
-
-        uint32_t client_values[4];
-        client_values[0] = (uint32_t)local_x;
-        client_values[1] = (uint32_t)local_y;
-        client_values[2] = hot->server.w;
-        client_values[3] = hot->server.h;
-        xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
-        hot->notify_settle_pending = false;
-        hot->notify_settle_deadline_ns = 0;
-        flushed = true;
-      }
-      else {
-        uint64_t remaining = (hot->notify_settle_deadline_ns > now) ? (hot->notify_settle_deadline_ns - now) : 1000000ULL;
-        int ms = (int)(remaining / 1000000ULL) + 1;
-        server_schedule_timer(s, ms);
-      }
-    }
-
-    if (hot->dirty & DIRTY_GEOM) {
+    if ((hot->dirty & DIRTY_GEOM) || geom_mismatch) {
       bool interactive = ((s->interaction_mode == INTERACTION_RESIZE || s->interaction_mode == INTERACTION_MOVE) && s->interaction_window == hot->frame);
 
       if (interactive) {
@@ -563,18 +545,23 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
       uint32_t client_w = (uint32_t)client_w_calc;
       uint32_t client_h = (uint32_t)client_h_calc;
-      bool client_size_from_notify = (hot->geometry_from_notify && hot->geometry_notify_w == (uint16_t)client_w && hot->geometry_notify_h == (uint16_t)client_h);
 
       TRACE_LOG("apply_geom: frame(%dx%d+%d+%d) extents_set=%d -> client(%dx%d)", frame_w, frame_h, frame_x, frame_y, hot->gtk_frame_extents_set, client_w, client_h);
 
-      bool geom_changed = (hot->server.x != (int16_t)frame_x || hot->server.y != (int16_t)frame_y || hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h ||
-                           hot->server_frame_w != (uint16_t)frame_w || hot->server_frame_h != (uint16_t)frame_h);
-      bool frame_size_changed = (hot->server_frame_w != (uint16_t)frame_w || hot->server_frame_h != (uint16_t)frame_h);
+      uint32_t old_frame_w = hot->server.w;
+      uint32_t old_frame_h = hot->server.h;
+      if (!hot->gtk_frame_extents_set) {
+        uint16_t old_bottom_h = bw;
+        old_frame_w += (uint32_t)(2u * bw);
+        old_frame_h += (uint32_t)th + (uint32_t)old_bottom_h;
+      }
+      bool frame_size_changed = (old_frame_w != frame_w || old_frame_h != frame_h);
+      bool geom_changed = true;
 
       bool synthetic_attempted = false;
       if (geom_changed) {
         if (!interactive_resize && hot->sync_enabled && hot->sync_counter != XCB_NONE) {
-          if (!client_size_from_notify && (hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h)) {
+          if (hot->server.w != (uint16_t)client_w || hot->server.h != (uint16_t)client_h) {
             uint64_t sync_value = ++hot->sync_value;
             wm_send_sync_request(s, hot, sync_value, XCB_CURRENT_TIME);
           }
@@ -612,8 +599,6 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         bool should_configure_client = true;
         if (should_configure_client) {
           xcb_configure_window(s->conn, hot->xid, XCB_CONFIG_WINDOW_X | XCB_CONFIG_WINDOW_Y | XCB_CONFIG_WINDOW_WIDTH | XCB_CONFIG_WINDOW_HEIGHT, client_values);
-          hot->notify_settle_pending = false;
-          hot->notify_settle_deadline_ns = 0;
         }
 
         // Update cached committed geometry before synthetic ConfigureNotify.
@@ -621,8 +606,6 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         hot->server.y = (int16_t)frame_y;
         hot->server.w = (uint16_t)client_w;
         hot->server.h = (uint16_t)client_h;
-        hot->server_frame_w = (uint16_t)frame_w;
-        hot->server_frame_h = (uint16_t)frame_h;
 
         synthetic_attempted = true;
         if (wm_send_synthetic_configure(s, h))
@@ -661,7 +644,6 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
 
       hot->pending = hot->desired;
       hot->pending_epoch++;
-      hot->geometry_from_notify = false;
 
       hot->dirty &= ~DIRTY_GEOM;
     }

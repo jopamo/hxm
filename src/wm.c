@@ -967,11 +967,6 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
   if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT)
     hot->desired.h = ev->height;
 
-  hot->geometry_from_configure = true;
-  hot->geometry_from_notify = false;
-  hot->notify_settle_pending = false;
-  hot->notify_settle_deadline_ns = 0;
-
   // Reworked GTK handling: treat as standard windows for now
   if (hot->gtk_frame_extents_set) {
     if (ev->mask & XCB_CONFIG_WINDOW_X)
@@ -1003,77 +998,25 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
     LOG_DEBUG("Client %lx frame pos updated: %d,%d", h, ev->x, ev->y);
   }
   else if (ev->window == hot->xid) {
-    bool size_changed = (hot->server.w != ev->width || hot->server.h != ev->height);
-    bool pending_geom = (hot->dirty & DIRTY_GEOM) != 0;
-    bool can_resync_geom = (hot->manage_phase == MANAGE_DONE && hot->state == STATE_MAPPED && !pending_geom);
     bool interactive_resize = (s->interaction_mode == INTERACTION_RESIZE && s->interaction_window == hot->frame);
+    hot->server.w = ev->width;
+    hot->server.h = ev->height;
 
     if (interactive_resize) {
-      /*
-       * During active interactive resize, desired geometry comes from pointer
-       * motion. Do not let ConfigureNotify drive desired-size resync here.
-       * We only track the latest server size when there is no pending
-       * geometry apply.
-       */
-      if (!pending_geom) {
-        hot->server.w = ev->width;
-        hot->server.h = ev->height;
-      }
-      hot->geometry_from_notify = false;
-      hot->notify_settle_pending = false;
-      hot->notify_settle_deadline_ns = 0;
       LOG_DEBUG("Client %lx window size updated (interactive): %dx%d", h, ev->width, ev->height);
       return;
     }
 
-    if (pending_geom && hot->geometry_from_notify) {
-      uint16_t new_w = ev->width;
-      uint16_t new_h = ev->height;
+    if (hot->manage_phase == MANAGE_DONE && hot->state == STATE_MAPPED) {
+      uint16_t target_w = hot->desired.w;
+      uint16_t target_h = hot->desired.h;
       bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
-      if (!is_panel) {
-        client_constrain_size(&hot->hints, hot->hints_flags, &new_w, &new_h);
-      }
+      if (!is_panel)
+        client_constrain_size(&hot->hints, hot->hints_flags, &target_w, &target_h);
 
-      hot->desired.w = new_w;
-      hot->desired.h = new_h;
-      hot->dirty |= DIRTY_GEOM;
-      hot->geometry_notify_w = ev->width;
-      hot->geometry_notify_h = ev->height;
-      hot->notify_settle_pending = true;
-      hot->notify_settle_w = new_w;
-      hot->notify_settle_h = new_h;
-      hot->notify_settle_deadline_ns = monotonic_time_ns() + 40000000ULL;
-      server_schedule_timer(s, 40);
-    }
-    else if (size_changed && can_resync_geom) {
-      uint16_t new_w = ev->width;
-      uint16_t new_h = ev->height;
-      bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
-      if (!is_panel) {
-        client_constrain_size(&hot->hints, hot->hints_flags, &new_w, &new_h);
-      }
-
-      if (hot->desired.w != new_w || hot->desired.h != new_h || size_changed) {
-        hot->desired.w = new_w;
-        hot->desired.h = new_h;
+      if (hot->server.w != target_w || hot->server.h != target_h) {
         hot->dirty |= DIRTY_GEOM;
       }
-
-      hot->geometry_from_notify = true;
-      hot->geometry_notify_w = ev->width;
-      hot->geometry_notify_h = ev->height;
-      hot->notify_settle_pending = true;
-      hot->notify_settle_w = new_w;
-      hot->notify_settle_h = new_h;
-      hot->notify_settle_deadline_ns = monotonic_time_ns() + 40000000ULL;
-      server_schedule_timer(s, 40);
-    }
-    else if (!pending_geom) {
-      hot->server.w = ev->width;
-      hot->server.h = ev->height;
-      hot->geometry_from_notify = false;
-      hot->notify_settle_pending = false;
-      hot->notify_settle_deadline_ns = 0;
     }
 
     LOG_DEBUG("Client %lx window size updated: %dx%d", h, ev->width, ev->height);

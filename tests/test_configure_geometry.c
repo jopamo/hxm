@@ -434,8 +434,8 @@ static void test_configure_notify_client_resize_resyncs_decorated_frame(void) {
   ev.height = 120;
 
   wm_handle_configure_notify(&s, h, &ev);
-  assert(hot->desired.w == 140);
-  assert(hot->desired.h == 120);
+  assert(hot->desired.w == 100);
+  assert(hot->desired.h == 80);
   assert(hot->dirty & DIRTY_GEOM);
 
   stub_config_calls_len = 0;
@@ -451,11 +451,11 @@ static void test_configure_notify_client_resize_resyncs_decorated_frame(void) {
   uint16_t bottom = (hh > bw) ? hh : bw;
 
   assert(client_call->win == hot->xid);
-  assert(client_call->w == 140u);
-  assert(client_call->h == 120u);
+  assert(client_call->w == 100u);
+  assert(client_call->h == 80u);
   assert(frame_call->win == hot->frame);
-  assert(frame_call->w == (uint32_t)(140 + 2 * bw));
-  assert(frame_call->h == (uint32_t)(120 + s.config.theme.title_height + bottom));
+  assert(frame_call->w == (uint32_t)(100 + 2 * bw));
+  assert(frame_call->h == (uint32_t)(80 + s.config.theme.title_height + bottom));
 
   printf("test_configure_notify_client_resize_resyncs_decorated_frame passed\n");
   cleanup_server(&s);
@@ -484,8 +484,8 @@ static void test_configure_notify_client_resize_resyncs_extents_frame(void) {
   ev.height = 110;
 
   wm_handle_configure_notify(&s, h, &ev);
-  assert(hot->desired.w == 150);
-  assert(hot->desired.h == 110);
+  assert(hot->desired.w == 100);
+  assert(hot->desired.h == 80);
   assert(hot->dirty & DIRTY_GEOM);
 
   stub_config_calls_len = 0;
@@ -497,11 +497,11 @@ static void test_configure_notify_client_resize_resyncs_extents_frame(void) {
   assert(client_call);
 
   assert(client_call->win == hot->xid);
-  assert(client_call->w == 150u);
-  assert(client_call->h == 110u);
+  assert(client_call->w == 100u);
+  assert(client_call->h == 80u);
   assert(frame_call->win == hot->frame);
-  assert(frame_call->w == 150u);
-  assert(frame_call->h == 110u);
+  assert(frame_call->w == 100u);
+  assert(frame_call->h == 80u);
 
   printf("test_configure_notify_client_resize_resyncs_extents_frame passed\n");
   cleanup_server(&s);
@@ -528,8 +528,8 @@ static void test_configure_notify_resync_constrained_size_reconfigures_client(vo
   ev.height = 90;
 
   wm_handle_configure_notify(&s, h, &ev);
-  assert(hot->desired.w == 200);
-  assert(hot->desired.h == 120);
+  assert(hot->desired.w == 100);
+  assert(hot->desired.h == 80);
   assert(hot->dirty & DIRTY_GEOM);
 
   stub_config_calls_len = 0;
@@ -543,6 +543,8 @@ static void test_configure_notify_resync_constrained_size_reconfigures_client(vo
   assert(client_call->w == 200u);
   assert(client_call->h == 120u);
   assert(frame_call->win == hot->frame);
+  assert(hot->desired.w == 200u);
+  assert(hot->desired.h == 120u);
 
   printf("test_configure_notify_resync_constrained_size_reconfigures_client passed\n");
   cleanup_server(&s);
@@ -565,8 +567,8 @@ static void test_configure_notify_resync_coalesces_pending_notify_resize(void) {
   ev1.width = 140;
   ev1.height = 110;
   wm_handle_configure_notify(&s, h, &ev1);
-  assert(hot->desired.w == 140);
-  assert(hot->desired.h == 110);
+  assert(hot->desired.w == 100);
+  assert(hot->desired.h == 80);
   assert(hot->dirty & DIRTY_GEOM);
 
   xcb_configure_notify_event_t ev2 = {0};
@@ -574,8 +576,8 @@ static void test_configure_notify_resync_coalesces_pending_notify_resize(void) {
   ev2.width = 180;
   ev2.height = 130;
   wm_handle_configure_notify(&s, h, &ev2);
-  assert(hot->desired.w == 180);
-  assert(hot->desired.h == 130);
+  assert(hot->desired.w == 100);
+  assert(hot->desired.h == 80);
   assert(hot->dirty & DIRTY_GEOM);
 
   stub_config_calls_len = 0;
@@ -591,11 +593,11 @@ static void test_configure_notify_resync_coalesces_pending_notify_resize(void) {
   uint16_t bottom = (hh > bw) ? hh : bw;
 
   assert(client_call->win == hot->xid);
-  assert(client_call->w == 180u);
-  assert(client_call->h == 130u);
+  assert(client_call->w == 100u);
+  assert(client_call->h == 80u);
   assert(frame_call->win == hot->frame);
-  assert(frame_call->w == (uint32_t)(180 + 2 * bw));
-  assert(frame_call->h == (uint32_t)(130 + s.config.theme.title_height + bottom));
+  assert(frame_call->w == (uint32_t)(100 + 2 * bw));
+  assert(frame_call->h == (uint32_t)(80 + s.config.theme.title_height + bottom));
 
   printf("test_configure_notify_resync_coalesces_pending_notify_resize passed\n");
   cleanup_server(&s);
@@ -619,7 +621,6 @@ static void test_configure_notify_resync_settles_with_final_client_configure(voi
   ev.height = 130;
   wm_handle_configure_notify(&s, h, &ev);
   assert(hot->dirty & DIRTY_GEOM);
-  assert(hot->notify_settle_pending);
 
   uint64_t now = monotonic_time_ns();
   stub_config_calls_len = 0;
@@ -630,17 +631,15 @@ static void test_configure_notify_resync_settles_with_final_client_configure(voi
   assert(frame_call);
   assert(client_call);
   assert(client_call->win == hot->xid);
-  assert(client_call->w == 160u);
-  assert(client_call->h == 130u);
+  assert(client_call->w == 100u);
+  assert(client_call->h == 80u);
   assert(frame_call->win == hot->frame);
-  assert(!hot->notify_settle_pending);
 
   stub_config_calls_len = 0;
   wm_flush_dirty(&s, now + 50000000ULL);
 
   const stub_config_call_t* settle_call = stub_config_call_at(0);
   assert(settle_call == NULL);
-  assert(!hot->notify_settle_pending);
 
   printf("test_configure_notify_resync_settles_with_final_client_configure passed\n");
   cleanup_server(&s);
@@ -655,11 +654,6 @@ static void test_interactive_resize_configures_client_even_when_notify_matches(v
   client_hot_t* hot = server_chot(&s, h);
   hot->desired = (rect_t){10, 20, 180, 130};
   hot->dirty = DIRTY_GEOM;
-  hot->geometry_from_notify = true;
-  hot->geometry_notify_w = 180;
-  hot->geometry_notify_h = 130;
-  hot->notify_settle_pending = true;
-  hot->notify_settle_deadline_ns = monotonic_time_ns() + 40000000ULL;
 
   s.interaction_mode = INTERACTION_RESIZE;
   s.interaction_window = hot->frame;
@@ -676,7 +670,6 @@ static void test_interactive_resize_configures_client_even_when_notify_matches(v
   assert(client_call->w == 180u);
   assert(client_call->h == 130u);
   assert(frame_call->win == hot->frame);
-  assert(!hot->notify_settle_pending);
 
   printf("test_interactive_resize_configures_client_even_when_notify_matches passed\n");
   cleanup_server(&s);
@@ -692,11 +685,6 @@ static void test_configure_notify_does_not_resync_desired_during_interactive_res
   hot->manage_phase = MANAGE_DONE;
   hot->desired = (rect_t){10, 20, 220, 140};
   hot->dirty = DIRTY_GEOM;
-  hot->geometry_from_notify = true;
-  hot->geometry_notify_w = 111;
-  hot->geometry_notify_h = 99;
-  hot->notify_settle_pending = true;
-  hot->notify_settle_deadline_ns = monotonic_time_ns() + 40000000ULL;
 
   s.interaction_mode = INTERACTION_RESIZE;
   s.interaction_window = hot->frame;
@@ -710,8 +698,7 @@ static void test_configure_notify_does_not_resync_desired_during_interactive_res
 
   assert(hot->desired.w == 220u);
   assert(hot->desired.h == 140u);
-  assert(hot->geometry_from_notify == false);
-  assert(hot->notify_settle_pending == false);
+  assert((hot->dirty & DIRTY_GEOM) != 0);
 
   printf("test_configure_notify_does_not_resync_desired_during_interactive_resize passed\n");
   cleanup_server(&s);
@@ -726,7 +713,6 @@ static void test_configure_request_ignored_during_interactive_resize(void) {
   client_hot_t* hot = server_chot(&s, h);
   hot->desired = (rect_t){10, 20, 220, 140};
   hot->dirty = DIRTY_NONE;
-  hot->geometry_from_configure = false;
 
   s.interaction_mode = INTERACTION_RESIZE;
   s.interaction_window = hot->frame;
@@ -741,7 +727,6 @@ static void test_configure_request_ignored_during_interactive_resize(void) {
 
   assert(hot->desired.w == 220u);
   assert(hot->desired.h == 140u);
-  assert(hot->geometry_from_configure == false);
   assert((hot->dirty & DIRTY_GEOM) == 0);
 
   printf("test_configure_request_ignored_during_interactive_resize passed\n");
@@ -757,7 +742,6 @@ static void test_configure_request_ignored_during_interactive_move(void) {
   client_hot_t* hot = server_chot(&s, h);
   hot->desired = (rect_t){10, 20, 220, 140};
   hot->dirty = DIRTY_NONE;
-  hot->geometry_from_configure = false;
 
   s.interaction_mode = INTERACTION_MOVE;
   s.interaction_window = hot->frame;
@@ -772,7 +756,6 @@ static void test_configure_request_ignored_during_interactive_move(void) {
 
   assert(hot->desired.x == 10);
   assert(hot->desired.y == 20);
-  assert(hot->geometry_from_configure == false);
   assert((hot->dirty & DIRTY_GEOM) == 0);
 
   printf("test_configure_request_ignored_during_interactive_move passed\n");

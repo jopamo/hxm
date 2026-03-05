@@ -313,14 +313,6 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   hot->xid = win;
   hot->state = STATE_NEW;
   hot->manage_phase = MANAGE_PHASE1;
-  hot->geometry_from_configure = false;
-  hot->geometry_from_notify = false;
-  hot->geometry_notify_w = 0;
-  hot->geometry_notify_h = 0;
-  hot->notify_settle_pending = false;
-  hot->notify_settle_w = 0;
-  hot->notify_settle_h = 0;
-  hot->notify_settle_deadline_ns = 0;
 
   hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
 
@@ -701,8 +693,6 @@ void client_finish_manage(server_t* s, handle_t h) {
   hot->server.y = (int16_t)frame_y;
   hot->server.w = (uint16_t)client_w;
   hot->server.h = (uint16_t)client_h;
-  hot->server_frame_w = (uint16_t)frame_w;
-  hot->server_frame_h = (uint16_t)frame_h;
   hot->dirty |= DIRTY_GEOM;
 
   // Set _NET_FRAME_EXTENTS before mapping

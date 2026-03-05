@@ -898,10 +898,11 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
 
             if (hot->state == STATE_NEW && hot->manage_phase != MANAGE_DONE) {
+              bool model_from_request = (hot->dirty & DIRTY_GEOM) != 0;
               bool user_size = (next_flags & XCB_ICCCM_SIZE_HINT_US_SIZE);
               bool prog_size = (next_flags & XCB_ICCCM_SIZE_HINT_P_SIZE);
               if (user_size || prog_size) {
-                if (!hot->geometry_from_configure) {
+                if (!model_from_request) {
                   if (hints.width > 0 && (user_size || hints.width > 1))
                     hot->desired.w = (uint16_t)hints.width;
 
@@ -918,7 +919,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               }
 
               if (next_flags & XCB_ICCCM_SIZE_HINT_US_POSITION) {
-                if (!hot->geometry_from_configure) {
+                if (!model_from_request) {
                   hot->desired.x = (int16_t)hints.x;
 
                   hot->desired.y = (int16_t)hints.y;
