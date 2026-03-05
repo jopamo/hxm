@@ -70,7 +70,9 @@ static client_hot_t* test_client_add(test_server_t* ts, xcb_window_t xid, xcb_wi
   assert(cold_ptr);
 
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   memset(hot, 0, sizeof(*hot));
+  memset(cold, 0, sizeof(*cold));
 
   hot->self = h;
   hot->xid = xid;
@@ -130,13 +132,15 @@ static void test_gtk_extents_inflation_order_and_state(void) {
   ts.s.config.theme.title_height = 20;
 
   client_hot_t* hot = test_client_add(&ts, 100, 200);
+  client_cold_t* cold = server_ccold(&ts.s, hot->self);
+  assert(cold);
 
   // Set GTK extents
-  hot->gtk_frame_extents_set = true;
-  hot->gtk_extents.left = 10;
-  hot->gtk_extents.right = 10;
-  hot->gtk_extents.top = 20;
-  hot->gtk_extents.bottom = 20;
+  cold->gtk_frame_extents_set = true;
+  cold->gtk_extents.left = 10;
+  cold->gtk_extents.right = 10;
+  cold->gtk_extents.top = 20;
+  cold->gtk_extents.bottom = 20;
 
   hot->dirty = DIRTY_GEOM;
 
@@ -190,9 +194,11 @@ static void test_no_gtk_extents_no_inflation(void) {
   ts.s.config.theme.title_height = 20;  // Explicitly set default
 
   client_hot_t* hot = test_client_add(&ts, 101, 201);
+  client_cold_t* cold = server_ccold(&ts.s, hot->self);
+  assert(cold);
 
-  hot->gtk_frame_extents_set = false;
-  memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
+  cold->gtk_frame_extents_set = false;
+  memset(&cold->gtk_extents, 0, sizeof(cold->gtk_extents));
 
   hot->dirty = DIRTY_GEOM;
 
@@ -234,7 +240,9 @@ static void test_theme_decoration_change_reconfigures_frame(void) {
   ts.s.config.theme.title_height = 18;
 
   client_hot_t* hot = test_client_add(&ts, 104, 204);
-  hot->gtk_frame_extents_set = false;
+  client_cold_t* cold = server_ccold(&ts.s, hot->self);
+  assert(cold);
+  cold->gtk_frame_extents_set = false;
   hot->desired.x = 20;
   hot->desired.y = 30;
   hot->desired.w = 320;
@@ -272,17 +280,19 @@ static void test_not_dirty_no_configure(void) {
   test_server_init(&ts);
 
   client_hot_t* hot = test_client_add(&ts, 102, 202);
+  client_cold_t* cold = server_ccold(&ts.s, hot->self);
+  assert(cold);
 
-  hot->gtk_frame_extents_set = true;
-  hot->gtk_extents.left = 7;
-  hot->gtk_extents.right = 9;
-  hot->gtk_extents.top = 11;
-  hot->gtk_extents.bottom = 13;
+  cold->gtk_frame_extents_set = true;
+  cold->gtk_extents.left = 7;
+  cold->gtk_extents.right = 9;
+  cold->gtk_extents.top = 11;
+  cold->gtk_extents.bottom = 13;
 
   // Keep model/server in sync so this flush is a true no-op.
   hot->server = hot->desired;
-  hot->server.x = (int16_t)(hot->desired.x - (int16_t)hot->gtk_extents.left);
-  hot->server.y = (int16_t)(hot->desired.y - (int16_t)hot->gtk_extents.top);
+  hot->server.x = (int16_t)(hot->desired.x - (int16_t)cold->gtk_extents.left);
+  hot->server.y = (int16_t)(hot->desired.y - (int16_t)cold->gtk_extents.top);
   hot->dirty = 0;
 
   reset_config_captures();
@@ -301,12 +311,14 @@ static void test_idempotent_second_flush_does_nothing(void) {
   test_server_init(&ts);
 
   client_hot_t* hot = test_client_add(&ts, 103, 203);
+  client_cold_t* cold = server_ccold(&ts.s, hot->self);
+  assert(cold);
 
-  hot->gtk_frame_extents_set = true;
-  hot->gtk_extents.left = 1;
-  hot->gtk_extents.right = 2;
-  hot->gtk_extents.top = 3;
-  hot->gtk_extents.bottom = 4;
+  cold->gtk_frame_extents_set = true;
+  cold->gtk_extents.left = 1;
+  cold->gtk_extents.right = 2;
+  cold->gtk_extents.top = 3;
+  cold->gtk_extents.bottom = 4;
 
   hot->dirty = DIRTY_GEOM;
 
@@ -336,24 +348,28 @@ static void test_two_clients_both_configured(void) {
 
   client_hot_t* a = test_client_add(&ts, 110, 210);
   client_hot_t* b = test_client_add(&ts, 111, 211);
+  client_cold_t* acold = server_ccold(&ts.s, a->self);
+  client_cold_t* bcold = server_ccold(&ts.s, b->self);
+  assert(acold);
+  assert(bcold);
 
   a->desired.x = 10;
   a->desired.y = 20;
   a->desired.w = 100;
   a->desired.h = 200;
-  a->gtk_frame_extents_set = true;
-  a->gtk_extents.left = 5;
-  a->gtk_extents.right = 6;
-  a->gtk_extents.top = 7;
-  a->gtk_extents.bottom = 8;
+  acold->gtk_frame_extents_set = true;
+  acold->gtk_extents.left = 5;
+  acold->gtk_extents.right = 6;
+  acold->gtk_extents.top = 7;
+  acold->gtk_extents.bottom = 8;
   a->dirty = DIRTY_GEOM;
 
   b->desired.x = 30;
   b->desired.y = 40;
   b->desired.w = 300;
   b->desired.h = 400;
-  b->gtk_frame_extents_set = false;
-  memset(&b->gtk_extents, 0, sizeof(b->gtk_extents));
+  bcold->gtk_frame_extents_set = false;
+  memset(&bcold->gtk_extents, 0, sizeof(bcold->gtk_extents));
   b->dirty = DIRTY_GEOM;
 
   reset_config_captures();

@@ -218,8 +218,8 @@ static void test_active_window_exits_show_desktop_mode(void) {
   client_hot_t* b = server_chot(&s, h2);
   assert(a && b);
 
-  a->manage_phase = MANAGE_DONE;
-  b->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h1)->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h2)->manage_phase = MANAGE_DONE;
   a->desktop = 0;
   b->desktop = 0;
   a->user_time = 100;
@@ -264,7 +264,7 @@ static void test_restore_exits_show_desktop_mode(void) {
   handle_t h = add_mapped_client(&s, 1401, 1501);
   client_hot_t* hot = server_chot(&s, h);
   assert(hot);
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
   hot->desktop = 0;
 
   wm_set_showing_desktop(&s, true);
@@ -462,7 +462,7 @@ static void test_net_wm_desktop_reply_sets_sticky_and_desktop(void) {
 
   handle_t h = add_mapped_client(&s, 8001, 8101);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_PHASE1;
+  server_ccold(&s, h)->manage_phase = MANAGE_PHASE1;
   hot->desktop = 0;
   hot->sticky = false;
 
@@ -506,7 +506,7 @@ static void test_net_wm_desktop_reply_clamps_out_of_range(void) {
 
   handle_t h = add_mapped_client(&s, 8002, 8102);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_PHASE1;
+  server_ccold(&s, h)->manage_phase = MANAGE_PHASE1;
 
   cookie_slot_t slot = {0};
   slot.client = h;
@@ -543,7 +543,7 @@ static void test_net_wm_desktop_reply_moves_after_manage(void) {
 
   handle_t h = add_mapped_client(&s, 8003, 8103);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
   hot->desktop = 0;
   hot->sticky = false;
 
@@ -593,7 +593,7 @@ static void test_window_type_desktop_defaults_sticky(void) {
 
   handle_t h = add_mapped_client(&s, 8010, 8110);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_PHASE1;
+  server_ccold(&s, h)->manage_phase = MANAGE_PHASE1;
   hot->sticky = false;
   hot->desktop = 0;
 
@@ -638,7 +638,7 @@ static void test_window_type_desktop_respects_net_wm_desktop(void) {
 
   handle_t h = add_mapped_client(&s, 8020, 8120);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_PHASE1;
+  server_ccold(&s, h)->manage_phase = MANAGE_PHASE1;
 
   cookie_slot_t desk_slot = {0};
   desk_slot.client = h;
@@ -700,7 +700,7 @@ static void test_desktop_type_then_net_wm_desktop_updates(void) {
 
   handle_t h = add_mapped_client(&s, 8030, 8130);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_PHASE1;
+  server_ccold(&s, h)->manage_phase = MANAGE_PHASE1;
 
   cookie_slot_t type_slot = {0};
   type_slot.client = h;
@@ -968,7 +968,7 @@ static void test_state_below_sticky_skip_applies(void) {
 
   handle_t h = add_mapped_client(&s, 6001, 6101);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
 
   cookie_slot_t slot = {0};
   slot.client = h;
@@ -1031,7 +1031,7 @@ static void test_manage_phase_ignores_startup_maximize_state(void) {
   assert(hot != NULL);
 
   hot->state = STATE_NEW;
-  hot->manage_phase = MANAGE_PHASE1;
+  server_ccold(&s, h)->manage_phase = MANAGE_PHASE1;
   hot->server = (rect_t){100, 80, 640, 360};
   hot->desired = hot->server;
 
@@ -1060,7 +1060,7 @@ static void test_manage_phase_ignores_startup_maximize_state(void) {
   assert(hot->desired.h == 360);
 
   hot->state = STATE_MAPPED;
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
   hot->desired = hot->server;
 
   wm_handle_reply(&s, &slot, &reply.r, NULL);
@@ -1159,7 +1159,7 @@ static void test_show_desktop_round_trip_clears_hidden_state(void) {
   handle_t h = add_mapped_client(&s, 6203, 6303);
   client_hot_t* hot = server_chot(&s, h);
   assert(hot != NULL);
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
 
   wm_set_showing_desktop(&s, true);
   wm_flush_dirty(&s, monotonic_time_ns());

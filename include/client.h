@@ -233,11 +233,6 @@ typedef struct client_hot {
   bool motif_decorations_set;
   bool motif_undecorated;
 
-  bool gtk_frame_extents_set;
-  struct {
-    uint32_t left, right, top, bottom;
-  } gtk_extents;
-
   bool override_redirect;
   bool manage_aborted;
 
@@ -254,15 +249,11 @@ typedef struct client_hot {
   dirty_region_t damage_region;
   dirty_region_t frame_damage;
 
-  manage_phase_t manage_phase;
-  uint8_t pending_state_count;
-  pending_state_msg_t pending_state_msgs[4];
-
   uint32_t user_time;
   xcb_window_t user_time_window;
 } client_hot_t;
 
-#define CLIENT_HOT_SIZE_GUARD_BYTES 400u
+#define CLIENT_HOT_SIZE_GUARD_BYTES 384u
 HXM_STATIC_ASSERT(sizeof(client_hot_t) <= CLIENT_HOT_SIZE_GUARD_BYTES,
                   "client_hot_t exceeded guard; move non-hot fields to cold storage");
 
@@ -318,6 +309,9 @@ typedef struct client_cold {
   bool sync_enabled;
   uint32_t sync_counter;
   uint64_t sync_value;
+  manage_phase_t manage_phase;
+  uint8_t pending_state_count;
+  pending_state_msg_t pending_state_msgs[4];
 
   bool icon_geometry_valid;
   rect_t icon_geometry;
@@ -330,6 +324,11 @@ typedef struct client_cold {
 
   bool fullscreen_monitors_valid;
   uint32_t fullscreen_monitors[4];
+
+  bool gtk_frame_extents_set;
+  struct {
+    uint32_t left, right, top, bottom;
+  } gtk_extents;
 
   xcb_window_t transient_for_xid;
   bool can_focus;
@@ -389,6 +388,18 @@ static inline void client_sync_payload_init(client_cold_t* cold) {
   cold->sync_value = 0;
 }
 
+static inline void client_manage_staging_init(client_cold_t* cold) {
+  if (!cold)
+    return;
+  cold->manage_phase = MANAGE_PHASE1;
+  cold->pending_state_count = 0;
+  for (uint8_t i = 0; i < 4; ++i) {
+    cold->pending_state_msgs[i].action = 0;
+    cold->pending_state_msgs[i].p1 = XCB_ATOM_NONE;
+    cold->pending_state_msgs[i].p2 = XCB_ATOM_NONE;
+  }
+}
+
 static inline void client_optional_state_init(client_cold_t* cold) {
   if (!cold)
     return;
@@ -409,6 +420,12 @@ static inline void client_optional_state_init(client_cold_t* cold) {
   cold->fullscreen_monitors[1] = 0;
   cold->fullscreen_monitors[2] = 0;
   cold->fullscreen_monitors[3] = 0;
+
+  cold->gtk_frame_extents_set = false;
+  cold->gtk_extents.left = 0;
+  cold->gtk_extents.right = 0;
+  cold->gtk_extents.top = 0;
+  cold->gtk_extents.bottom = 0;
 }
 
 typedef struct server server_t;

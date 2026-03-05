@@ -36,10 +36,15 @@ int main(void) {
   PRINT_OFFSET(client_cold_t, icon_surface);
   PRINT_OFFSET(client_cold_t, protocols);
   PRINT_OFFSET(client_cold_t, sync_value);
+  PRINT_OFFSET(client_cold_t, manage_phase);
+  PRINT_OFFSET(client_cold_t, pending_state_count);
+  PRINT_OFFSET(client_cold_t, pending_state_msgs);
   PRINT_OFFSET(client_cold_t, icon_geometry);
   PRINT_OFFSET(client_cold_t, window_opacity);
   PRINT_OFFSET(client_cold_t, bypass_compositor);
   PRINT_OFFSET(client_cold_t, fullscreen_monitors);
+  PRINT_OFFSET(client_cold_t, gtk_frame_extents_set);
+  PRINT_OFFSET(client_cold_t, gtk_extents);
   PRINT_OFFSET(client_cold_t, strut);
   PRINT_OFFSET(client_cold_t, pid);
 

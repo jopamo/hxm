@@ -268,7 +268,7 @@ static void test_override_redirect_midstream_aborts_manage(void) {
   memset(cold, 0, sizeof(*cold));
   hot->xid = 4004;
   hot->state = STATE_NEW;
-  hot->manage_phase = MANAGE_PHASE1;
+  cold->manage_phase = MANAGE_PHASE1;
   arena_init(&cold->string_arena, 128);
 
   xcb_get_window_attributes_reply_t r;

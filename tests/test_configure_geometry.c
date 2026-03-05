@@ -265,7 +265,7 @@ static void test_geometry_reply_tiny_fallback(void) {
   hot->self = h;
   hot->xid = 9001;
   hot->state = STATE_NEW;
-  hot->manage_phase = MANAGE_PHASE1;
+  cold->manage_phase = MANAGE_PHASE1;
   hot->desired = (rect_t){0, 0, 0, 0};
 
   cookie_slot_t slot = {0};
@@ -420,7 +420,7 @@ static void test_configure_notify_client_resize_resyncs_decorated_frame(void) {
 
   handle_t h = add_client(&s, 7001, 7101);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
   hot->desired = (rect_t){10, 20, 100, 80};
   hot->server = hot->desired;
   hot->dirty = DIRTY_NONE;
@@ -465,12 +465,13 @@ static void test_configure_notify_client_resize_resyncs_extents_frame(void) {
 
   handle_t h = add_client(&s, 7002, 7102);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
-  hot->gtk_frame_extents_set = true;
-  hot->gtk_extents.left = 8;
-  hot->gtk_extents.right = 8;
-  hot->gtk_extents.top = 24;
-  hot->gtk_extents.bottom = 8;
+  client_cold_t* cold = server_ccold(&s, h);
+  cold->manage_phase = MANAGE_DONE;
+  cold->gtk_frame_extents_set = true;
+  cold->gtk_extents.left = 8;
+  cold->gtk_extents.right = 8;
+  cold->gtk_extents.top = 24;
+  cold->gtk_extents.bottom = 8;
   hot->desired = (rect_t){10, 20, 100, 80};
   hot->server = hot->desired;
   hot->dirty = DIRTY_NONE;
@@ -511,7 +512,7 @@ static void test_configure_notify_resync_constrained_size_reconfigures_client(vo
 
   handle_t h = add_client(&s, 7003, 7103);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
   hot->desired = (rect_t){10, 20, 100, 80};
   hot->server = hot->desired;
   hot->dirty = DIRTY_NONE;
@@ -554,7 +555,7 @@ static void test_configure_notify_resync_coalesces_pending_notify_resize(void) {
 
   handle_t h = add_client(&s, 7004, 7104);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
   hot->desired = (rect_t){10, 20, 100, 80};
   hot->server = hot->desired;
   hot->dirty = DIRTY_NONE;
@@ -607,7 +608,7 @@ static void test_configure_notify_resync_settles_with_final_client_configure(voi
 
   handle_t h = add_client(&s, 7005, 7105);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
   hot->desired = (rect_t){10, 20, 100, 80};
   hot->server = hot->desired;
   hot->dirty = DIRTY_NONE;
@@ -679,7 +680,7 @@ static void test_configure_notify_does_not_resync_desired_during_interactive_res
 
   handle_t h = add_client(&s, 7007, 7107);
   client_hot_t* hot = server_chot(&s, h);
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
   hot->desired = (rect_t){10, 20, 220, 140};
   hot->dirty = DIRTY_GEOM;
 

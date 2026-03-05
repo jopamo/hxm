@@ -55,12 +55,14 @@ static inline void wm_enqueue_property_cookie(server_t* s, handle_t h, uint32_t 
   cookie_jar_push(&s->cookie_jar, sequence, COOKIE_GET_PROPERTY, h, data, s->txn_id, wm_handle_reply);
 }
 
-static inline bool wm_client_geom_mismatch(const client_hot_t* hot) {
+static inline bool wm_client_geom_mismatch(const client_hot_t* hot, const client_cold_t* cold) {
+  if (!hot || !cold)
+    return false;
   int32_t frame_x = hot->desired.x;
   int32_t frame_y = hot->desired.y;
-  if (hot->gtk_frame_extents_set) {
-    frame_x -= (int32_t)hot->gtk_extents.left;
-    frame_y -= (int32_t)hot->gtk_extents.top;
+  if (cold->gtk_frame_extents_set) {
+    frame_x -= (int32_t)cold->gtk_extents.left;
+    frame_y -= (int32_t)cold->gtk_extents.top;
   }
 
   return frame_x != hot->server.x || frame_y != hot->server.y || hot->desired.w != hot->server.w || hot->desired.h != hot->server.h;
@@ -216,7 +218,8 @@ static bool wm_flush_unmanaged_configure_requests(server_t* s) {
 
 bool wm_send_synthetic_configure(server_t* s, handle_t h) {
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return false;
 
   uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;
@@ -224,7 +227,7 @@ bool wm_send_synthetic_configure(server_t* s, handle_t h) {
   int16_t client_offset_x = (int16_t)bw;
   int16_t client_offset_y = (int16_t)th;
 
-  if (hot->gtk_frame_extents_set) {
+  if (cold->gtk_frame_extents_set) {
     client_offset_x = 0;
     client_offset_y = 0;
   }
@@ -534,7 +537,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         i++;
       continue;
     }
-    bool geom_mismatch = wm_client_geom_mismatch(hot);
+    bool geom_mismatch = wm_client_geom_mismatch(hot, cold);
 
     if (hot->dirty == DIRTY_NONE && !hot->frame_damage.valid && !geom_mismatch) {
       if (i < s->active_clients.length && s->active_clients.items[i] == ptr)
@@ -583,7 +586,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
       uint16_t max_client_w = MAX_FRAME_SIZE;
       uint16_t max_client_h = MAX_FRAME_SIZE;
-      wm_compute_max_client_size(bw, th, hot->gtk_frame_extents_set, &max_client_w, &max_client_h);
+      wm_compute_max_client_size(bw, th, cold->gtk_frame_extents_set, &max_client_w, &max_client_h);
 
       // Defer configuration until management is complete
       if (hot->state == STATE_NEW) {
@@ -650,9 +653,9 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       int32_t client_w_calc = (int32_t)hot->desired.w;
       int32_t client_h_calc = (int32_t)hot->desired.h;
 
-      if (hot->gtk_frame_extents_set) {
-        frame_x -= (int32_t)hot->gtk_extents.left;
-        frame_y -= (int32_t)hot->gtk_extents.top;
+      if (cold->gtk_frame_extents_set) {
+        frame_x -= (int32_t)cold->gtk_extents.left;
+        frame_y -= (int32_t)cold->gtk_extents.top;
 
         client_w_calc = frame_w;
         client_h_calc = frame_h;
@@ -681,11 +684,11 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
       uint32_t client_w = (uint32_t)client_w_calc;
       uint32_t client_h = (uint32_t)client_h_calc;
 
-      TRACE_LOG("apply_geom: frame(%dx%d+%d+%d) extents_set=%d -> client(%dx%d)", frame_w, frame_h, frame_x, frame_y, hot->gtk_frame_extents_set, client_w, client_h);
+      TRACE_LOG("apply_geom: frame(%dx%d+%d+%d) extents_set=%d -> client(%dx%d)", frame_w, frame_h, frame_x, frame_y, cold->gtk_frame_extents_set, client_w, client_h);
 
       uint32_t old_frame_w = hot->server.w;
       uint32_t old_frame_h = hot->server.h;
-      if (!hot->gtk_frame_extents_set) {
+      if (!cold->gtk_frame_extents_set) {
         uint16_t old_bottom_h = bw;
         old_frame_w += (uint32_t)(2u * bw);
         old_frame_h += (uint32_t)th + (uint32_t)old_bottom_h;
@@ -706,7 +709,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         int32_t local_x = bw;
         int32_t local_y = th;
 
-        if (hot->gtk_frame_extents_set) {
+        if (cold->gtk_frame_extents_set) {
           local_x = 0;
           local_y = 0;
         }
@@ -751,7 +754,7 @@ bool wm_flush_dirty(server_t* s, uint64_t now) {
         // Set _NET_FRAME_EXTENTS
         uint16_t bottom_h = bw;
         uint32_t extents[4] = {bw, bw, th, bottom_h};
-        if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
+        if ((hot->flags & CLIENT_FLAG_UNDECORATED) || cold->gtk_frame_extents_set) {
           extents[0] = 0;
           extents[1] = 0;
           extents[2] = 0;

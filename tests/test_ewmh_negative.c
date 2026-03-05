@@ -134,7 +134,7 @@ static handle_t add_mapped_client(server_t* s, xcb_window_t win, xcb_window_t fr
   hot->base_layer = LAYER_NORMAL;
   hot->stacking_index = -1;
   hot->stacking_layer = -1;
-  hot->manage_phase = MANAGE_DONE;
+  cold->manage_phase = MANAGE_DONE;
   hot->server = (rect_t){10, 10, 200, 150};
   hot->desired = hot->server;
 

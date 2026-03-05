@@ -48,10 +48,15 @@ require_line '^OFFSET client_cold_t.render_ctx [0-9]+$'
 require_line '^OFFSET client_cold_t.icon_surface [0-9]+$'
 require_line '^OFFSET client_cold_t.protocols [0-9]+$'
 require_line '^OFFSET client_cold_t.sync_value [0-9]+$'
+require_line '^OFFSET client_cold_t.manage_phase [0-9]+$'
+require_line '^OFFSET client_cold_t.pending_state_count [0-9]+$'
+require_line '^OFFSET client_cold_t.pending_state_msgs [0-9]+$'
 require_line '^OFFSET client_cold_t.icon_geometry [0-9]+$'
 require_line '^OFFSET client_cold_t.window_opacity [0-9]+$'
 require_line '^OFFSET client_cold_t.bypass_compositor [0-9]+$'
 require_line '^OFFSET client_cold_t.fullscreen_monitors [0-9]+$'
+require_line '^OFFSET client_cold_t.gtk_frame_extents_set [0-9]+$'
+require_line '^OFFSET client_cold_t.gtk_extents [0-9]+$'
 require_line '^OFFSET client_cold_t.strut [0-9]+$'
 require_line '^OFFSET client_cold_t.pid [0-9]+$'
 
@@ -62,6 +67,21 @@ fi
 
 if grep -Eq '^OFFSET client_hot_t.sync_value [0-9]+$' <<<"$output"; then
   echo "unexpected hot sync_value offset found in layout dump output" >&2
+  exit 1
+fi
+
+if grep -Eq '^OFFSET client_hot_t.manage_phase [0-9]+$' <<<"$output"; then
+  echo "unexpected hot manage_phase offset found in layout dump output" >&2
+  exit 1
+fi
+
+if grep -Eq '^OFFSET client_hot_t.pending_state_count [0-9]+$' <<<"$output"; then
+  echo "unexpected hot pending_state_count offset found in layout dump output" >&2
+  exit 1
+fi
+
+if grep -Eq '^OFFSET client_hot_t.pending_state_msgs [0-9]+$' <<<"$output"; then
+  echo "unexpected hot pending_state_msgs offset found in layout dump output" >&2
   exit 1
 fi
 
@@ -82,6 +102,16 @@ fi
 
 if grep -Eq '^OFFSET client_hot_t.fullscreen_monitors [0-9]+$' <<<"$output"; then
   echo "unexpected hot fullscreen_monitors offset found in layout dump output" >&2
+  exit 1
+fi
+
+if grep -Eq '^OFFSET client_hot_t.gtk_frame_extents_set [0-9]+$' <<<"$output"; then
+  echo "unexpected hot gtk_frame_extents_set offset found in layout dump output" >&2
+  exit 1
+fi
+
+if grep -Eq '^OFFSET client_hot_t.gtk_extents [0-9]+$' <<<"$output"; then
+  echo "unexpected hot gtk_extents offset found in layout dump output" >&2
   exit 1
 fi
 

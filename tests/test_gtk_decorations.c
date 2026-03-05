@@ -62,7 +62,7 @@ void test_gtk_extents_toggle_decorations(void) {
   hot->xid = 123;
   hot->frame = 456;
   hot->state = STATE_MAPPED;
-  hot->manage_phase = MANAGE_DONE;
+  cold->manage_phase = MANAGE_DONE;
   cold->depth = s.root_depth;
   hot->desired.x = 50;
   hot->desired.y = 60;
@@ -104,7 +104,7 @@ void test_gtk_extents_toggle_decorations(void) {
 
     wm_handle_reply(&s, &slot, &reply_struct.rep, NULL);
 
-    assert(hot->gtk_frame_extents_set);
+    assert(cold->gtk_frame_extents_set);
     assert(hot->flags & CLIENT_FLAG_UNDECORATED);
     assert(hot->dirty & DIRTY_GEOM);
 
@@ -122,7 +122,7 @@ void test_gtk_extents_toggle_decorations(void) {
     hot->dirty = DIRTY_NONE;
     wm_handle_reply(&s, &slot, &empty_reply.rep, NULL);
 
-    assert(!hot->gtk_frame_extents_set);
+    assert(!cold->gtk_frame_extents_set);
     assert((hot->flags & CLIENT_FLAG_UNDECORATED) == 0);
     assert(hot->dirty & DIRTY_GEOM);
 
@@ -154,12 +154,13 @@ void test_gtk_configure_request_extents(void) {
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   small_vec_push(&s.active_clients, handle_to_ptr(h));
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->self = h;
-  hot->gtk_frame_extents_set = true;
-  hot->gtk_extents.left = 8;
-  hot->gtk_extents.right = 8;
-  hot->gtk_extents.top = 24;
-  hot->gtk_extents.bottom = 8;
+  cold->gtk_frame_extents_set = true;
+  cold->gtk_extents.left = 8;
+  cold->gtk_extents.right = 8;
+  cold->gtk_extents.top = 24;
+  cold->gtk_extents.bottom = 8;
 
   pending_config_t ev;
   memset(&ev, 0, sizeof(ev));

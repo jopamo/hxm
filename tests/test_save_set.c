@@ -142,7 +142,7 @@ static void test_unmanage_reparent_uses_desired_when_geom_dirty(void) {
   client_hot_t* hot = server_chot(&s, h);
 
   hot->state = STATE_MAPPED;
-  hot->manage_phase = MANAGE_DONE;
+  server_ccold(&s, h)->manage_phase = MANAGE_DONE;
   hot->server.x = 10;
   hot->server.y = 15;
   hot->desired.x = 110;
@@ -168,16 +168,17 @@ static void test_unmanage_reparent_gtk_desired_conversion(void) {
 
   handle_t h = add_client(&s, 2004, 2104);
   client_hot_t* hot = server_chot(&s, h);
+  client_cold_t* cold = server_ccold(&s, h);
 
   hot->state = STATE_MAPPED;
-  hot->manage_phase = MANAGE_DONE;
+  cold->manage_phase = MANAGE_DONE;
   hot->server.x = 20;
   hot->server.y = 25;
   hot->desired.x = 300;
   hot->desired.y = 400;
-  hot->gtk_frame_extents_set = true;
-  hot->gtk_extents.left = 7;
-  hot->gtk_extents.top = 9;
+  cold->gtk_frame_extents_set = true;
+  cold->gtk_extents.left = 7;
+  cold->gtk_extents.top = 9;
   hot->dirty |= DIRTY_GEOM;
 
   xcb_stubs_reset();

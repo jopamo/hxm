@@ -96,14 +96,15 @@ static bool client_apply_motif_hints(server_t* s, handle_t h, const xcb_get_prop
 
 static bool client_apply_gtk_frame_extents(server_t* s, handle_t h, const xcb_get_property_reply_t* r) {
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return false;
 
   int len = r ? xcb_get_property_value_length(r) : 0;
   bool has_extents = (r && r->type == XCB_ATOM_CARDINAL && r->format == 32 && len >= (int)(4 * sizeof(uint32_t)));
 
-  bool changed = (hot->gtk_frame_extents_set != has_extents);
-  hot->gtk_frame_extents_set = has_extents;
+  bool changed = (cold->gtk_frame_extents_set != has_extents);
+  cold->gtk_frame_extents_set = has_extents;
 
   if (has_extents) {
     const uint32_t* v = (const uint32_t*)xcb_get_property_value(r);
@@ -117,26 +118,26 @@ static bool client_apply_gtk_frame_extents(server_t* s, handle_t h, const xcb_ge
     if (b > 65535u)
       b = 65535u;
 
-    if (hot->gtk_extents.left != (uint16_t)l) {
-      hot->gtk_extents.left = (uint16_t)l;
+    if (cold->gtk_extents.left != (uint16_t)l) {
+      cold->gtk_extents.left = (uint16_t)l;
       changed = true;
     }
-    if (hot->gtk_extents.right != (uint16_t)rt) {
-      hot->gtk_extents.right = (uint16_t)rt;
+    if (cold->gtk_extents.right != (uint16_t)rt) {
+      cold->gtk_extents.right = (uint16_t)rt;
       changed = true;
     }
-    if (hot->gtk_extents.top != (uint16_t)t) {
-      hot->gtk_extents.top = (uint16_t)t;
+    if (cold->gtk_extents.top != (uint16_t)t) {
+      cold->gtk_extents.top = (uint16_t)t;
       changed = true;
     }
-    if (hot->gtk_extents.bottom != (uint16_t)b) {
-      hot->gtk_extents.bottom = (uint16_t)b;
+    if (cold->gtk_extents.bottom != (uint16_t)b) {
+      cold->gtk_extents.bottom = (uint16_t)b;
       changed = true;
     }
   }
   else {
-    if (hot->gtk_extents.left != 0 || hot->gtk_extents.right != 0 || hot->gtk_extents.top != 0 || hot->gtk_extents.bottom != 0) {
-      memset(&hot->gtk_extents, 0, sizeof(hot->gtk_extents));
+    if (cold->gtk_extents.left != 0 || cold->gtk_extents.right != 0 || cold->gtk_extents.top != 0 || cold->gtk_extents.bottom != 0) {
+      memset(&cold->gtk_extents, 0, sizeof(cold->gtk_extents));
       changed = true;
     }
   }
@@ -304,8 +305,8 @@ static bool client_type_forces_undecorated(uint8_t type) {
   }
 }
 
-static bool client_should_be_undecorated(const client_hot_t* hot) {
-  if (!hot)
+static bool client_should_be_undecorated(const client_hot_t* hot, const client_cold_t* cold) {
+  if (!hot || !cold)
     return false;
   if (hot->layer == LAYER_FULLSCREEN)
     return true;
@@ -313,14 +314,16 @@ static bool client_should_be_undecorated(const client_hot_t* hot) {
     return true;
   if (hot->motif_decorations_set)
     return hot->motif_undecorated;
-  if (hot->gtk_frame_extents_set)
+  if (cold->gtk_frame_extents_set)
     return true;
   return false;
 }
 
-static bool client_apply_decoration_hints(client_hot_t* hot) {
+static bool client_apply_decoration_hints(client_hot_t* hot, const client_cold_t* cold) {
+  if (!hot || !cold)
+    return false;
   bool was_undecorated = (hot->flags & CLIENT_FLAG_UNDECORATED) != 0;
-  bool now_undecorated = client_should_be_undecorated(hot);
+  bool now_undecorated = client_should_be_undecorated(hot, cold);
 
   if (now_undecorated) {
     hot->flags |= CLIENT_FLAG_UNDECORATED;
@@ -468,7 +471,7 @@ static bool client_apply_default_type(server_t* s, client_hot_t* hot, client_col
   }
 
   bool changed = hot->type != prev_type || hot->base_layer != prev_base || hot->placement != prev_place;
-  if (client_apply_decoration_hints(hot))
+  if (client_apply_decoration_hints(hot, cold))
     changed = true;
 
   return changed;
@@ -628,7 +631,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 
   if (!reply) {
     LOG_WARN("NULL reply for cookie type %d client %u", slot->type, hot->xid);
-    if (slot->type == COOKIE_GET_WINDOW_ATTRIBUTES && hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1) {
+    if (slot->type == COOKIE_GET_WINDOW_ATTRIBUTES && hot->state == STATE_NEW && cold->manage_phase == MANAGE_PHASE1) {
       hot->manage_aborted = true;
     }
     goto done_one;
@@ -648,7 +651,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
         if (hot->ignore_unmap > 0)
           hot->ignore_unmap--;
       }
-      else if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1) {
+      else if (hot->state == STATE_NEW && cold->manage_phase == MANAGE_PHASE1) {
         if (hot->ignore_unmap < 2)
           hot->ignore_unmap = 2;
       }
@@ -783,14 +786,14 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
       }
       else if (atom == atoms._MOTIF_WM_HINTS) {
         if (client_apply_motif_hints(s, slot->client, r)) {
-          if (client_apply_decoration_hints(hot))
+          if (client_apply_decoration_hints(hot, cold))
             changed = true;
         }
       }
       else if (atom == atoms._GTK_FRAME_EXTENTS || atom == atoms._KDE_NET_WM_FRAME_STRUT) {
         if (client_apply_gtk_frame_extents(s, slot->client, r)) {
           hot->dirty |= DIRTY_GEOM;
-          if (client_apply_decoration_hints(hot))
+          if (client_apply_decoration_hints(hot, cold))
             changed = true;
         }
       }
@@ -845,7 +848,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
              * Some clients persist maximized state in the property and this
              * causes every new window to start maximized.
              */
-            if (hot->manage_phase != MANAGE_DONE) {
+            if (cold->manage_phase != MANAGE_DONE) {
               set.max_horz = false;
               set.max_vert = false;
             }
@@ -918,7 +921,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             hot->dirty |= DIRTY_STATE;  // Allowed actions might change
             bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
 
-            if (hot->state == STATE_NEW && hot->manage_phase != MANAGE_DONE) {
+            if (hot->state == STATE_NEW && cold->manage_phase != MANAGE_DONE) {
               bool model_from_request = (hot->dirty & DIRTY_GEOM) != 0;
               bool user_size = (next_flags & XCB_ICCCM_SIZE_HINT_US_SIZE);
               bool prog_size = (next_flags & XCB_ICCCM_SIZE_HINT_P_SIZE);
@@ -1078,7 +1081,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               hot->base_layer = LAYER_OVERLAY;
               hot->flags |= CLIENT_FLAG_UNDECORATED;
               hot->type_from_net = true;
-              if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+              if (hot->state == STATE_NEW && cold->manage_phase == MANAGE_PHASE1)
                 hot->manage_aborted = true;
               break;
             }
@@ -1087,7 +1090,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               hot->base_layer = LAYER_OVERLAY;
               hot->flags |= CLIENT_FLAG_UNDECORATED;
               hot->type_from_net = true;
-              if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+              if (hot->state == STATE_NEW && cold->manage_phase == MANAGE_PHASE1)
                 hot->manage_aborted = true;
               break;
             }
@@ -1096,7 +1099,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               hot->base_layer = LAYER_OVERLAY;
               hot->flags |= CLIENT_FLAG_UNDECORATED;
               hot->type_from_net = true;
-              if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+              if (hot->state == STATE_NEW && cold->manage_phase == MANAGE_PHASE1)
                 hot->manage_aborted = true;
               break;
             }
@@ -1105,7 +1108,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               hot->base_layer = LAYER_OVERLAY;
               hot->flags |= CLIENT_FLAG_UNDECORATED;
               hot->type_from_net = true;
-              if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+              if (hot->state == STATE_NEW && cold->manage_phase == MANAGE_PHASE1)
                 hot->manage_aborted = true;
               break;
             }
@@ -1114,7 +1117,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
               hot->base_layer = LAYER_OVERLAY;
               hot->flags |= CLIENT_FLAG_UNDECORATED;
               hot->type_from_net = true;
-              if (hot->state == STATE_NEW && hot->manage_phase == MANAGE_PHASE1)
+              if (hot->state == STATE_NEW && cold->manage_phase == MANAGE_PHASE1)
                 hot->manage_aborted = true;
               break;
             }
@@ -1127,7 +1130,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
             }
           }
 
-          if (client_apply_decoration_hints(hot)) {
+          if (client_apply_decoration_hints(hot, cold)) {
             changed = true;
           }
 
@@ -1191,7 +1194,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
           if (hot->sticky == sticky && hot->desktop == new_desk) {
             // No change
           }
-          else if (hot->manage_phase == MANAGE_DONE) {
+          else if (cold->manage_phase == MANAGE_DONE) {
             wm_client_move_to_workspace(s, slot->client, sticky ? 0xFFFFFFFFu : desk, false);
           }
           else {
@@ -1574,7 +1577,7 @@ void wm_handle_reply(server_t* s, const cookie_slot_t* slot, void* reply, xcb_ge
 done_one:
   if (hot->state != STATE_NEW)
     return;
-  if (hot->manage_phase != MANAGE_PHASE1)
+  if (cold->manage_phase != MANAGE_PHASE1)
     return;
   if (hot->manage_aborted) {
     client_abort_manage(s, slot->client);

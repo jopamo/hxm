@@ -307,7 +307,6 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   hot->self = h;
   hot->xid = win;
   hot->state = STATE_NEW;
-  hot->manage_phase = MANAGE_PHASE1;
 
   hot->initial_state = XCB_ICCCM_WM_STATE_NORMAL;
 
@@ -337,6 +336,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   client_render_payload_init(cold);
   client_visual_payload_init(cold, s->root_visual);
   client_sync_payload_init(cold);
+  client_manage_staging_init(cold);
   client_optional_state_init(cold);
 
   hot->damage = XCB_NONE;
@@ -349,11 +349,6 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   hot->user_time = 0;
   hot->user_time_window = XCB_NONE;
 
-  hot->gtk_frame_extents_set = false;
-  hot->gtk_extents.left = 0;
-  hot->gtk_extents.right = 0;
-  hot->gtk_extents.top = 0;
-  hot->gtk_extents.bottom = 0;
   hot->original_border_width = 0;
 
   // Phase 1 probes. Completion is bitmask-driven from required critical probes.
@@ -593,7 +588,7 @@ void client_finish_manage(server_t* s, handle_t h) {
   uint16_t bottom_h = bw;
   uint16_t max_client_w = MAX_FRAME_SIZE;
   uint16_t max_client_h = MAX_FRAME_SIZE;
-  wm_compute_max_client_size(bw, th, hot->gtk_frame_extents_set, &max_client_w, &max_client_h);
+  wm_compute_max_client_size(bw, th, cold->gtk_frame_extents_set, &max_client_w, &max_client_h);
   if (geom.w == 0)
     geom.w = 1;
   if (geom.h == 0)
@@ -615,9 +610,9 @@ void client_finish_manage(server_t* s, handle_t h) {
   uint32_t client_w = geom.w;
   uint32_t client_h = geom.h;
 
-  if (hot->gtk_frame_extents_set) {
-    frame_x -= (int32_t)hot->gtk_extents.left;
-    frame_y -= (int32_t)hot->gtk_extents.top;
+  if (cold->gtk_frame_extents_set) {
+    frame_x -= (int32_t)cold->gtk_extents.left;
+    frame_y -= (int32_t)cold->gtk_extents.top;
 
     client_x = 0;
     client_y = 0;
@@ -662,7 +657,7 @@ void client_finish_manage(server_t* s, handle_t h) {
   int16_t rx = bw;
   int16_t ry = th;
 
-  if (hot->gtk_frame_extents_set) {
+  if (cold->gtk_frame_extents_set) {
     rx = 0;
     ry = 0;
   }
@@ -692,9 +687,9 @@ void client_finish_manage(server_t* s, handle_t h) {
   hot->dirty |= DIRTY_GEOM;
 
   // Set _NET_FRAME_EXTENTS before mapping
-  // if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
+  // if ((hot->flags & CLIENT_FLAG_UNDECORATED) || cold->gtk_frame_extents_set) {
   uint32_t extents[4] = {bw, bw, th, bottom_h};
-  if ((hot->flags & CLIENT_FLAG_UNDECORATED) || hot->gtk_frame_extents_set) {
+  if ((hot->flags & CLIENT_FLAG_UNDECORATED) || cold->gtk_frame_extents_set) {
     extents[0] = 0;
     extents[1] = 0;
     extents[2] = 0;
@@ -846,7 +841,7 @@ void client_finish_manage(server_t* s, handle_t h) {
   s->workarea_dirty = true;
 
   // Transition to MANAGE_DONE and replay queued state messages
-  hot->manage_phase = MANAGE_DONE;
+  cold->manage_phase = MANAGE_DONE;
 
   // Replay stashed states from before management
   small_vec_t* stashed = (small_vec_t*)hash_map_get(&s->pending_unmanaged_states, hot->xid);
@@ -868,17 +863,17 @@ void client_finish_manage(server_t* s, handle_t h) {
     hash_map_remove(&s->pending_unmanaged_states, hot->xid);
   }
 
-  if (hot->pending_state_count > 0) {
-    LOG_INFO("Replaying %u queued _NET_WM_STATE messages for client %lx", hot->pending_state_count, h);
-    for (int i = 0; i < hot->pending_state_count; ++i) {
-      pending_state_msg_t* msg = &hot->pending_state_msgs[i];
+  if (cold->pending_state_count > 0) {
+    LOG_INFO("Replaying %u queued _NET_WM_STATE messages for client %lx", cold->pending_state_count, h);
+    for (int i = 0; i < cold->pending_state_count; ++i) {
+      pending_state_msg_t* msg = &cold->pending_state_msgs[i];
       TRACE_LOG("Replaying _NET_WM_STATE action=%u p1=%u p2=%u", msg->action, msg->p1, msg->p2);
       if (msg->p1 != XCB_ATOM_NONE)
         wm_client_update_state(s, h, msg->action, msg->p1);
       if (msg->p2 != XCB_ATOM_NONE)
         wm_client_update_state(s, h, msg->action, msg->p2);
     }
-    hot->pending_state_count = 0;
+    cold->pending_state_count = 0;
   }
 }
 
@@ -1026,18 +1021,18 @@ void client_unmanage(server_t* s, handle_t h) {
     if (prefer_desired_pos) {
       frame_x = hot->desired.x;
       frame_y = hot->desired.y;
-      if (hot->gtk_frame_extents_set) {
-        frame_x -= (int32_t)hot->gtk_extents.left;
-        frame_y -= (int32_t)hot->gtk_extents.top;
+      if (cold->gtk_frame_extents_set) {
+        frame_x -= (int32_t)cold->gtk_extents.left;
+        frame_y -= (int32_t)cold->gtk_extents.top;
       }
     }
 
     int32_t root_x = frame_x;
     int32_t root_y = frame_y;
 
-    if (hot->gtk_frame_extents_set) {
-      root_x += (int32_t)hot->gtk_extents.left;
-      root_y += (int32_t)hot->gtk_extents.top;
+    if (cold->gtk_frame_extents_set) {
+      root_x += (int32_t)cold->gtk_extents.left;
+      root_y += (int32_t)cold->gtk_extents.top;
     }
     else {
       uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.border_width;

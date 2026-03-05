@@ -957,7 +957,8 @@ void wm_handle_destroy_notify(server_t* s, xcb_destroy_notify_event_t* ev) {
  */
 void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) {
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return;
 
   // During WM-driven interactive move/resize, keep desired geometry owned by
@@ -984,11 +985,11 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     if (ev->mask & XCB_CONFIG_WINDOW_HEIGHT)
       req_h = ev->height;
 
-    if (hot->gtk_frame_extents_set) {
+    if (cold->gtk_frame_extents_set) {
       if (ev->mask & XCB_CONFIG_WINDOW_X)
-        req_x += (int32_t)hot->gtk_extents.left;
+        req_x += (int32_t)cold->gtk_extents.left;
       if (ev->mask & XCB_CONFIG_WINDOW_Y)
-        req_y += (int32_t)hot->gtk_extents.top;
+        req_y += (int32_t)cold->gtk_extents.top;
     }
 
     bool matches_committed = true;
@@ -1019,11 +1020,11 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
     hot->desired.h = ev->height;
 
   // Reworked GTK handling: treat as standard windows for now
-  if (hot->gtk_frame_extents_set) {
+  if (cold->gtk_frame_extents_set) {
     if (ev->mask & XCB_CONFIG_WINDOW_X)
-      hot->desired.x += (int16_t)hot->gtk_extents.left;
+      hot->desired.x += (int16_t)cold->gtk_extents.left;
     if (ev->mask & XCB_CONFIG_WINDOW_Y)
-      hot->desired.y += (int16_t)hot->gtk_extents.top;
+      hot->desired.y += (int16_t)cold->gtk_extents.top;
     // Do not adjust width/height; client requests full size including shadows
   }
 
@@ -1038,7 +1039,8 @@ void wm_handle_configure_request(server_t* s, handle_t h, pending_config_t* ev) 
 
 void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_event_t* ev) {
   client_hot_t* hot = server_chot(s, h);
-  if (!hot)
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold)
     return;
 
   TRACE_LOG("configure_notify h=%lx win=%u x=%d y=%d w=%u h=%u bw=%u above=%u", h, ev->window, ev->x, ev->y, ev->width, ev->height, ev->border_width, ev->above_sibling);
@@ -1051,7 +1053,7 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
     uint16_t client_w = ev->width;
     uint16_t client_h = ev->height;
 
-    if (!hot->gtk_frame_extents_set) {
+    if (!cold->gtk_frame_extents_set) {
       uint32_t frame_w = ev->width;
       uint32_t frame_h = ev->height;
       uint32_t deco_w = (uint32_t)(2u * bw);
@@ -1074,7 +1076,7 @@ void wm_handle_configure_notify(server_t* s, handle_t h, xcb_configure_notify_ev
       return;
     }
 
-    if (hot->manage_phase == MANAGE_DONE && hot->state == STATE_MAPPED) {
+    if (cold->manage_phase == MANAGE_DONE && hot->state == STATE_MAPPED) {
       uint16_t target_w = hot->desired.w;
       uint16_t target_h = hot->desired.h;
       bool is_panel = (hot->type == WINDOW_TYPE_DOCK || hot->type == WINDOW_TYPE_DESKTOP);
@@ -1625,7 +1627,8 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
 
   handle_t h = server_get_client_by_frame(s, s->interaction_window);
   client_hot_t* hot = server_chot(s, h);
-  if (!hot) {
+  client_cold_t* cold = server_ccold(s, h);
+  if (!hot || !cold) {
     LOG_WARN("Interaction client not found h=%lx window=%u", h, s->interaction_window);
     s->interaction_mode = INTERACTION_NONE;
     s->interaction_pointer_grabbed = false;
@@ -1683,7 +1686,7 @@ void wm_handle_motion_notify(server_t* s, xcb_motion_notify_event_t* ev) {
   uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : s->config.theme.title_height;
   uint16_t max_client_w = MAX_FRAME_SIZE;
   uint16_t max_client_h = MAX_FRAME_SIZE;
-  wm_compute_max_client_size(bw, th, hot->gtk_frame_extents_set, &max_client_w, &max_client_h);
+  wm_compute_max_client_size(bw, th, cold->gtk_frame_extents_set, &max_client_w, &max_client_h);
 
   // Constrain size
   if (is_panel) {
@@ -2071,14 +2074,15 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
     handle_t h = server_get_client_by_window(s, ev->window);
     if (h != HANDLE_INVALID) {
       client_hot_t* hot = server_chot(s, h);
-      if (!hot)
+      client_cold_t* cold = server_ccold(s, h);
+      if (!hot || !cold)
         return;
       uint32_t source = ev->data.data32[0];
       uint32_t timestamp = ev->data.data32[1];
       TRACE_LOG("_NET_ACTIVE_WINDOW h=%lx xid=%u state=%d desktop=%d", h, hot->xid, hot->state, hot->desktop);
 
-      if (hot->manage_phase != MANAGE_DONE || hot->frame == XCB_WINDOW_NONE) {
-        LOG_DEBUG("Ignoring _NET_ACTIVE_WINDOW for incomplete client %lx phase=%d", h, hot->manage_phase);
+      if (cold->manage_phase != MANAGE_DONE || hot->frame == XCB_WINDOW_NONE) {
+        LOG_DEBUG("Ignoring _NET_ACTIVE_WINDOW for incomplete client %lx phase=%d", h, cold->manage_phase);
         return;
       }
 
@@ -2117,16 +2121,17 @@ void wm_handle_client_message(server_t* s, xcb_client_message_event_t* ev) {
 
     if (h != HANDLE_INVALID) {
       client_hot_t* hot = server_chot(s, h);
-      if (!hot)
+      client_cold_t* cold = server_ccold(s, h);
+      if (!hot || !cold)
         return;
 
-      if (hot->manage_phase != MANAGE_DONE || hot->frame == XCB_WINDOW_NONE) {
-        if (hot->pending_state_count < 4) {
+      if (cold->manage_phase != MANAGE_DONE || hot->frame == XCB_WINDOW_NONE) {
+        if (cold->pending_state_count < 4) {
           LOG_DEBUG("Queueing _NET_WM_STATE for incomplete client %lx", h);
-          hot->pending_state_msgs[hot->pending_state_count].action = action;
-          hot->pending_state_msgs[hot->pending_state_count].p1 = p1;
-          hot->pending_state_msgs[hot->pending_state_count].p2 = p2;
-          hot->pending_state_count++;
+          cold->pending_state_msgs[cold->pending_state_count].action = action;
+          cold->pending_state_msgs[cold->pending_state_count].p1 = p1;
+          cold->pending_state_msgs[cold->pending_state_count].p2 = p2;
+          cold->pending_state_count++;
         }
         else {
           LOG_WARN("Dropping _NET_WM_STATE for client %lx (queue full)", h);

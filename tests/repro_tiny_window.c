@@ -35,10 +35,11 @@ void test_tiny_window_expansion(void) {
   void *hot_ptr = NULL, *cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s.clients, &hot_ptr, &cold_ptr);
   client_hot_t* hot = (client_hot_t*)hot_ptr;
+  client_cold_t* cold = (client_cold_t*)cold_ptr;
   hot->self = h;
   hot->xid = 123;
   hot->state = STATE_NEW;
-  hot->manage_phase = MANAGE_PHASE1;  // We are in initial discovery
+  cold->manage_phase = MANAGE_PHASE1;  // We are in initial discovery
 
   // Initial geometry is 0 (uninitialized)
   hot->server.w = 0;

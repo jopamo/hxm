@@ -280,12 +280,13 @@ static void test_resize_interaction_clamps_frame_overflow(void) {
 
   handle_t h = add_mapped_client(&s, 3201, 3301);
   client_hot_t* hot = server_chot(&s, h);
+  client_cold_t* cold = server_ccold(&s, h);
 
   uint16_t bw = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : (uint16_t)s.config.theme.border_width;
   uint16_t th = (hot->flags & CLIENT_FLAG_UNDECORATED) ? 0 : (uint16_t)s.config.theme.title_height;
   uint16_t max_client_w = MAX_FRAME_SIZE;
   uint16_t max_client_h = MAX_FRAME_SIZE;
-  wm_compute_max_client_size(bw, th, hot->gtk_frame_extents_set, &max_client_w, &max_client_h);
+  wm_compute_max_client_size(bw, th, cold->gtk_frame_extents_set, &max_client_w, &max_client_h);
 
   hot->server.w = (max_client_w > 2) ? (uint16_t)(max_client_w - 2) : max_client_w;
   hot->server.h = (max_client_h > 2) ? (uint16_t)(max_client_h - 2) : max_client_h;
