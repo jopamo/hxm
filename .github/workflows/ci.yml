@@ -7,8 +7,7 @@ on:
 jobs:
   san:
     runs-on: ubuntu-latest
-    # Pin to a stable Fedora release to reduce rawhide breakage churn.
-    container: fedora:43
+    container: fedora:rawhide
     name: san-${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -31,8 +30,8 @@ jobs:
       CXX: clang++
       LLVM_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
       ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
-      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
-      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
+      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
+      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
       LDFLAGS: -fuse-ld=lld
 
     steps:
@@ -57,8 +56,9 @@ jobs:
       - name: Configure
         run: |
           builddir="build-${{ matrix.name }}"
-          export CFLAGS="${CFLAGS} ${{ matrix.extra_cflags }}"
-          export CXXFLAGS="${CXXFLAGS} ${{ matrix.extra_cflags }}"
+          compat_cflags="-Wno-error=c2y-extensions"
+          export CFLAGS="${CFLAGS} ${{ matrix.extra_cflags }} ${compat_cflags}"
+          export CXXFLAGS="${CXXFLAGS} ${{ matrix.extra_cflags }} ${compat_cflags}"
           meson setup "$builddir" \
             -D b_sanitize="${{ matrix.meson_sanitize }}" \
             -D b_lto=false \
