@@ -7,7 +7,8 @@ on:
 jobs:
   san:
     runs-on: ubuntu-latest
-    container: fedora:rawhide
+    # Pin to a stable Fedora release to reduce rawhide breakage churn.
+    container: fedora:43
     name: san-${{ matrix.name }}
     strategy:
       fail-fast: false
@@ -30,8 +31,8 @@ jobs:
       CXX: clang++
       LLVM_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
       ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
-      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
-      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
+      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
+      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
       LDFLAGS: -fuse-ld=lld
 
     steps:
@@ -42,6 +43,10 @@ jobs:
           dnf -y install git
 
       - uses: actions/checkout@v4
+
+      - name: Mark workspace as safe for git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install dependencies
         run: |
