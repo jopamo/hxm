@@ -35,19 +35,19 @@ jobs:
       LDFLAGS: -fuse-ld=lld
 
     steps:
+      # actions/checkout needs git inside the container. Without it, checkout
+      # falls back to a source archive and tests that call `git` fail.
       - name: Bootstrap git
         run: |
-          dnf -y update
           dnf -y install git
 
       - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
-          dnf -y install \
-            clang llvm lld compiler-rt \
-            git meson ninja-build pkgconf-pkg-config \
-            libbpf-devel libxdp-devel
+          # Keep CI package selection in one place. Meson dependencies (for
+          # example xcb via pkg-config) must be added to scripts/deps-fedora.txt.
+          grep -Ev '^\s*(#|$)' scripts/deps-fedora.txt | xargs -r dnf -y install
 
       - name: Configure
         run: |
