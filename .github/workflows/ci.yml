@@ -71,6 +71,9 @@ jobs:
         run: |
           set -euo pipefail
           eval "${{ matrix.runtime_env }}"
+          # xvfb-run's wrapper is flaky for RandR screen-size changes on CI.
+          # Force the script's direct Xvfb path for deterministic RandR behavior.
+          export HXM_FORCE_DIRECT_XVFB=1
           if [ "${{ matrix.name }}" = "tsan" ]; then
             meson test -C "build-${{ matrix.name }}" --print-errorlogs --num-processes 1
           else
