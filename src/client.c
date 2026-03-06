@@ -114,10 +114,8 @@
  *
  * Probe cookies are expected to always be valid while connected.
  */
-static void client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t h, uint32_t seq, cookie_type_t type, uintptr_t data, const char* request_name) {
+static void client_enqueue_manage_reply(server_t* s, handle_t h, uint32_t seq, cookie_type_t type, uintptr_t data) {
   assert(s);
-  assert(hot);
-  assert(request_name);
   assert(seq != 0);
   cookie_jar_push(&s->cookie_jar, seq, type, h, data, s->txn_id, wm_handle_reply);
 }
@@ -132,9 +130,9 @@ static void client_enqueue_manage_reply(server_t* s, client_hot_t* hot, handle_t
  * This avoids extra allocations while still allowing the reply handler to
  * identify the exact probe.
  */
-static void client_queue_get_property(server_t* s, client_hot_t* hot, handle_t h, xcb_window_t win, xcb_atom_t prop, xcb_atom_t type, uint32_t long_len) {
+static void client_queue_get_property(server_t* s, handle_t h, xcb_window_t win, xcb_atom_t prop, xcb_atom_t type, uint32_t long_len) {
   uint32_t seq = xcb_get_property(s->conn, 0, win, prop, type, 0, long_len).sequence;
-  client_enqueue_manage_reply(s, hot, h, seq, COOKIE_GET_PROPERTY, ((uint64_t)win << 32) | (uint32_t)prop, "get_property");
+  client_enqueue_manage_reply(s, h, seq, COOKIE_GET_PROPERTY, ((uint64_t)win << 32) | (uint32_t)prop);
 }
 
 static bool str_contains_case(const char* haystack, const char* needle) {
@@ -293,8 +291,8 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   assert(server_get_client_by_frame(s, win) == HANDLE_INVALID);
 
   // Allocate slot for hot/cold client storage
-  void* hot_ptr;
-  void* cold_ptr;
+  void* hot_ptr = NULL;
+  void* cold_ptr = NULL;
   handle_t h = slotmap_alloc(&s->clients, &hot_ptr, &cold_ptr);
   assert(h != HANDLE_INVALID);
   assert(hot_ptr != NULL);
@@ -404,6 +402,7 @@ void client_manage_start(server_t* s, xcb_window_t win) {
   // Register mapping so we can find it
   bool replaced = hash_map_insert(&s->window_to_client, win, handle_to_ptr(h));
   assert(!replaced);
+  (void)replaced;
   assert(server_get_client_by_window(s, win) == h);
   small_vec_push(&s->active_clients, handle_to_ptr(h));
   TRACE_LOG("manage_start window_to_client[%u]=%lx", win, h);
@@ -413,14 +412,14 @@ void client_manage_start(server_t* s, xcb_window_t win) {
 
   // Query window attributes (override_redirect, visual, etc)
   uint32_t c1 = xcb_get_window_attributes(s->conn, win).sequence;
-  client_enqueue_manage_reply(s, hot, h, c1, COOKIE_GET_WINDOW_ATTRIBUTES, win, "get_window_attributes");
+  client_enqueue_manage_reply(s, h, c1, COOKIE_GET_WINDOW_ATTRIBUTES, win);
 
   // Query initial geometry
   uint32_t c2 = xcb_get_geometry(s->conn, win).sequence;
-  client_enqueue_manage_reply(s, hot, h, c2, COOKIE_GET_GEOMETRY, win, "get_geometry");
+  client_enqueue_manage_reply(s, h, c2, COOKIE_GET_GEOMETRY, win);
 
   for (size_t i = 0; i < ARRAY_LEN(props); i++) {
-    client_queue_get_property(s, hot, h, win, props[i].prop, props[i].type, props[i].long_len);
+    client_queue_get_property(s, h, win, props[i].prop, props[i].type, props[i].long_len);
   }
 
   LOG_DEBUG("Started management for window %u (handle %lx)", win, h);
@@ -646,6 +645,7 @@ void client_finish_manage(server_t* s, handle_t h) {
   // Register frame mapping
   bool frame_replaced = hash_map_insert(&s->frame_to_client, hot->frame, handle_to_ptr(h));
   assert(!frame_replaced);
+  (void)frame_replaced;
   if (server_get_client_by_window(s, hot->xid) != h)
     hash_map_insert(&s->window_to_client, hot->xid, handle_to_ptr(h));
 
