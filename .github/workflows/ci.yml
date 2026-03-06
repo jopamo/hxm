@@ -30,22 +30,24 @@ jobs:
       CXX: clang++
       LLVM_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
       ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
-      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
-      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
+      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
+      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
       LDFLAGS: -fuse-ld=lld
 
     steps:
+      - name: Bootstrap git
+        run: |
+          dnf -y update
+          dnf -y install git
+
       - uses: actions/checkout@v4
 
       - name: Install dependencies
         run: |
-          dnf -y update
           dnf -y install \
             clang llvm lld compiler-rt \
             git meson ninja-build pkgconf-pkg-config \
-            libbpf-devel libxdp-devel \
-            libxcb-devel xcb-util-devel xcb-util-wm-devel xcb-util-keysyms-devel \
-            cairo-devel pango-devel fontconfig-devel librsvg2-devel libyaml-devel libxkbcommon-devel
+            libbpf-devel libxdp-devel
 
       - name: Configure
         run: |
