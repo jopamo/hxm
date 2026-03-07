@@ -1,3 +1,4 @@
+# Toolchain + build system
 clang
 llvm
 lld
@@ -7,18 +8,28 @@ meson
 ninja-build
 pkgconf-pkg-config
 python3
+
+# eBPF/XDP libs used by project
 libbpf-devel
 libxdp-devel
+
+# X11 stack used by Meson dependency() checks.
+# Keep this block in sync with meson.build deps to avoid:
+#   Run-time dependency xcb found: NO (tried pkgconfig)
 libxcb-devel
 xcb-util-devel
 xcb-util-wm-devel
 xcb-util-keysyms-devel
+
+# Rendering + config dependencies
 cairo-devel
 pango-devel
 fontconfig-devel
 librsvg2-devel
 libyaml-devel
 libxkbcommon-devel
+
+# Test/runtime helpers for CI scripts
 xorg-x11-server-Xvfb
 xorg-x11-xauth
 conky

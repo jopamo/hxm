@@ -30,28 +30,35 @@ jobs:
       CXX: clang++
       LLVM_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
       ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
-      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
-      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge -Wno-error=c2y-extensions
+      CFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
+      CXXFLAGS: -O1 -g -fno-omit-frame-pointer -fno-optimize-sibling-calls -fno-sanitize-merge
       LDFLAGS: -fuse-ld=lld
 
     steps:
+      # actions/checkout needs git inside the container. Without it, checkout
+      # falls back to a source archive and tests that call `git` fail.
+      - name: Bootstrap git
+        run: |
+          dnf -y install git
+
       - uses: actions/checkout@v4
+
+      - name: Mark workspace as safe for git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Install dependencies
         run: |
-          dnf -y update
-          dnf -y install \
-            clang llvm lld compiler-rt \
-            git meson ninja-build pkgconf-pkg-config \
-            libbpf-devel libxdp-devel \
-            libxcb-devel xcb-util-devel xcb-util-wm-devel xcb-util-keysyms-devel \
-            cairo-devel pango-devel fontconfig-devel librsvg2-devel libyaml-devel libxkbcommon-devel
+          # Keep CI package selection in one place. Meson dependencies (for
+          # example xcb via pkg-config) must be added to scripts/deps-fedora.txt.
+          grep -Ev '^\s*(#|$)' scripts/deps-fedora.txt | xargs -r dnf -y install
 
       - name: Configure
         run: |
           builddir="build-${{ matrix.name }}"
-          export CFLAGS="${CFLAGS} ${{ matrix.extra_cflags }}"
-          export CXXFLAGS="${CXXFLAGS} ${{ matrix.extra_cflags }}"
+          compat_cflags="-Wno-error=c2y-extensions"
+          export CFLAGS="${CFLAGS} ${{ matrix.extra_cflags }} ${compat_cflags}"
+          export CXXFLAGS="${CXXFLAGS} ${{ matrix.extra_cflags }} ${compat_cflags}"
           meson setup "$builddir" \
             -D b_sanitize="${{ matrix.meson_sanitize }}" \
             -D b_lto=false \
@@ -64,6 +71,9 @@ jobs:
         run: |
           set -euo pipefail
           eval "${{ matrix.runtime_env }}"
+          # xvfb-run's wrapper is flaky for RandR screen-size changes on CI.
+          # Force the script's direct Xvfb path for deterministic RandR behavior.
+          export HXM_FORCE_DIRECT_XVFB=1
           if [ "${{ matrix.name }}" = "tsan" ]; then
             meson test -C "build-${{ matrix.name }}" --print-errorlogs --num-processes 1
           else
