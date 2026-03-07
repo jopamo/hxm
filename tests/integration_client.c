@@ -1258,6 +1258,7 @@ static void test_randr_async_monitor_updates(void) {
   uint16_t expect_monitor_h = 0;
   bool monitor_changed = false;
   bool resized = false;
+  bool test_skipped = false;
   bool test_failed = false;
   char fail_msg[256] = {0};
 
@@ -1331,6 +1332,11 @@ static void test_randr_async_monitor_updates(void) {
   uint32_t target_mm_w = scale_mm_for_px(screen->width_in_millimeters, orig_w, target_w);
   uint32_t target_mm_h = scale_mm_for_px(screen->height_in_millimeters, orig_h, target_h);
   if (!randr_set_screen_size(target_w, target_h, target_mm_w, target_mm_h, &err_code)) {
+    if (err_code == XCB_MATCH) {
+      fprintf(stderr, "  WARN: skipping RandR resize assertions; xcb_randr_set_screen_size unsupported (err=%u)\n", err_code);
+      test_skipped = true;
+      goto cleanup;
+    }
     snprintf(fail_msg, sizeof(fail_msg), "xcb_randr_set_screen_size(target) failed err=%u", err_code);
     test_failed = true;
     goto cleanup;
@@ -1455,6 +1461,11 @@ cleanup:
 
   if (test_failed)
     fail(fail_msg);
+
+  if (test_skipped) {
+    printf("SKIP: RandR async monitor/workarea/fullscreen sequencing (resize unsupported)\n");
+    return;
+  }
 
   printf("PASS: RandR async monitor/workarea/fullscreen sequencing\n");
 }
